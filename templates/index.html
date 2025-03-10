@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Autoguider Live Feed</title>
+    <style>
+        img {
+          cursor: crosshair;
+        }
+        .hidden {
+          display: none;
+        }
+        #canvas {
+          position: absolute;
+          top: 0;
+          left: 0;
+          z-index: 10;
+        }
+        #video_container {
+          position: relative;
+          display: inline-block;
+        }
+        .parameter {
+          margin-bottom: 5px;
+        }
+        .parameter input {
+          margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Autoguider</h1>
+    <button onclick="showVideoFeed()">Show Video Feed</button>
+    <button onclick="showThreshFeed()">Show Threshold Feed</button>
+
+    <table style="width:100%;">
+        <tr>
+            <td>
+                <div id="video_container">
+                    <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720">
+                    <img id="thresh_feed" src="{{ url_for('thresh_feed') }}" width="1280" height="720" class="hidden">
+                    <canvas id="canvas" width="1280" height="720"></canvas>
+                </div>
+            </td>
+            <td>
+                <h2>Adjust Parameters</h2>
+                <div class="parameter">
+                    <label>Threshold: <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
+                    <span id="threshold_value">{{ threshold }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>Max Drift: <input type="range" id="max_drift" name="max_drift" min="0" max="50" value="{{ max_drift }}" oninput="submitMaxDrift()">
+                    <span id="max_drift_value">{{ max_drift }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>Star Size: <input type="range" id="star_size" name="star_size" min="1" max="100" value="{{ star_size }}" oninput="submitStarSize()">
+                    <span id="star_size_value">{{ star_size }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>Rotation Angle (deg): <input type="range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="{{ rotation_angle }}" step="1" oninput="submitRotationAngle()">
+                    <span id="rotation_angle_value">{{ rotation_angle }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>Pixel Scale (arcsec/pixel): <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" oninput="submitPixelScale()">
+                    <span id="pixel_scale_value">{{ pixel_scale }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>Exposure (0.0 - 1.0): <input type="range" id="exposure" name="exposure" min="0.0" max="1.0" step="0.01" value="{{ exposure }}" oninput="submitExposure()">
+                    <span id="exposure_value">{{ exposure }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>R Channel: <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
+                    <span id="r_channel_value">{{ r_channel }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>G Channel: <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" oninput="submitChannels()">
+                    <span id="g_channel_value">{{ g_channel }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>B Channel: <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" oninput="submitChannels()">
+                    <span id="b_channel_value">{{ b_channel }}</span></label>
+                </div>
+                <button onclick="acquire()">Acquire Star</button>
+                <h2>Corrections</h2>
+                <p>RA Correction: <span id="ra">0</span></p>
+                <p>DEC Correction: <span id="dec">0</span></p>
+                <p>RA (arcsec): <span id="ra_arcsec">0.0</span></p>
+                <p>DEC (arcsec): <span id="dec_arcsec">0.0</span></p>
+                <p>Movement (dx, dy): (<span id="dx">0</span>, <span id="dy">0</span>)</p>            
+            </td>
+        </tr>
+    </table>
+
+</body>
+
+<script>
+    function updateCorrections() {
+        fetch('/properties')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('ra').textContent = data.last_correction.ra;
+                document.getElementById('dec').textContent = data.last_correction.dec;
+                document.getElementById('dx').textContent = data.last_correction.dx;
+                document.getElementById('dy').textContent = data.last_correction.dy;
+                document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
+                document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
+                document.getElementById('threshold').value = data.gray_threshold;
+                document.getElementById('threshold_value').textContent = data.gray_threshold;
+                document.getElementById('max_drift').value = data.max_drift;
+                document.getElementById('max_drift_value').textContent = data.max_drift;
+
+                document.getElementById('star_size').value = data.star_size;
+                document.getElementById('star_size_value').textContent = data.star_size;
+
+                document.getElementById('rotation_angle').value = data.rotation_angle;
+                document.getElementById('rotation_angle_value').textContent = data.rotation_angle;
+
+                document.getElementById('pixel_scale').value = data.pixel_scale;
+                document.getElementById('pixel_scale_value').textContent = data.pixel_scale;
+
+                document.getElementById('exposure').value = data.exposure;
+                document.getElementById('exposure_value').textContent = data.exposure;
+
+                document.getElementById('r_channel').value = data.r_channel;
+                document.getElementById('r_channel_value').textContent = data.r_channel;
+                document.getElementById('g_channel').value = data.g_channel;
+                document.getElementById('g_channel_value').textContent = data.g_channel;
+                document.getElementById('b_channel').value = data.b_channel;
+                document.getElementById('b_channel_value').textContent = data.b_channel;
+
+
+                const canvas = document.getElementById('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (data.tracked_centroid) {
+                    ctx.strokeStyle = 'green';
+                    ctx.beginPath();
+                    ctx.arc(data.tracked_centroid[0], data.tracked_centroid[1], 10, 0, 2 * Math.PI);
+                    ctx.stroke();
+                }
+
+                if (data.current_centroid) {
+                    ctx.strokeStyle = 'red';
+                    ctx.beginPath();
+                    ctx.arc(data.current_centroid[0], data.current_centroid[1], 10, 0, 2 * Math.PI);
+                    ctx.stroke();
+                }
+                
+                drawAxes(data.rotation_angle);
+
+            })
+            .catch(error => console.error('Error:', error));
+    }
+    setInterval(updateCorrections, 1000);
+
+    function drawAxes(rotation_angle) {
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const length = 150; // Length of the axes
+
+        // Convert rotation angle to radians
+        const angleRad = rotation_angle * (Math.PI / 180);
+
+        // Calculate the end points of the RA and DEC axes
+        const raX = centerX + length * Math.cos(angleRad);
+        const raY = centerY + length * Math.sin(angleRad);
+        const decX = centerX + length * Math.sin(angleRad);
+        const decY = centerY - length * Math.cos(angleRad);
+
+        // Draw the RA axis
+        ctx.strokeStyle = 'green';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(raX, raY);
+        ctx.stroke();
+
+        // Draw the DEC axis
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(decX, decY);
+        ctx.stroke();
+
+        // Add labels
+        ctx.font = '12px Arial';
+        ctx.fillStyle = 'green';
+        ctx.fillText('RA', raX + 5, raY + 5);
+        ctx.fillText('DEC', decX + 5, decY + 5);
+    }
+
+    function submitChannels() {
+        const r_channel = document.getElementById('r_channel').value;
+        const g_channel = document.getElementById('g_channel').value;
+        const b_channel = document.getElementById('b_channel').value;
+
+        document.getElementById('r_channel_value').textContent = r_channel;
+        document.getElementById('g_channel_value').textContent = g_channel;
+        document.getElementById('b_channel_value').textContent = b_channel;
+
+
+        fetch('/set_channels', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ r_channel, g_channel, b_channel }),
+        })
+    }
+
+    function submitSetting(name, value) {
+        fetch(`/set_${name}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `${name}=${value}`
+        });        
+    }
+
+
+    function submitThreshold() {
+        const threshold = document.getElementById('threshold').value;
+        document.getElementById('threshold_value').textContent = threshold;
+        submitSetting("threshold", threshold);
+    }
+
+    function submitMaxDrift() {
+        const max_drift = document.getElementById('max_drift').value;
+        document.getElementById('max_drift_value').textContent = max_drift;
+        submitSetting("max_drift", max_drift);
+    }
+
+    function submitStarSize() {
+        const star_size = document.getElementById('star_size').value;
+        document.getElementById('star_size_value').textContent = star_size;
+        submitSetting("star_size", star_size);
+    }
+
+    function submitRotationAngle() {
+        const rotation_angle = document.getElementById('rotation_angle').value;
+        document.getElementById('rotation_angle_value').textContent = rotation_angle;
+        submitSetting("rotation_angle", rotation_angle);
+    }
+
+    function submitPixelScale() {
+        const pixel_scale = document.getElementById('pixel_scale').value;
+        document.getElementById('pixel_scale_value').textContent = pixel_scale;
+        submitSetting("pixel_scale", pixel_scale);
+    }
+
+    function submitExposure() {
+        const exposure = document.getElementById('exposure').value;
+        document.getElementById('exposure_value').textContent = exposure;
+        submitSetting("exposure", exposure);
+    }
+
+    function acquire() {
+        fetch('/acquire', { method: 'POST' })
+            .then(response => console.log('Acquisition triggered'))
+            .catch(error => console.error('Acquisition error:', error));
+    }
+
+
+    document.getElementById("video_feed").addEventListener('click', function(event) {
+        const rect = this.getBoundingClientRect();
+        const x = event.clientX - rect.left; // X relative to image
+        const y = event.clientY - rect.top;  // Y relative to image
+        fetch('/acquire', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `x=${x}&y=${y}`
+        })
+        .then(response => console.log(`Acquisition at (${x}, ${y}) triggered`))
+        .catch(error => console.error('Acquisition error:', error));
+    });
+    document.getElementById("thresh_feed").addEventListener('click', function(event) {
+        const rect = this.getBoundingClientRect();
+        const x = event.clientX - rect.left; // X relative to image
+        const y = event.clientY - rect.top;  // Y relative to image
+        fetch('/acquire', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `x=${x}&y=${y}`
+        })
+        .then(response => console.log(`Acquisition at (${x}, ${y}) triggered`))
+        .catch(error => console.error('Acquisition error:', error));
+    });
+
+    function showVideoFeed() {
+        document.getElementById('video_feed').classList.remove('hidden');
+        document.getElementById('thresh_feed').classList.add('hidden');
+    }
+
+    function showThreshFeed() {
+        document.getElementById('video_feed').classList.add('hidden');
+        document.getElementById('thresh_feed').classList.remove('hidden');
+    }
+
+
+</script>
+</html>
