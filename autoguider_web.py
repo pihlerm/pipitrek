@@ -1,11 +1,12 @@
 from flask import Flask, Response, render_template, jsonify, request
-import cv2
 from autoguider_main import Autoguider
 from threading import Thread, Lock
 import time
 import numpy as np
-
+from telescope import Telescope
 import logging
+import cv2
+
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
@@ -18,7 +19,9 @@ autoguider = Autoguider()  # Instantiate outside thread
 autoguider_thread = Thread(target=autoguider.run_autoguider)
 autoguider_thread.start()
 
-def draw_info(frame) :
+telescope = Telescope()
+
+def draw_info(frame):
     with autoguider.lock:
         fps_text = f"FPS: {autoguider.cap.get(cv2.CAP_PROP_FPS):.1f}"
         cv2.putText(frame, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
@@ -29,14 +32,13 @@ def draw_info(frame) :
             x, y = autoguider.current_centroid
             cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)  # Red for current
         text = (f"RA: {autoguider.last_correction['ra']}, DEC: {autoguider.last_correction['dec']}\n"
-            f"RA(arcsec): {autoguider.last_correction['ra_arcsec']:.1f}, DEC(arcsec): {autoguider.last_correction['dec_arcsec']:.1f}\n"
-            f"DX: {autoguider.last_correction['dx']}, DY: {autoguider.last_correction['dy']}")
+                f"RA(arcsec): {autoguider.last_correction['ra_arcsec']:.1f}, DEC(arcsec): {autoguider.last_correction['dec_arcsec']:.1f}\n"
+                f"DX: {autoguider.last_correction['dx']}, DY: {autoguider.last_correction['dy']}")
         cv2.putText(frame, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-    
 
 def gen_frames():
     last_valid_frame = None
-    while True:
+    while autoguider.running:
         with autoguider.lock:
             frame = autoguider.frame.copy() if autoguider.frame is not None else last_valid_frame
 
@@ -55,7 +57,7 @@ def gen_frames():
 
 def gen_thresh_frames():
     last_valid_thresh = None
-    while True:
+    while autoguider.running:
         with autoguider.lock:
             thresh = autoguider.threshold
         if thresh is None or thresh.size == 0:
@@ -77,8 +79,12 @@ def gen_thresh_frames():
 @app.route('/')
 def index():
     return render_template('index.html', correction=autoguider.last_correction, threshold=autoguider.gray_threshold,
-                         max_drift=autoguider.max_drift, star_size=autoguider.star_size,
-                         rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, exposure = autoguider.exposure)
+                           max_drift=autoguider.max_drift, star_size=autoguider.star_size,
+                           rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, exposure=autoguider.exposure)
+
+@app.route('/control')
+def control():
+    return render_template('control.html')
 
 @app.route('/video_feed')
 def video_feed():
@@ -172,12 +178,41 @@ def acquire():
         print("Failed to parse x or y from request")
     return '', 204
 
+@app.route('/control_move', methods=['POST'])
+def control_move():
+    direction = request.form.get('direction')
+    if direction in ['n', 's', 'e', 'w']:
+        # Handle the direction command here
+        print(f"Received direction: {direction}")
+        # You can add code here to send the direction command to the telescope
+        telescope.send_move(direction)
+        return jsonify({"status": "success", "direction": direction})
+    else:
+        return jsonify({"status": "error", "message": "Invalid direction"}), 400
+
+@app.route('/control_stop', methods=['POST'])
+def control_stop():
+    direction = request.form.get('direction', default='')
+    print(f"Received stop command with direction: {direction}")
+    if direction in ['n', 's', 'e', 'w','']:
+        # Handle the direction command here
+        print(f"Received direction: {direction}")
+        telescope.send_stop(direction)
+        return jsonify({"status": "success", "direction": direction})
+    else:
+        return jsonify({"status": "error", "message": "Invalid direction"}), 400
+
+
+
 if __name__ == '__main__':
     try:
         app.run(host='0.0.0.0', port=5000, threaded=True)
     except KeyboardInterrupt:
         autoguider.running = False
-        autoguider_thread.join(timeout=2)
+        autoguider_thread.join(timeout=10)
+        telescope.close_connection()
+
         del autoguider
+        del telescope
         cv2.destroyAllWindows()
         print("Thread and camera released")

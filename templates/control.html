@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Telescope Control</title>
+    <style>
+        .control-button {
+            width: 100px;
+            height: 50px;
+            margin: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Telescope Control</h1>
+    <div>
+        <button class="control-button" onclick="sendDirection('n')">North</button>
+        <button class="control-button" onclick="sendDirection('s')">South</button>
+        <button class="control-button" onclick="sendDirection('e')">East</button>
+        <button class="control-button" onclick="sendDirection('w')">West</button>
+        <button class="control-button" onclick="sendStop()">Stop</button>
+    </div>
+
+    <script>
+        function sendDirection(direction) {
+            fetch('/control_move', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `direction=${direction}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+
+        function sendStop() {
+            fetch('/control_stop', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `direction=`
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+
+    </script>
+</body>
+</html>
