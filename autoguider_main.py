@@ -170,9 +170,9 @@ class Autoguider:
         #    return
         
         frame_accumulator = None
-        i = 0
-        while i < self.integrate_frames:
-            i+=1
+        num_frames = 0
+        while num_frames < self.integrate_frames:
+            num_frames+=1
             frame = self.capture_frame()
             # Convert frame to float32 for accumulation
             frame_float = frame.astype(np.float32)
@@ -180,7 +180,9 @@ class Autoguider:
                 frame_accumulator = frame_float
             else:
                 frame_accumulator += frame_float  # Summing frames
-
+        
+        frame_accumulator /= num_frames
+        
         with self.lock:
             # Apply color channel multipliers
             if self.r_channel != 1.0:
