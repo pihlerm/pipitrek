@@ -25,24 +25,40 @@
         .parameter input {
           margin-left: 10px;
         }
+        .control-button {
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            font-size: 24px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .tracking-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 50px);
+            grid-gap: 5px;
+            justify-content: center;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
     <h1>Autoguider</h1>
     <button onclick="showVideoFeed()">Show Video Feed</button>
     <button onclick="showThreshFeed()">Show Threshold Feed</button>
-
+    <button onclick="showControl()">Show Control</button>
+    
     <table style="width:100%;">
         <tr>
             <td>
                 <div id="video_container">
                     <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720">
                     <img id="thresh_feed" src="{{ url_for('thresh_feed') }}" width="1280" height="720" class="hidden">
+                    <iframe id="control_frame" src="{{ url_for('control') }}" width="1280" height="720" class="hidden"></iframe>
                     <canvas id="canvas" width="1280" height="720"></canvas>
                 </div>
             </td>
             <td>
-                <h2>Adjust Parameters</h2>
                 <div class="parameter">
                     <label>Threshold: <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
                     <span id="threshold_value">{{ threshold }}</span></label>
@@ -68,6 +84,14 @@
                     <span id="exposure_value">{{ exposure }}</span></label>
                 </div>
                 <div class="parameter">
+                    <label>Gain (0.0 - 1.0): <input type="range" id="gain" name="gain" min="0.0" max="1.0" step="0.01" value="{{ gain }}" oninput="submitGain()">
+                    <span id="gain_value">{{ gain }}</span></label>
+                </div>
+                <div class="parameter">
+                    <label>Integrate frames (1 - 20): <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" oninput="submitIntegrate_frames()">
+                    <span id="integrate_frames_value">{{ integrate_frames }}</span></label>
+                </div>
+                <div class="parameter">
                     <label>R Channel: <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
                     <span id="r_channel_value">{{ r_channel }}</span></label>
                 </div>
@@ -86,6 +110,34 @@
                 <p>RA (arcsec): <span id="ra_arcsec">0.0</span></p>
                 <p>DEC (arcsec): <span id="dec_arcsec">0.0</span></p>
                 <p>Movement (dx, dy): (<span id="dx">0</span>, <span id="dy">0</span>)</p>            
+                <div class="tracking-pad">
+                    <table>
+                        <tr>
+                            <td></td>
+                            <td>
+                                <button class="control-button" onclick="sendCorrection('n')">↑</button>
+                            </td>
+                            <td></td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <button class="control-button" onclick="sendCorrection('w')">←</button>
+                            </td>
+                            <td></td>
+                            <td>
+                                <button class="control-button" onclick="sendCorrection('e')">→</button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td>
+                                <button class="control-button" onclick="sendCorrection('s')">↓</button>
+                            </td>
+                            <td></td>
+                        </tr>
+                    </table>
+                    
+                </div>
             </td>
         </tr>
     </table>
@@ -119,6 +171,12 @@
 
                 document.getElementById('exposure').value = data.exposure;
                 document.getElementById('exposure_value').textContent = data.exposure;
+
+                document.getElementById('gain').value = data.gain;
+                document.getElementById('gain_value').textContent = data.gain;
+
+                document.getElementById('integrate_frames').value = data.integrate_frames;
+                document.getElementById('integrate_frames_value').textContent = data.integrate_frames;
 
                 document.getElementById('r_channel').value = data.r_channel;
                 document.getElementById('r_channel_value').textContent = data.r_channel;
@@ -254,6 +312,18 @@
         submitSetting("exposure", exposure);
     }
 
+    function submitGain() {
+        const gain = document.getElementById('gain').value;
+        document.getElementById('gain_value').textContent = gain;
+        submitSetting("gain", gain);
+    }
+
+    function submitIntegrate_frames() {
+        const integrate_frames = document.getElementById('integrate_frames').value;
+        document.getElementById('integrate_frames_value').textContent = integrate_frames;
+        submitSetting("integrate_frames", integrate_frames);
+    }
+
     function acquire() {
         fetch('/acquire', { method: 'POST' })
             .then(response => console.log('Acquisition triggered'))
@@ -261,19 +331,7 @@
     }
 
 
-    document.getElementById("video_feed").addEventListener('click', function(event) {
-        const rect = this.getBoundingClientRect();
-        const x = event.clientX - rect.left; // X relative to image
-        const y = event.clientY - rect.top;  // Y relative to image
-        fetch('/acquire', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `x=${x}&y=${y}`
-        })
-        .then(response => console.log(`Acquisition at (${x}, ${y}) triggered`))
-        .catch(error => console.error('Acquisition error:', error));
-    });
-    document.getElementById("thresh_feed").addEventListener('click', function(event) {
+    document.getElementById("canvas").addEventListener('click', function(event) {
         const rect = this.getBoundingClientRect();
         const x = event.clientX - rect.left; // X relative to image
         const y = event.clientY - rect.top;  // Y relative to image
@@ -288,14 +346,42 @@
 
     function showVideoFeed() {
         document.getElementById('video_feed').classList.remove('hidden');
+        document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.add('hidden');
+        document.getElementById('control_frame').classList.add('hidden');
     }
 
     function showThreshFeed() {
         document.getElementById('video_feed').classList.add('hidden');
+        document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.remove('hidden');
+        document.getElementById('control_frame').classList.add('hidden');
     }
 
+    function showControl() {
+        document.getElementById('video_feed').classList.add('hidden');
+        document.getElementById('thresh_feed').classList.add('hidden');
+        document.getElementById('canvas').classList.add('hidden');
+        document.getElementById('control_frame').classList.remove('hidden');
+    }
+
+
+    function sendCorrection(direction) {
+            fetch('/control_correction', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `direction=${direction}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.log('Error:', error);
+            });
+        }
 
 </script>
 </html>

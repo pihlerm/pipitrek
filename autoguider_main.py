@@ -4,7 +4,9 @@ import time
 import math
 import os
 import datetime
+from telescope import Telescope
 from threading import Thread, Lock
+from v412_ctl import get_v4l2_controls
 
 class Autoguider:
     def __init__(self):
@@ -26,7 +28,7 @@ class Autoguider:
         self.g_channel = 1.0  # Float for G channel (0.0–1.0)
         self.b_channel = 1.0  # Float for B channel (0.0–1.0)
 
-        self.integrate_frames = 10  # no. frames to integrate
+        self.integrate_frames = 5  # no. frames to integrate
         self.time_period = 1  # Time period for tracking in seconds
 
         self.output_dir = "/root/astro/images"
@@ -37,22 +39,41 @@ class Autoguider:
         self.recovery_attempts = 0
         self.max_recovery_attempts = 3
         
+        self.controls = get_v4l2_controls()
+
         self.init_camera()
         # Check if camera opened successfully
         if not self.cap.isOpened():
             print("Error: Could not open webcam.")
             exit()
 
+        # check mode
+        fourcc = int(self.cap.get(cv2.CAP_PROP_FOURCC))  
+        fourcc_str = fourcc.to_bytes(4, 'little').decode('utf-8', errors='replace')
+        print(f"Camera mode: {fourcc_str}")
+
+        # check max esposure
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+        self.cap.set(cv2.CAP_PROP_EXPOSURE,  0)
+        self.max_exposure = self.controls['exposure_time_absolute']['max']
+        #self.max_exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE)  # Get current exposure
+        print(f"Max exposure: {self.max_exposure}")
+        print(f"Frame size: {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)} X {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+
+        # get gain range
+        self.min_gain = 0
+        self.cap.set(cv2.CAP_PROP_GAIN, 10000)  # Try setting a high value
+        self.max_gain = self.cap.get(cv2.CAP_PROP_GAIN)
+        self.gain = 0
+        print(f"Gain range: {self.min_gain} - {self.max_gain}")
+        self.cap.set(cv2.CAP_PROP_GAIN, self.min_gain)
+        
         # set auto exposure to 3 to enable it
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
         print(f"Exposure set to AUTO" )
 
-        print(f"Current frame: {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)} X {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-        
-
-        # Attempt to set 1-second exposure
-        max_exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE)  # Get current exposure
-        print(f"Current exposure: {max_exposure}")
+        # disable awb
+        self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)  
 
         #if self.cap.isOpened():
         #    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -90,10 +111,17 @@ class Autoguider:
 
     def set_exposure(self, exp) :
         self.exposure = exp
+        
+        b = math.log(self.max_exposure) 
+        exposure = math.exp(b * exp)   
+        # Clamp and round to integer range [1, 5000]
+        exposure = max(1, min(5000, round(exposure)))
+
         # set auto exposure to 0.75 to disable it
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
-        # exp range is 0.0 - 1.0 ; multiply by 200
-        self.cap.set(cv2.CAP_PROP_EXPOSURE,  2500*exp)
+        # exp range is 0.0 - 1.0 ; stretch to range
+        self.cap.set(cv2.CAP_PROP_EXPOSURE,  exposure)
+        #self.cap.set(cv2.CAP_PROP_EXPOSURE,  2500*exp)
         if exp==0:
             # set auto exposure to 3 to enable it
             self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
@@ -101,6 +129,13 @@ class Autoguider:
         else:
             print(f"Exposure set to {self.cap.get(cv2.CAP_PROP_EXPOSURE)}" )
 
+    def set_gain(self, gain) :
+        self.gain = gain
+        self.cap.set(cv2.CAP_PROP_GAIN, self.min_gain + (self.max_gain-self.min_gain)*self.gain)
+        print(f"Gain set to {self.cap.get(cv2.CAP_PROP_GAIN)}" )
+
+    def set_integrate_frames(self, integrate_frames) :
+        self.integrate_frames = integrate_frames
 
     def rotate_vector(self, dx, dy):
         """Rotate (dx, dy) vector by rotation_angle (degrees) counterclockwise."""
@@ -130,17 +165,17 @@ class Autoguider:
     
     def get_frame(self):
         # get a frame by multiple exposures        
-        if(self.integrate_frames==1):
-            with self.lock:
-                self.frame = self.capture_frame()
-            return
+        #if(self.integrate_frames==1):
+        #    self.frame = self.capture_frame()
+        #    return
         
         frame_accumulator = None
-        for i in range(self.integrate_frames):
+        i = 0
+        while i < self.integrate_frames:
+            i+=1
             frame = self.capture_frame()
             # Convert frame to float32 for accumulation
-            frame_float =frame.astype(np.float32)
-
+            frame_float = frame.astype(np.float32)
             if frame_accumulator is None:
                 frame_accumulator = frame_float
             else:
@@ -151,12 +186,12 @@ class Autoguider:
             if self.r_channel != 1.0:
                 frame_accumulator[:, :, 2] *= self.r_channel
             if self.g_channel != 1.0:
-                frame_accumulator[:, :, 2] *= self.g_channel
+                frame_accumulator[:, :, 1] *= self.g_channel
             if self.b_channel != 1.0:
-                frame_accumulator[:, :, 2] *= self.b_channel
+                frame_accumulator[:, :, 0] *= self.b_channel
             # CLIP summed image and convert back to uint8
             self.frame = np.clip(frame_accumulator, 0, 255).astype(np.uint8)
-            #self.frame = cv2.convertScaleAbs(self.frame, alpha=2, beta=0)
+            #self.frame = cv2.convertScaleAbs(self.frame, alpha=1.5, beta=0)
             #self.frame = self.apply_gamma_correction(self.frame, gamma=3.5)
             return
 
@@ -253,7 +288,9 @@ class Autoguider:
         # Check if camera opened successfully
         if not self.cap.isOpened():
             return False            
-        # Force YUYV pixel format (not all cameras allow setting it)
+        # Force MJPG pixel format
+        #self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        # Force YUYV pixel format
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'YUYV'))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -265,12 +302,14 @@ class Autoguider:
         if self.cap and self.cap.isOpened():
             self.cap.release()
             print(f"Recovery attempt #{self.recovery_attempts}: Camera released.")
-        time.sleep(2)  # Wait for device to settle
+        time.sleep(1)  # Wait for device to settle
         self.init_camera()
         if self.cap.isOpened():
             print(f"Recovery attempt #{self.recovery_attempts}: Camera reopened successfully.")
             self.failure_count = 0  # Reset if recovery succeeds
             self.recovery_attempts = 0
+            telescope = Telescope()
+            telescope.reset_usb()
             #self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
             #print(f"Exposure set to AUTO" )
         else:
@@ -282,15 +321,7 @@ class Autoguider:
                 print("Camera released.")
             os._exit(1)  # Forcefully terminate the process
 
-    def recover_camera(self):
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
-            print("Camera released. Reopening...")
-            self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-            if not self.cap.isOpened():
-                print("Recovery failed. Terminating...")
-                self.cleanup_and_exit()
-
+ 
     def __del__(self):
         if self.cap and self.cap.isOpened():
             self.cap.release()

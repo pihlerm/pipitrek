@@ -1,4 +1,4 @@
-from flask import Flask, Response, render_template, jsonify, request
+from flask import Flask, request, redirect, url_for, render_template, Response, jsonify
 from autoguider_main import Autoguider
 from threading import Thread, Lock
 import time
@@ -6,6 +6,8 @@ import numpy as np
 from telescope import Telescope
 import logging
 import cv2
+import os
+import signal
 
 
 # Disable Flask request logging
@@ -20,6 +22,9 @@ autoguider_thread = Thread(target=autoguider.run_autoguider)
 autoguider_thread.start()
 
 telescope = Telescope()
+telescope_thread = Thread(target=telescope.run_serial_bridge)
+telescope_thread.start()
+
 
 def draw_info(frame):
     with autoguider.lock:
@@ -80,7 +85,8 @@ def gen_thresh_frames():
 def index():
     return render_template('index.html', correction=autoguider.last_correction, threshold=autoguider.gray_threshold,
                            max_drift=autoguider.max_drift, star_size=autoguider.star_size,
-                           rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, exposure=autoguider.exposure)
+                           rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, 
+                           exposure=autoguider.exposure, gain=autoguider.gain, integrate_frames=autoguider.integrate_frames)
 
 @app.route('/control')
 def control():
@@ -106,6 +112,8 @@ def get_autoguider_properties():
         "pixel_scale": autoguider.pixel_scale,
         "last_correction": autoguider.last_correction,
         "exposure": autoguider.exposure,
+        "gain": autoguider.gain,
+        "integrate_frames": autoguider.integrate_frames,
         "r_channel": autoguider.r_channel,
         "g_channel": autoguider.g_channel,
         "b_channel": autoguider.b_channel,
@@ -164,6 +172,20 @@ def set_exposure():
         autoguider.set_exposure(exp)
     return '', 204
 
+@app.route('/set_gain', methods=['POST'])
+def set_gain():
+    gain = request.form.get('gain', type=float, default=0.5)  # Default to 0.5 (mid-range)
+    if 0.0 <= gain <= 1.0:
+        autoguider.set_gain(gain)
+    return '', 204
+
+@app.route('/set_integrate_frames', methods=['POST'])
+def set_integrate_frames():
+    integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
+    if 1 <= integrate_frames <= 20:
+        autoguider.set_integrate_frames(integrate_frames)
+    return '', 204
+
 @app.route('/acquire', methods=['POST'])
 def acquire():
     # Debug: Print the raw request body
@@ -202,14 +224,81 @@ def control_stop():
     else:
         return jsonify({"status": "error", "message": "Invalid direction"}), 400
 
+@app.route('/command_receivePEC', methods=['GET'])
+def command_receivePEC():
+    pec_table = telescope.receive_pec_table()
+    if pec_table:
+        return jsonify({"status": "success", "pec_table": pec_table})
+    else:
+        return jsonify({"status": "error", "message": "Failed to receive PEC table"})
 
+@app.route('/command_sendPEC', methods=['POST'])
+def command_sendPEC():
+    data = request.json
+    pec_table = data.get('pec_table', [])
+    if pec_table and isinstance(pec_table, list):
+        ret = telescope.send_pec_table(pec_table)
+        return jsonify({"status": "success", "message": ret})
+    else:
+        return jsonify({"status": "error", "message": "Invalid PEC table data"})
 
+@app.route('/command_upload', methods=['POST'])
+def control_upload():
+    if 'firmware' not in request.files:
+        return 'No file part', 400
+    file = request.files['firmware']
+    if file.filename == '':
+        return 'No selected file', 400
+    if file and file.filename.endswith('.hex'):
+        filename = os.path.join('/root/astro/arduino/', file.filename)
+        file.save(filename)
+        if telescope.upload_firmware(filename):
+            return jsonify({"status": "success"})
+        else:
+            return jsonify({"status": "error", "message": "Error uploading file."})
+    return 'Invalid file type', 400
+
+@app.route('/control_correction', methods=['POST'])
+def control_correction():
+    direction = request.form.get('direction')
+    if direction not in ['n', 's', 'e', 'w']:
+        return jsonify({'status': 'error', 'message': 'Invalid direction'}), 400
+
+    telescope = Telescope()
+    try:
+        telescope.send_correction(direction)
+        return jsonify({'status': 'success', 'message': f'Moved {direction}'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/command_reset', methods=['POST'])
+def command_reset():
+    telescope = Telescope()
+    try:
+        telescope.reset_arduino()
+        return jsonify({'status': 'success', 'message': 'Arduino reset successfully'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/command_info', methods=['GET'])
+def command_info():
+    telescope = Telescope()
+    try:
+        info = telescope.get_info()
+        return jsonify({'status': 'success', 'info': info})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    
 if __name__ == '__main__':
     try:
-        app.run(host='0.0.0.0', port=5000, threaded=True)
+        app.run(host='0.0.0.0', port=80, threaded=True)
     except KeyboardInterrupt:
         autoguider.running = False
         autoguider_thread.join(timeout=10)
+        telescope.running = False
+        telescope_thread.join(timeout=10)
+        
+        autoguider.release_camera()
         telescope.close_connection()
 
         del autoguider

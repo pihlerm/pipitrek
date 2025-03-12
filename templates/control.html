@@ -9,6 +9,16 @@
             margin: 10px;
             font-size: 16px;
         }
+        #pec_table {
+            width: 100%;
+            height: 200px;
+            margin-top: 10px;
+        }
+        #result {
+            width: 100%;
+            height: 100px;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -19,9 +29,35 @@
         <button class="control-button" onclick="sendDirection('e')">East</button>
         <button class="control-button" onclick="sendDirection('w')">West</button>
         <button class="control-button" onclick="sendStop()">Stop</button>
+        <button class="control-button" onclick="shutdown()">Shutdown</button>
+        <button class="control-button" onclick="receivePEC()">Receive PEC</button>
+        <button class="control-button" onclick="sendPEC()">Send PEC</button>
+        <button class="control-button" onclick="resetArduino()">Reset</button>
+        <button class="control-button" onclick="getInfo()">Get Info</button>
     </div>
+    
+    <form id="uploadForm" enctype="multipart/form-data">
+        <label for="firmware">Upload firmware:</label>
+        <input type="file" id="firmware" name="firmware" accept=".hex">
+        <button type="button" onclick="uploadFirmware()">Upload</button>
+    </form>
+    <table style="width:100%;">
+        <tr>
+            <td style="width:50%;">
+                <textarea id="result" placeholder="Result"></textarea>
+            </td>
+            <td>
+                <textarea id="pec_table" placeholder="PEC Table"></textarea>                
+            </td>
+        </tr>
+    </table>
 
     <script>
+        function appendToResult(message) {
+            const resultTextarea = document.getElementById('result');
+            resultTextarea.value += message + '\n';
+        }
+
         function sendDirection(direction) {
             fetch('/control_move', {
                 method: 'POST',
@@ -32,10 +68,10 @@
             })
             .then(response => response.json())
             .then(data => {
-                console.log('Success:', data);
+                appendToResult('Success: ' + JSON.stringify(data));
             })
             .catch((error) => {
-                console.error('Error:', error);
+                appendToResult('Error: ' + error);
             });
         }
 
@@ -49,13 +85,118 @@
             })
             .then(response => response.json())
             .then(data => {
-                console.log('Success:', data);
+                appendToResult('Success: ' + JSON.stringify(data));
             })
             .catch((error) => {
-                console.error('Error:', error);
+                appendToResult('Error: ' + error);
             });
         }
 
+        function shutdown() {
+            fetch('/shutdown', {
+                method: 'GET'
+            })
+            .then(response => response.text())
+            .then(data => {
+                appendToResult('Shutdown: ' + data);
+            })
+            .catch((error) => {
+                appendToResult('Error: ' + error);
+            });
+        }
+
+        function receivePEC() {
+            fetch('/command_receivePEC', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const pecTable = data.pec_table;
+                    const formattedTable = pecTable.map((value, index) => {
+                        return index % 2 === 0 ? `${value},` : `${value}\n`;
+                    }).join('');
+                    document.getElementById('pec_table').value = formattedTable;
+                    appendToResult('Received PEC table successfully.');
+                } else {
+                    appendToResult('Error: ' + data.message);
+                }
+            })
+            .catch((error) => {
+                appendToResult('Error: ' + error);
+            });
+        }
+
+        function sendPEC() {
+            const pecTableText = document.getElementById('pec_table').value;
+            const pecTableLines = pecTableText.split('\n');
+            const pecTable = [];
+
+            pecTableLines.forEach(line => {
+                const [x, y] = line.split(',').map(Number);
+                if (!isNaN(x) && !isNaN(y)) {
+                    pecTable.push(x, y);
+                }
+            });
+
+            fetch('/command_sendPEC', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ pec_table: pecTable })
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToResult('Success: ' + JSON.stringify(data));
+            })
+            .catch((error) => {
+                appendToResult('Error: ' + error);
+            });
+        }
+
+        function uploadFirmware() {
+            const form = document.getElementById('uploadForm');
+            const formData = new FormData(form);
+
+            fetch('/command_upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToResult('Upload Success: ' + JSON.stringify(data, null, 2));
+            })
+            .catch((error) => {
+                appendToResult('Error: ' + error);
+            });
+        }
+
+        function resetArduino() {
+            fetch('/command_reset', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToResult('Reset Success: ' + JSON.stringify(data));
+            })
+            .catch((error) => {
+                appendToResult('Error: ' + error);
+            });
+        }
+
+        function getInfo() {
+            fetch('/command_info', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToResult(data.info);
+            })
+            .catch((error) => {
+                appendToResult('Error: ' + error);
+            });
+        }
     </script>
 </body>
 </html>
