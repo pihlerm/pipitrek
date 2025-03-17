@@ -40,14 +40,46 @@
             justify-content: center;
             align-items: center;
         }
+
+        .parameters-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+
+        .parameters-table td {
+            padding: 0px;
+            vertical-align: middle;
+        }
+
+        .parameters-table td:first-child {
+            text-align: left;
+            font-weight: normal;
+        }
+
+        .parameters-table td:nth-child(2) {
+            display: flex;
+            align-items: center;
+            gap: 10px; /* Space between input and span */
+        }
+
+        input[type="range"] {
+            width: 200px; /* Adjust as needed */
+        }
+
+        span {
+            min-width: 50px; /* Ensure consistent spacing */
+            text-align: left;
+        }
     </style>
 </head>
 <body>
-    <h1>Autoguider</h1>
+    <p>Autoguider 0.4</p>
     <button onclick="showVideoFeed()">Show Video Feed</button>
     <button onclick="showThreshFeed()">Show Threshold Feed</button>
     <button onclick="showControl()">Show Control</button>
-    
+    <button onclick="shutdown()">Shutdown</button>
+
     <table style="width:100%;">
         <tr>
             <td>
@@ -59,58 +91,102 @@
                 </div>
             </td>
             <td>
-                <div class="parameter">
-                    <label>Threshold: <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
-                    <span id="threshold_value">{{ threshold }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Max Drift: <input type="range" id="max_drift" name="max_drift" min="0" max="50" value="{{ max_drift }}" oninput="submitMaxDrift()">
-                    <span id="max_drift_value">{{ max_drift }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Star Size: <input type="range" id="star_size" name="star_size" min="1" max="100" value="{{ star_size }}" oninput="submitStarSize()">
-                    <span id="star_size_value">{{ star_size }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Rotation Angle (deg): <input type="range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="{{ rotation_angle }}" step="1" oninput="submitRotationAngle()">
-                    <span id="rotation_angle_value">{{ rotation_angle }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Pixel Scale (arcsec/pixel): <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" oninput="submitPixelScale()">
-                    <span id="pixel_scale_value">{{ pixel_scale }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Exposure (0.0 - 1.0): <input type="range" id="exposure" name="exposure" min="0.0" max="1.0" step="0.01" value="{{ exposure }}" oninput="submitExposure()">
-                    <span id="exposure_value">{{ exposure }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Gain (0.0 - 1.0): <input type="range" id="gain" name="gain" min="0.0" max="1.0" step="0.01" value="{{ gain }}" oninput="submitGain()">
-                    <span id="gain_value">{{ gain }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>Integrate frames (1 - 20): <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" oninput="submitIntegrate_frames()">
-                    <span id="integrate_frames_value">{{ integrate_frames }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>R Channel: <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
-                    <span id="r_channel_value">{{ r_channel }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>G Channel: <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" oninput="submitChannels()">
-                    <span id="g_channel_value">{{ g_channel }}</span></label>
-                </div>
-                <div class="parameter">
-                    <label>B Channel: <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" oninput="submitChannels()">
-                    <span id="b_channel_value">{{ b_channel }}</span></label>
-                </div>
+                <table class="parameters-table">
+                    <tr>
+                        <td><label for="threshold">Threshold:</label></td>
+                        <td>
+                            <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
+                            <span id="threshold_value">{{ threshold }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="max_drift">Max Drift:</label></td>
+                        <td>
+                            <input type="range" id="max_drift" name="max_drift" min="0" max="50" value="{{ max_drift }}" oninput="submitMaxDrift()">
+                            <span id="max_drift_value">{{ max_drift }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="star_size">Star Size:</label></td>
+                        <td>
+                            <input type="range" id="star_size" name="star_size" min="1" max="100" value="{{ star_size }}" oninput="submitStarSize()">
+                            <span id="star_size_value">{{ star_size }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="rotation_angle">Rotation Angle (deg):</label></td>
+                        <td>
+                            <input type="range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="{{ rotation_angle }}" step="1" oninput="submitRotationAngle()">
+                            <span id="rotation_angle_value">{{ rotation_angle }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="pixel_scale">Pixel Scale (arcsec/pixel):</label></td>
+                        <td>
+                            <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" oninput="submitPixelScale()">
+                            <span id="pixel_scale_value">{{ pixel_scale }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="exposure">Exposure (0.0 - 1.0):</label></td>
+                        <td>
+                            <input type="range" id="exposure" name="exposure" min="0.0" max="1.0" step="0.01" value="{{ exposure }}" oninput="submitExposure()">
+                            <span id="exposure_value">{{ exposure }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="gain">Gain (0.0 - 1.0):</label></td>
+                        <td>
+                            <input type="range" id="gain" name="gain" min="0.0" max="1.0" step="0.01" value="{{ gain }}" oninput="submitGain()">
+                            <span id="gain_value">{{ gain }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="integrate_frames">Integrate Frames (1 - 20):</label></td>
+                        <td>
+                            <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" oninput="submitIntegrate_frames()">
+                            <span id="integrate_frames_value">{{ integrate_frames }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="r_channel">R Channel:</label></td>
+                        <td>
+                            <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
+                            <span id="r_channel_value">{{ r_channel }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="g_channel">G Channel:</label></td>
+                        <td>
+                            <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" oninput="submitChannels()">
+                            <span id="g_channel_value">{{ g_channel }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="b_channel">B Channel:</label></td>
+                        <td>
+                            <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" oninput="submitChannels()">
+                            <span id="b_channel_value">{{ b_channel }}</span>
+                        </td>
+                    </tr>
+                </table>
+
                 <button onclick="acquire()">Acquire Star</button>
-                <h2>Corrections</h2>
-                <p>RA Correction: <span id="ra">0</span></p>
-                <p>DEC Correction: <span id="dec">0</span></p>
-                <p>RA (arcsec): <span id="ra_arcsec">0.0</span></p>
-                <p>DEC (arcsec): <span id="dec_arcsec">0.0</span></p>
-                <p>Movement (dx, dy): (<span id="dx">0</span>, <span id="dy">0</span>)</p>            
-                <div class="tracking-pad">
+                <button onclick="calibrate()">Calibrate angle</button>
+                <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input>
+                <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>Tracking</input>
+                <div>
+                    <label>Pier:</label>
+                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
+                    <label for="pier_w">W</label>
+                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
+                    <label for="pier_e">E</label>
+                </div>
+            
+                <p>dx px  : <span id="dx">0</span> dy px: <span id="dy">0</span></p>            
+                <p>RA arcs: <span id="ra_arcsec">0.0</span> DEC arcs: <span id="dec_arcsec">0.0</span></p>
+                <p>RA corr  : <span id="ra">0</span> DEC corr:   <span id="dec">0</span></p>
+                <div >
                     <table>
                         <tr>
                             <td></td>
@@ -185,6 +261,13 @@
                 document.getElementById('b_channel').value = data.b_channel;
                 document.getElementById('b_channel_value').textContent = data.b_channel;
 
+                document.getElementById('guiding').checked = data.guiding;
+
+                if(data.scope_info) {
+                    document.getElementById('pier_w').checked = data.scope_info.pier === 'W';
+                    document.getElementById('pier_e').checked = data.scope_info.pier === 'E';
+                    document.getElementById('tracking').checked = data.scope_info.tracking === 'enabled';
+                }
 
                 const canvas = document.getElementById('canvas');
                 const ctx = canvas.getContext('2d');
@@ -222,9 +305,10 @@
         const angleRad = rotation_angle * (Math.PI / 180);
 
         // Calculate the end points of the RA and DEC axes
+        // Y axis is upside down.. so we have minus sign with Y
         const raX = centerX + length * Math.cos(angleRad);
-        const raY = centerY + length * Math.sin(angleRad);
-        const decX = centerX + length * Math.sin(angleRad);
+        const raY = centerY - length * Math.sin(angleRad);
+        const decX = centerX - length * Math.sin(angleRad);
         const decY = centerY - length * Math.cos(angleRad);
 
         // Draw the RA axis
@@ -324,12 +408,28 @@
         submitSetting("integrate_frames", integrate_frames);
     }
 
+    function setGuiding(isGuiding) {
+      submitSetting("guiding", isGuiding);
+    }
+    function setTracking(isTracking) {
+      submitSetting("tracking", isTracking);
+    }
+
+    function setPier(pier) {
+        submitSetting("pier", pier);
+    }
+
     function acquire() {
         fetch('/acquire', { method: 'POST' })
             .then(response => console.log('Acquisition triggered'))
             .catch(error => console.error('Acquisition error:', error));
     }
 
+    function calibrate() {
+        fetch('/calibrate', { method: 'POST' })
+            .then(response => console.log('Calibration triggered'))
+            .catch(error => console.error('Calibration error:', error));
+    }
 
     document.getElementById("canvas").addEventListener('click', function(event) {
         const rect = this.getBoundingClientRect();
@@ -367,21 +467,35 @@
 
 
     function sendCorrection(direction) {
-            fetch('/control_correction', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `direction=${direction}`
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Success:', data);
-            })
-            .catch((error) => {
-                console.log('Error:', error);
-            });
-        }
+        fetch('/control_correction', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `direction=${direction}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Success:', data);
+        })
+        .catch((error) => {
+            console.log('Error:', error);
+        });
+    }
+
+    function shutdown() {
+        fetch('/shutdown', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Success:', data);
+        })
+        .catch((error) => {
+            console.log('Error:', error);
+        });
+    }
+
 
 </script>
 </html>

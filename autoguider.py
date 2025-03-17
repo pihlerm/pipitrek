@@ -14,6 +14,11 @@ class Autoguider:
         self.threshold = None  # Last threshold image
         self.last_thresh = None
 
+        self.guiding = True  # Guiding status
+
+        self.last_loop_time = 0  # Last loop time
+        self.last_status = ""  # Last status message
+
         self.tracked_centroid = None  # Reference point
         self.current_centroid = None  # Position of last detect_star
         self.max_drift = 10  # Integer for max_drift (0–50)
@@ -52,10 +57,16 @@ class Autoguider:
         fourcc_str = fourcc.to_bytes(4, 'little').decode('utf-8', errors='replace')
         print(f"Camera mode: {fourcc_str}")
 
+        # Set the frame rate
+        self.setfps(5)
+
         # check max esposure
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
         self.cap.set(cv2.CAP_PROP_EXPOSURE,  0)
-        self.max_exposure = self.controls['exposure_time_absolute']['max']
+        self.max_exposure = 2000
+        if 'exposure_time_absolute' in self.controls:
+            self.max_exposure = self.controls['exposure_time_absolute']['max']
+
         #self.max_exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE)  # Get current exposure
         print(f"Max exposure: {self.max_exposure}")
         print(f"Frame size: {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)} X {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
@@ -88,7 +99,6 @@ class Autoguider:
             self.threshold = thresh  # Store last threshold
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
-            self.current_centroid = None
             return None
         if search_near is not None:
             # Search near the provided centroid
@@ -104,9 +114,7 @@ class Autoguider:
             M = cv2.moments(largest)
             if M["m00"] != 0:
                 centroid = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-                self.current_centroid = centroid  # Update current_centroid
                 return centroid
-        self.current_centroid = None
         return None
 
     def set_exposure(self, exp) :
@@ -134,8 +142,11 @@ class Autoguider:
         self.cap.set(cv2.CAP_PROP_GAIN, self.min_gain + (self.max_gain-self.min_gain)*self.gain)
         print(f"Gain set to {self.cap.get(cv2.CAP_PROP_GAIN)}" )
 
-    def set_integrate_frames(self, integrate_frames) :
-        self.integrate_frames = integrate_frames
+    def setfps(self, fps):
+        self.set_fps = fps
+        self.cap.set(cv2.CAP_PROP_FPS, self.set_fps)
+        self.actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+        print(f"Set FPS to {self.set_fps}, actual FPS: {self.actual_fps}")
 
     def rotate_vector(self, dx, dy):
         """Rotate (dx, dy) vector by rotation_angle (degrees) counterclockwise."""
@@ -182,7 +193,7 @@ class Autoguider:
                 frame_accumulator += frame_float  # Summing frames
         
         frame_accumulator /= num_frames
-        
+
         with self.lock:
             # Apply color channel multipliers
             if self.r_channel != 1.0:
@@ -194,7 +205,7 @@ class Autoguider:
             # CLIP summed image and convert back to uint8
             self.frame = np.clip(frame_accumulator, 0, 255).astype(np.uint8)
             #self.frame = cv2.convertScaleAbs(self.frame, alpha=1.5, beta=0)
-            #self.frame = self.apply_gamma_correction(self.frame, gamma=3.5)
+            self.frame = self.apply_gamma_correction(self.frame, gamma=1.5)
             return
 
     def apply_gamma_correction(self, image, gamma=1.5):
@@ -211,11 +222,14 @@ class Autoguider:
         if centroid:
             with self.lock:
                 self.tracked_centroid = centroid
-                print(f"ACQUIRED STAR at {self.tracked_centroid}")
-                self.write_track_log(f"ACQUIRED STAR at {self.tracked_centroid}")
+                self.current_centroid = centroid
+                self.last_status = f"ACQUIRED STAR at {self.tracked_centroid}"
+                print(self.last_status)
+                self.write_track_log(self.last_status)
         else:
-            print("No star detected.")
-            self.write_track_log("NO STAR DETECTED")
+            self.last_status = "NO STAR DETECTED"
+            print(self.last_status)
+            self.write_track_log(self.last_status)
         
 
     def write_track_log(self, log_entry):
@@ -224,44 +238,109 @@ class Autoguider:
         with open(f"tracking_{day}.log", "a") as log_file:
             log_file.write(f"{timestamp}, {log_entry}\n")
 
+    def guide_scope(self):
+        trackmsg =  f"move({self.last_correction['ra']}, {self.last_correction['dec']})"
+        self.write_track_log(trackmsg)
+        print(trackmsg)
+
+        if self.last_correction["ra"] != 0:
+            telescope = Telescope()
+            if self.last_correction["ra"]==1:
+                telescope.send_correction('w')
+            else:
+                telescope.send_correction('e')
+
+        if self.last_correction["dec"] != 0:
+            telescope = Telescope()
+            if self.last_correction["dec"]==1:
+                telescope.send_correction('n')
+            else:
+                telescope.send_correction('s')
+
+    def calculate_drift(self, centroid):
+        if centroid and self.tracked_centroid:
+            dx = float(centroid[0] - self.tracked_centroid[0])
+            dy = float(centroid[1] - self.tracked_centroid[1])
+            dx_rot, dy_rot = self.rotate_vector(dx, dy)
+            ra_arcsec = dx_rot * self.pixel_scale
+            dec_arcsec = dy_rot * self.pixel_scale
+            self.last_correction = {
+                "ra": 1 if ra_arcsec > self.max_drift else -1 if ra_arcsec < -self.max_drift else 0,
+                "dec": 1 if dec_arcsec > self.max_drift else -1 if dec_arcsec < -self.max_drift else 0,
+                "dx": dx, "dy": dy,
+                "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec
+            }
+            self.last_status = f"TRACKING: Star at {centroid}, dx={dx}, dy={dy}"
+            print(self.last_status)
+            self.write_track_log(self.last_status)
+
+    def calibrate_angle(self):
+        guiding = self.guiding
+        self.guiding = False
+        if self.tracked_centroid is None:
+            print("No star acquired for calibration.")
+            self.guiding = guiding
+            return False
+        self.get_frame()
+        centroid1 = self.detect_star(self.frame, search_near=self.tracked_centroid)  # Detect star
+        if not centroid1:
+            print("No star detected for calibration.")
+            self.guiding = guiding
+            return False
+        Telescope().send_correction('e',15)  # Move scope east
+        centroid2 = self.detect_star(self.frame, search_near=self.tracked_centroid)  # Detect star
+
+        if centroid2:
+            dx = float(centroid2[0] - centroid1[0])
+            dy = float(centroid2[1] - centroid1[1])
+            angle_rad = -math.atan2(dy, dx)
+            self.rotation_angle = math.degrees(angle_rad)
+            self.last_status = f"Calibrated rotation angle: {self.rotation_angle:.1f} degrees"
+            print(self.last_status)
+            self.write_track_log(self.last_status)
+            self.guiding = guiding
+            return True
+        else:
+            print("No star detected for calibration.")  # No star detected  for calibration
+            self.guiding = guiding
+            return False
+
     def run_autoguider(self):
         self.running = True
         last_time = time.perf_counter()
+        telescope = Telescope()
+        time.sleep(2)  # Wait for telescope to initialize
+        telescope.get_info()
+
         while self.running:
             start_time = time.perf_counter()
             self.get_frame()  # Capture and integrate frames
             frame_time = time.perf_counter()
             print(f"get_frame took {frame_time - start_time:.2f} seconds")
-            current_time = time.perf_counter()
-            #if current_time - last_time >= self.time_period:  # Run once per period
+
+            #if time.perf_counter() - last_time >= self.time_period:  # Run once per period
+            #last_time = time.perf_counter()
             if True:
                 if self.tracked_centroid is None:
                     # Acquisition mode
                     self.acquire_star(frame = self.frame)
+                    self.current_centroid = self.tracked_centroid
                 else:
                     # Tracking mode
-                    centroid = self.detect_star(self.frame, search_near=self.tracked_centroid)
+                    centroid = self.detect_star(self.frame, search_near=self.current_centroid)
                     detect_time = time.perf_counter()
                     print(f"detect_star took {detect_time - frame_time:.2f} seconds")                    # Get current timestamp
                     if centroid and self.tracked_centroid:
-                        dx = centroid[0] - self.tracked_centroid[0]
-                        dy = centroid[1] - self.tracked_centroid[1]
-                        dx_rot, dy_rot = self.rotate_vector(dx, dy)
-                        ra_arcsec = dx_rot * self.pixel_scale
-                        dec_arcsec = dy_rot * self.pixel_scale
-                        #if abs(ra_arcsec) > self.max_drift or abs(dec_arcsec) > self.max_drift:
-                        self.last_correction = {
-                            "ra": 1 if ra_arcsec > 0 else -1 if ra_arcsec < 0 else 0,
-                            "dec": 1 if dec_arcsec > 0 else -1 if dec_arcsec < 0 else 0,
-                            "dx": dx, "dy": dy,
-                            "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec
-                        }
-                        print(f"Tracked correction: RA={self.last_correction['ra']}, DEC={self.last_correction['dec']}, "
-                                f"RA(arcsec)={ra_arcsec:.1f}, DEC(arcsec)={dec_arcsec:.1f}, dx={dx}, dy={dy}")
+                        self.calculate_drift(centroid)
+                        self.current_centroid = centroid
+                        # Send correction to telescope
+                        if self.guiding:
+                            self.guide_scope()
+
                         # Log to tracking.log file
-                        self.write_track_log(f"move({self.last_correction['ra']}, {self.last_correction['dec']}), "
-                                    f"pixel error({self.last_correction['dx']}, {self.last_correction['dy']}), "
-                                    f"RaDec error({self.last_correction['ra_arcsec']:.1f}, {self.last_correction['dec_arcsec']:.1f})")
+                        trackmsg =  f"pixel error({self.last_correction['dx']}, {self.last_correction['dy']}), RaDec error({self.last_correction['ra_arcsec']:.1f}, {self.last_correction['dec_arcsec']:.1f})"
+                        self.write_track_log(trackmsg)
+                        print(trackmsg)
                     else:
                         self.last_correction = {
                             "ra": 0 ,
@@ -270,19 +349,21 @@ class Autoguider:
                             "ra_arcsec": 0, "dec_arcsec": 0
                         }
                         if not centroid:
-                            print(f"Lost tracking: Star moved out of frame.")
-                            # Log to tracking.log file
-                            self.write_track_log(f"LOST TRACKING")
+                            self.last_status = "LOST TRACKING: Star moved out of frame."
+                            print(self.last_status)
+                            self.write_track_log(self.last_status)
                         else:
-                            print(f"Lost tracking: no target.")
-                            # Log to tracking.log file
-                            self.write_track_log("NO TARGET")
+                            self.last_status = "LOST TRACKING: No star detected."
+                            print(self.last_status)
+                            self.write_track_log(self.last_status)
 
                 end_time = time.perf_counter()
                 total_time = end_time - start_time
+                self.last_loop_time = total_time
+
                 if total_time > 2.0:  # Flag long delays
                     print(f"Loop took {total_time:.2f} seconds")
-                last_time = current_time  # Update last time
+
             time.sleep(0.001)  # Small sleep to prevent busy loop
 
     def init_camera(self):
@@ -298,6 +379,9 @@ class Autoguider:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         return True
 
+    def release_camera(self):
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
 
     def attempt_recovery(self):
         self.recovery_attempts += 1
@@ -317,14 +401,10 @@ class Autoguider:
         else:
             print(f"Recovery attempt #{self.recovery_attempts}: Failed to reopen camera.")
 
-    def cleanup_and_exit(self):
-            if self.cap and self.cap.isOpened():
-                self.cap.release()
-                print("Camera released.")
-            os._exit(1)  # Forcefully terminate the process
+    def cleanup_and_exit(self):           
+        self.release_camera()
+        os._exit(1)  # Forcefully terminate the process
 
  
     def __del__(self):
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
-            print("Camera released.")
+        self.release_camera()

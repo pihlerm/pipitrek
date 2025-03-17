@@ -29,7 +29,6 @@
         <button class="control-button" onclick="sendDirection('e')">East</button>
         <button class="control-button" onclick="sendDirection('w')">West</button>
         <button class="control-button" onclick="sendStop()">Stop</button>
-        <button class="control-button" onclick="shutdown()">Shutdown</button>
         <button class="control-button" onclick="receivePEC()">Receive PEC</button>
         <button class="control-button" onclick="sendPEC()">Send PEC</button>
         <button class="control-button" onclick="resetArduino()">Reset</button>
@@ -86,19 +85,6 @@
             .then(response => response.json())
             .then(data => {
                 appendToResult('Success: ' + JSON.stringify(data));
-            })
-            .catch((error) => {
-                appendToResult('Error: ' + error);
-            });
-        }
-
-        function shutdown() {
-            fetch('/shutdown', {
-                method: 'GET'
-            })
-            .then(response => response.text())
-            .then(data => {
-                appendToResult('Shutdown: ' + data);
             })
             .catch((error) => {
                 appendToResult('Error: ' + error);

@@ -2,9 +2,10 @@
 import serial
 import time
 import subprocess
-from virtual_port import VirtualSerialPort
-from btserial import BTSerial
-from tcpserial import TCPSerial
+import json
+from comm.virtual_port import VirtualSerialPort
+from comm.btserial import BTSerial
+from comm.tcpserial import TCPSerial
 
 class Telescope:
     _instance = None
@@ -18,9 +19,10 @@ class Telescope:
         if not hasattr(self, '_initialized'):
             self._initialized = True
             self._virtual_port = VirtualSerialPort()
+            self._virtual_port.open()
             self.open_serial()
             self.pause = False
-            
+            self.scope_info = None
             self.bt_serial = BTSerial()
             self.tcp_serial = TCPSerial()
             self.tcp_serial.open()  # Starts listener thread, non-blocking
@@ -39,7 +41,6 @@ class Telescope:
         self._serial_connection.dtr = False  # Disable DTR to prevent reset
         self._serial_connection.flush()  # Clear the buffer
         print("Telescope serial connection initialized")
-
 
 
     def try_on_scope(self, func):
@@ -78,6 +79,7 @@ class Telescope:
         tcp = self.tcp_serial
 
         scope.timeout = 0  # Non-blocking mode
+        print("Starting serial bridge...")
         
 
         while self.running:
@@ -85,31 +87,37 @@ class Telescope:
                 # check if btserial open/closed; it will auto open/close serial port
                 bt.check_status_bt()
 
-                #if bt.in_waiting() > 0:  # Check if there’s any data waiting
-                data = bt.read(bt.in_waiting())  # Read all available bytes
-                if data: 
-                    print(f"BT read: {data}")
-                    self.write_scope(data)  # Write it to scope
+                if bt.in_waiting() > 0:  # Check if there’s any data waiting
+                    data = bt.read(bt.in_waiting())  # Read all available bytes
+                    if data: 
+                        print(f"scope send: {data}")
+                        self.write_scope(data)  # Write it to scope
 
                 if virt.in_waiting_tx() > 0:  # Check if there’s any data waiting
                     data = virt.read_tx(virt.in_waiting_tx())  # Read all available bytes
                     if data:
+                        print(f"scope send: {data}")
                         self.write_scope(data)  # Write it to the other port
 
                 if tcp.in_waiting() > 0:  # Check if there’s any data waiting
                     data = tcp.read(tcp.in_waiting())  # Read all available bytes
                     if data:
+                        print(f"scope send: {data}")
                         self.write_scope(data)  # Write it to the other port
 
                 if scope.in_waiting > 0:  # Check if there’s any data waiting
                     data = self.read_scope()  # Read all available bytes
+                    print(f"scope read: {data}")
                     if data:  # Ensure data was read                        
                         bt.write(data)       # will write if open
                         tcp.write(data)  # will write if open
                         virt.write_rx(data)  # will write if open
                 
                 # Brief sleep to avoid high CPU usage
-                time.sleep(0.001)  # 1ms delay
+                time.sleep(0.01)  # 10ms delay
+
+        print("Stopping serial bridge...")
+
 
     def close_connection(self):
         if self._serial_connection and self._serial_connection.is_open:
@@ -151,7 +159,6 @@ class Telescope:
 
 
     def send_command(self, command):
-        self._virtual_port.open()
         self._virtual_port.write_tx(command.encode())
 
     def read_response(self):
@@ -162,17 +169,26 @@ class Telescope:
 
     def send_move(self, direction):
         self.send_command(f":M{direction}#")
-        self._virtual_port.close()
 
     def send_stop(self, direction=""):
         self.send_command(f":Q{direction}#")
-        self._virtual_port.close()
 
-    def send_correction(self, direction):
+    def send_tracking(self, tracking=True):
+        if tracking:
+            self.send_command("!TE#")
+        else:
+            self.send_command("!TD#")
+
+    def send_pier(self, pier):
+        if pier not in ['W', 'E']:
+            return False
+        self.send_command(f"!M{pier}#")
+
+
+    def send_correction(self, direction, t=0.5):
         self.send_command(f":M{direction}#")
-        time.sleep(1)
+        time.sleep(t)
         self.send_command(f":Q{direction}#")
-        self._virtual_port.close()
 
     def get_info(self):
         self.send_command(f"!IN#")
@@ -181,8 +197,43 @@ class Telescope:
         while resp != "":
             resp = self.read_response()
             info += resp + "\n"
-        
-        self._virtual_port.close()
+
+        lines = info.strip().split('\n')
+        data = {}
+        # Line 1: Software and version
+        software_parts = lines[0].split()
+        data["software"] = {
+            "name": software_parts[0],
+            "version": software_parts[1]
+        }
+        # Line 2: Memory
+        data["memory"] = int(lines[1].split()[1])
+        # Line 3: Uptime
+        data["uptime"] = int(lines[2].split()[1])
+        # Line 4: RA
+        ra = lines[3].split()[1].rstrip('#')
+        data["coordinates"] = {"ra": ra}
+        # Line 5: DEC
+        dec = lines[4].split()[1].rstrip('#').replace('*', ':')
+        data["coordinates"]["dec"] = dec
+        # Line 6: Pier side
+        data["pier"] = lines[5].split()[1]
+        # Line 7: PEC
+        pec_parts = lines[6].split()
+        data["pec"] = {
+            "progress": pec_parts[1].lstrip('@'),
+            "value": int(pec_parts[2])
+        }
+        # Line 8: Camera
+        camera_parts = lines[7].split()
+        data["camera"] = {
+            "exposure": int(camera_parts[2]),
+            "shots": int(camera_parts[4].rstrip(':')),
+            "state": camera_parts[5]
+        }
+        # Line 9: Tracking
+        data["tracking"] = lines[8].split()[1]
+        self.scope_info = data
         return info
 
     def send_pec_table(self, pec_table):
@@ -197,7 +248,6 @@ class Telescope:
         
         print("PEC table sent.")
         data = self.read_until_timeout(0.3)
-        self._virtual_port.close()
         return data
 
     def receive_pec_table(self):
@@ -218,23 +268,19 @@ class Telescope:
             data_str = parts[2]  # Extract the comma-separated values
         except (IndexError, ValueError):
             print("Error: Invalid PEC header format.")
-            self._virtual_port.close()
             return []
 
         try:
             pec_table = list(map(int, data_str.split(',')))  # Convert to integer list
         except ValueError:
             print("Error: Non-integer values found in PEC table.")
-            self._virtual_port.close()
             return []
 
         if len(pec_table) != num_points * 2:
             print(f"Error: Expected {num_points * 2} values, but received {len(pec_table)}")
-            self._virtual_port.close()
             return []
 
         print(f"Received PEC table with {num_points} points.")
-        self._virtual_port.close()
         return pec_table
 
     def upload_firmware(self, file_path):

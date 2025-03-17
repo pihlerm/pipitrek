@@ -1,1 +1,1 @@
-sudo systemctl start autoguider.service
+sudo systemctl start pipitrek.service

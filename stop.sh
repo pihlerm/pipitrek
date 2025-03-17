@@ -1,1 +1,1 @@
-sudo systemctl stop autoguider.service
+sudo systemctl stop pipitrek.service

@@ -1,29 +1,33 @@
 from flask import Flask, request, redirect, url_for, render_template, Response, jsonify
-from autoguider_main import Autoguider
-from threading import Thread, Lock
+from autoguider import Autoguider
+from threading import Thread, Event
 import time
 import numpy as np
 from telescope import Telescope
 import logging
 import cv2
 import os
-import signal
-
+from settings import AutoguiderSettings
+from werkzeug.serving import make_server
+import sys
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
 # Alternatively, disable completely:
 # log.disabled = True
+# Global shutdown event
+shutdown_event = Event()
 
 app = Flask(__name__)
-autoguider = Autoguider()  # Instantiate outside thread
-autoguider_thread = Thread(target=autoguider.run_autoguider)
-autoguider_thread.start()
 
 telescope = Telescope()
 telescope_thread = Thread(target=telescope.run_serial_bridge)
 telescope_thread.start()
+
+autoguider = None
+autoguider_sett  = None
+autoguider_thread = None
 
 
 def draw_info(frame):
@@ -81,24 +85,37 @@ def gen_thresh_frames():
             print("No thresh")
         time.sleep(1)
 
-@app.route('/')
-def index():
-    return render_template('index.html', correction=autoguider.last_correction, threshold=autoguider.gray_threshold,
-                           max_drift=autoguider.max_drift, star_size=autoguider.star_size,
-                           rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, 
-                           exposure=autoguider.exposure, gain=autoguider.gain, integrate_frames=autoguider.integrate_frames)
 
-@app.route('/control')
+
+
+@app.route('/')
 def control():
     return render_template('control.html')
 
+@app.route('/autoguider')
+def index():
+    if autoguider_thread is not None:
+        return render_template('autoguider.html', correction=autoguider.last_correction, threshold=autoguider.gray_threshold,
+                           max_drift=autoguider.max_drift, star_size=autoguider.star_size,
+                           rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, 
+                           exposure=autoguider.exposure, gain=autoguider.gain, integrate_frames=autoguider.integrate_frames, 
+                           guiding=autoguider.guiding)
+    else:
+        return Response(b'', status=503)
+
 @app.route('/video_feed')
 def video_feed():
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    if autoguider_thread is not None:
+        return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    else:
+        return Response(b'', status=503)
 
 @app.route('/thresh_feed')
 def thresh_feed():
-    return Response(gen_thresh_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    if autoguider_thread is not None:
+        return Response(gen_thresh_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    else:
+        return Response(b'', status=503)
 
 @app.route('/properties', methods=['GET'])
 def get_autoguider_properties():
@@ -118,7 +135,9 @@ def get_autoguider_properties():
         "g_channel": autoguider.g_channel,
         "b_channel": autoguider.b_channel,
         "tracked_centroid": autoguider.tracked_centroid,
-        "current_centroid": autoguider.current_centroid
+        "current_centroid": autoguider.current_centroid,
+        "guiding": autoguider.guiding,
+        "scope_info": telescope.scope_info
     }
     return jsonify(properties)
 
@@ -183,8 +202,28 @@ def set_gain():
 def set_integrate_frames():
     integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
     if 1 <= integrate_frames <= 20:
-        autoguider.set_integrate_frames(integrate_frames)
+        autoguider.integrate_frames = integrate_frames
     return '', 204
+
+@app.route('/set_guiding', methods=['POST'])
+def set_guiding():
+    guiding = request.form.get('guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    autoguider.guiding = guiding
+    return '', 204
+
+@app.route('/set_tracking', methods=['POST'])
+def set_tracking():
+    tracking = request.form.get('tracking', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    telescope.send_tracking(tracking)
+    return '', 204
+
+@app.route('/set_pier', methods=['POST'])
+def set_pier():
+    pier = request.form.get('pier')
+    if not telescope.send_pier(pier):
+        return jsonify({'status': 'error', 'message': 'Invalid pier value'}), 400
+    else:
+        return jsonify({'status': 'success', 'message': f'Pier set to {pier}'})
 
 @app.route('/acquire', methods=['POST'])
 def acquire():
@@ -198,6 +237,14 @@ def acquire():
         print(f"Acquisition triggered at ({x}, {y})")
     else:
         print("Failed to parse x or y from request")
+    return '', 204
+
+@app.route('/calibrate', methods=['POST'])
+def calibrate():
+    if autoguider.calibrate_angle():
+        print(f"Calibration successful")
+    else:
+        print("Failed to calibrate")
     return '', 204
 
 @app.route('/control_move', methods=['POST'])
@@ -289,19 +336,113 @@ def command_info():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
     
-if __name__ == '__main__':
-    try:
-        app.run(host='0.0.0.0', port=80, threaded=True)
-    except KeyboardInterrupt:
-        autoguider.running = False
+
+# Shutdown route
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    """Gracefully shut down the Flask app and perform cleanup."""
+    if request.method != 'POST':
+        return jsonify({"error": "Method not allowed"}), 405
+
+    print("Shutdown requested via /shutdown")
+    shutdown_event.set()  # Signal threads to stop
+
+    cleanup()
+    # Attempt Werkzeug shutdown
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is not None:
+        func()
+        print("Werkzeug server shutdown initiated")
+        return jsonify({"message": "Server shutting down"}), 200
+    else:
+        print("Not running with Werkzeug server, forcing shutdown")
+        # Fallback: Force exit after cleanup
+        Thread(target=lambda: [time.sleep(1), os._exit(0)]).start()
+        return jsonify({"message": "Shutdown initiated, forcing exit"}), 200
+    
+def start_autoguider():
+    autoguider = Autoguider()
+    autoguider_sett  = AutoguiderSettings()
+    s = autoguider_sett.load_settings()
+    if s:
+        autoguider_sett.set_settings(autoguider, s)
+    autoguider_thread = Thread(target=autoguider.run_autoguider)
+    autoguider_thread.start()
+
+def stop_autoguider():
+    # Stop autoguider
+    if autoguider_thread is None:
+        return
+
+    # Save settings
+    autoguider_sett.save_settings(autoguider_sett.get_settings(autoguider))
+    print("Settings saved")
+
+    autoguider.running = False
+    if not autoguider_thread is None:
         autoguider_thread.join(timeout=10)
+        if autoguider_thread.is_alive():
+            print("Warning: Autoguider thread did not stop in time")
+        else:
+            print("Autoguider thread stopped")
+    # Release resources
+    autoguider.release_camera()
+    autoguider = None
+    autoguider_sett  = None
+    autoguider_thread = None
+
+
+def cleanup():
+    # Perform cleanup
+    try:
+        stop_autoguider()
+        # Stop telescope
         telescope.running = False
         telescope_thread.join(timeout=10)
-        
-        autoguider.release_camera()
-        telescope.close_connection()
+        if telescope_thread.is_alive():
+            print("Warning: Telescope thread did not stop in time")
+        else:
+            print("Telescope thread stopped")
 
-        del autoguider
-        del telescope
+        telescope.close_connection()
         cv2.destroyAllWindows()
-        print("Thread and camera released")
+        print("Resources released")
+
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
+
+
+class ServerThread(Thread):
+    def __init__(self, app):
+        Thread.__init__(self)
+        self.server = make_server('0.0.0.0', 80, app, threaded=True)
+        self.ctx = app.app_context()
+        self.ctx.push()
+
+    def run(self):
+        print("Starting Flask server on 0.0.0.0:80")
+        self.server.serve_forever()
+
+    def shutdown(self):
+        print("Shutting down Flask server")
+        self.server.shutdown()
+
+
+if __name__ == '__main__':
+    server = ServerThread(app)
+    server.start()
+
+    try:
+        while server.is_alive():
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt received")
+        shutdown_event.set()
+
+        cleanup()
+
+        server.shutdown()
+        server.join(timeout=10)
+
+        print("Application shut down gracefully")
+        sys.exit(0)
