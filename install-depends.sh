@@ -22,7 +22,12 @@ apt install -y \
 	python3-serial \
 	python3-opencv \
 	python3-flask \
-	python3-requests
+	python3-requests \
+	python3-flask-socketio \
+	libgpiod \
+	gpiod \
+	python3-libgpiod
+	
 
 
 # Configure Nginx for HTTP proxy

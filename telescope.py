@@ -1,4 +1,5 @@
 
+from threading import RLock
 import serial
 import time
 import subprocess
@@ -25,8 +26,8 @@ class Telescope:
             self.scope_info = None
             self.bt_serial = BTSerial()
             self.tcp_serial = TCPSerial()
-            self.tcp_serial.open()  # Starts listener thread, non-blocking
-
+            self.tcp_serial.open()  
+            self.lock = RLock()  # Thread lock for serial operations
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
@@ -44,28 +45,28 @@ class Telescope:
 
 
     def try_on_scope(self, func):
-        while True:
-            try:
-                if self._serial_connection.is_open:
-                    return func()
-                else:
-                    raise ConnectionError("Serial connection is not open")
-            except serial.SerialException as se:
-                print(f"Serial error: {se} - Attempting to reset USB")
-                if self.reset_usb():
-                    continue
-                else:
-                    raise ConnectionError("USB reset failed")
-            except Exception as e:
-                print(f"Serial exception: {e} - Attempting to reset USB")
-                if self.reset_usb():
-                    continue
-                else:
-                    raise ConnectionError("USB reset failed")
+        with self.lock:
+            while True:
+                try:
+                    if self._serial_connection.is_open:
+                        return func()
+                    else:
+                        raise ConnectionError("Serial connection is not open")
+                except serial.SerialException as se:
+                    print(f"Serial error: {se} - Attempting to reset USB")
+                    if self.reset_usb():
+                        continue
+                    else:
+                        raise ConnectionError("USB reset failed")
+                except Exception as e:
+                    print(f"Serial exception: {e} - Attempting to reset USB")
+                    if self.reset_usb():
+                        continue
+                    else:
+                        raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
         self.try_on_scope(lambda: self._serial_connection.write(data))
-
 
     def read_scope(self):
         return self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
@@ -73,15 +74,13 @@ class Telescope:
     def run_serial_bridge(self):
         self.running = True
         
-        scope = self._serial_connection
         virt = self._virtual_port
         bt = self.bt_serial
         tcp = self.tcp_serial
 
-        scope.timeout = 0  # Non-blocking mode
+        self._serial_connection.timeout = 0  # Non-blocking mode
         print("Starting serial bridge...")
         
-
         while self.running:
             if not self.pause:
                 # check if btserial open/closed; it will auto open/close serial port
@@ -105,13 +104,14 @@ class Telescope:
                         print(f"scope send: {data}")
                         self.write_scope(data)  # Write it to the other port
 
-                if scope.in_waiting > 0:  # Check if there’s any data waiting
-                    data = self.read_scope()  # Read all available bytes
-                    print(f"scope read: {data}")
-                    if data:  # Ensure data was read                        
-                        bt.write(data)       # will write if open
-                        tcp.write(data)  # will write if open
-                        virt.write_rx(data)  # will write if open
+                with self.lock:
+                    if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
+                        data = self.read_scope()  # Read all available bytes
+                        print(f"scope read: {data}")
+                        if data:  # Ensure data was read                        
+                            bt.write(data)       # will write if open
+                            tcp.write(data)  # will write if open
+                            virt.write_rx(data)  # will write if open
                 
                 # Brief sleep to avoid high CPU usage
                 time.sleep(0.01)  # 10ms delay
@@ -127,12 +127,13 @@ class Telescope:
         self.tcp_serial.close()
 
     def reset_arduino(self):
-        self._serial_connection.dtr = True
-        time.sleep(0.5)
-        self._serial_connection.dtr = False
-        self.close_connection()
-        time.sleep(2)
-        self.open_serial()
+        with self.lock:
+            self._serial_connection.dtr = True
+            time.sleep(0.5)
+            self._serial_connection.dtr = False
+            self.close_connection()
+            time.sleep(2)
+            self.open_serial()
 
     def reset_usb(self):
         try:
@@ -161,11 +162,11 @@ class Telescope:
     def send_command(self, command):
         self._virtual_port.write_tx(command.encode())
 
-    def read_response(self):
-        return self._virtual_port.readline_rx(timeout=3).decode().strip()
+    def read_response(self, timeout=10):
+        return self._virtual_port.readline_rx(timeout=timeout).decode().strip()
 
     def read_until_timeout(self, timeout=1):       
-        return self._virtual_port.read_rx(timeout)
+        return self._virtual_port.readline_rx(timeout = timeout).decode().strip()
 
     def send_move(self, direction):
         self.send_command(f":M{direction}#")
@@ -191,11 +192,12 @@ class Telescope:
         self.send_command(f":Q{direction}#")
 
     def get_info(self):
+        self.read_until_timeout() # clear in buffer
         self.send_command(f"!IN#")
         info = ""
         resp ="X"
         while resp != "":
-            resp = self.read_response()
+            resp = self.read_response(timeout=20)
             info += resp + "\n"
 
         lines = info.strip().split('\n')
@@ -238,6 +240,7 @@ class Telescope:
 
     def send_pec_table(self, pec_table):
 
+        self.read_until_timeout() # clear in buffer
         self.send_command(f"!PI#")
 
         num_points = len(pec_table) // 2
@@ -251,6 +254,8 @@ class Telescope:
         return data
 
     def receive_pec_table(self):
+
+        self.read_until_timeout() # clear in buffer
         self.send_command("!PO#")  # Request PEC table from Arduino
 
         # Read first response line, expecting "PEC num_points 1,2,3,...,4"

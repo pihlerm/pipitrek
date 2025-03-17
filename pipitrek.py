@@ -10,6 +10,11 @@ import os
 from settings import AutoguiderSettings
 from werkzeug.serving import make_server
 import sys
+import subprocess
+from flask_socketio import SocketIO, emit
+import eventlet
+
+eventlet.monkey_patch()
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
@@ -24,10 +29,14 @@ app = Flask(__name__)
 telescope = Telescope()
 telescope_thread = Thread(target=telescope.run_serial_bridge)
 telescope_thread.start()
+#telescope.get_info()
 
 autoguider = None
 autoguider_sett  = None
 autoguider_thread = None
+
+# Initialize Flask-SocketIO
+socketio = SocketIO(app)
 
 
 def draw_info(frame):
@@ -359,18 +368,68 @@ def shutdown():
         # Fallback: Force exit after cleanup
         Thread(target=lambda: [time.sleep(1), os._exit(0)]).start()
         return jsonify({"message": "Shutdown initiated, forcing exit"}), 200
-    
+
+@app.route('/command_autoguider', methods=['POST'])
+def command_autoguider():
+    data = request.json
+    onoff = data.get('start')
+
+    if onoff == True:
+        return start_autoguider()
+    else:
+        stop_autoguider()
+        return jsonify({'status': 'OK', 'message': 'Stopped'}), 200
+
+
+@socketio.on('execute_command')
+def handle_execute_command(data):
+    command = data.get('command')
+    if not command:
+        emit('command_output', {'output': 'Error: Command cannot be empty.\n'})
+        return
+
+    def stream_command_output():
+        try:
+            # Run the command and stream output
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for line in process.stdout:
+                emit('command_output', {'output': line}, namespace='/')
+            for line in process.stderr:
+                emit('command_output', {'output': line}, namespace='/')
+            process.wait()
+            emit('command_output', {'output': f"Command finished with exit code {process.returncode}\n"})
+        except Exception as e:
+            emit('command_output', {'output': f"Error: {str(e)}\n"})
+
+    # Run the command in a separate thread to avoid blocking
+    Thread(target=stream_command_output).start()
+
+
 def start_autoguider():
-    autoguider = Autoguider()
-    autoguider_sett  = AutoguiderSettings()
-    s = autoguider_sett.load_settings()
-    if s:
-        autoguider_sett.set_settings(autoguider, s)
-    autoguider_thread = Thread(target=autoguider.run_autoguider)
-    autoguider_thread.start()
+    global autoguider, autoguider_sett, autoguider_thread
+    try:
+        autoguider = Autoguider()
+        autoguider_sett  = AutoguiderSettings()
+        s = autoguider_sett.load_settings()
+        if s:
+            autoguider_sett.set_settings(autoguider, s)
+        autoguider_thread = Thread(target=autoguider.run_autoguider)
+        autoguider_thread.start()
+        return jsonify({'status': 'success', 'message': 'Autoguider started successfully'}), 200
+    except RuntimeError as e:
+        autoguider_thread = None
+        print(f"Error starting autoguider: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 200
+    except Exception as e:
+        autoguider_thread = None
+        print(f"Unexpected error: {e}")
+        return jsonify({'status': 'error', 'message': 'An unexpected error occurred'}), 200
+
+
 
 def stop_autoguider():
     # Stop autoguider
+    global autoguider, autoguider_sett, autoguider_thread
     if autoguider_thread is None:
         return
 
@@ -387,9 +446,9 @@ def stop_autoguider():
             print("Autoguider thread stopped")
     # Release resources
     autoguider.release_camera()
-    autoguider = None
     autoguider_sett  = None
     autoguider_thread = None
+    return jsonify({'status': 'success', 'message': 'Autoguider stopped successfully'}), 200
 
 
 def cleanup():
@@ -429,6 +488,8 @@ class ServerThread(Thread):
 
 
 if __name__ == '__main__':
+    
+    socketio.run(app, host='0.0.0.0', port=80, debug=True)
     server = ServerThread(app)
     server.start()
 

@@ -13,7 +13,7 @@
 		(also in start.sh / stop.sh)
 		sudo systemctl status pipitrek.service
 		
-4. Log file is in astro/pipitrek/autoguide.log
+4. Log file is in astro/pipitrek/pipitrek.log
 
 5. UVC driver reset
 		sudo modprobe -r uvcvideo && sudo modprobe uvcvideo

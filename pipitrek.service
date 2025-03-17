@@ -4,13 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /root/astro/pipitrek/pipitrek.py >> /root/astro/pipitrek/pipitrek.log 2>&1
+ExecStart=/usr/bin/python3 /root/astro/pipitrek/pipitrek.py
 WorkingDirectory=/root/astro/pipitrek
 Restart=on-failure
 RestartSec=5
 User=root
-StandardOutput=append:/root/astro/pipitrek/autoguider.log
-StandardError=append:/root/astro/pipitrek/autoguider.log
+StandardOutput=append:/root/astro/pipitrek/pipitrek.log
+StandardError=append:/root/astro/pipitrek/pipitrek.log
 
 [Install]
 WantedBy=multi-user.target

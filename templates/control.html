@@ -3,59 +3,163 @@
 <head>
     <title>Telescope Control</title>
     <style>
+        .telescope-container {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            height: 50vh;
+            border: 0px solid black;
+        }
         .control-button {
-            width: 100px;
+            width: 50px;
             height: 50px;
-            margin: 10px;
-            font-size: 16px;
+            margin: 5px;
+            font-size: 18px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        #command-buttons {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+        }
+
+        #info-boxes {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0px;
+            height : 100%;
+        }
+
+        #result-boxes {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0px;
+            height : 100%;
+        }
+        
+        .command-button {
+            width: 200px;
+            height: 30px;
+            margin: 0px;
+            font-size: 14px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        #result {
+            width: 400px;
+            height: 100%;
+            margin-top: 0px;
+        }
+        #telescope-info {
+            width: 300px;
+            height: 50%;
+            margin-top: 0px;
         }
         #pec_table {
-            width: 100%;
-            height: 200px;
-            margin-top: 10px;
+            width: 300px;
+            height: 50%;
+            margin-top: 0px;
         }
-        #result {
-            width: 100%;
-            height: 100px;
-            margin-top: 10px;
+
+        #upload-firmware {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+            border: 2px solid black;
         }
     </style>
 </head>
 <body>
     <h1>Telescope Control</h1>
-    <div>
-        <button class="control-button" onclick="sendDirection('n')">North</button>
-        <button class="control-button" onclick="sendDirection('s')">South</button>
-        <button class="control-button" onclick="sendDirection('e')">East</button>
-        <button class="control-button" onclick="sendDirection('w')">West</button>
-        <button class="control-button" onclick="sendStop()">Stop</button>
-        <button class="control-button" onclick="receivePEC()">Receive PEC</button>
-        <button class="control-button" onclick="sendPEC()">Send PEC</button>
-        <button class="control-button" onclick="resetArduino()">Reset</button>
-        <button class="control-button" onclick="getInfo()">Get Info</button>
+    <div class="telescope-container">
+        <div id="control-buttons">
+            <table>
+                <tr>
+                    <img src="../static/PIPITREK.webp" style="width: 100%; max-width: 200px; margin-top: 0px; ">
+                </tr>
+                <tr>
+                    <td></td>
+                    <td>
+                        <button class="control-button" onclick="sendDirection('n')">↑</button>
+                    </td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>
+                        <button class="control-button" onclick="sendDirection('w')">←</button>
+                    </td>
+                    <td><button class="control-button" onclick="sendStop()">Stop</button></td>
+                    <td>
+                        <button class="control-button" onclick="sendDirection('e')">→</button>
+                    </td>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td>
+                        <button class="control-button" onclick="sendDirection('s')">↓</button>
+                    </td>
+                    <td></td>
+                </tr>
+            </table>       
+        </div>
+
+        <div id="command-buttons">
+            
+            <button class="command-button" onclick="sendAutoguiderCommand(true)">Start Autoguider</button>
+            <button class="command-button" onclick="sendAutoguiderCommand(false)">Stop Autoguider</button>
+            <button class="command-button" onclick="getInfo()">Get Info</button>
+            <button class="command-button" onclick="receivePEC()">Receive PEC</button>
+            <button class="command-button" onclick="sendPEC()">Send PEC</button>
+            <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
+            <div id="upload-firmware">
+                <p>Upload Firmware</p>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <input class="command-button" type="file" id="firmware" name="firmware" accept=".hex">
+                </form>
+                <button class="command-button" type="button" onclick="uploadFirmware()">Upload</button>
+            </div>
+        </div>
+        <div id="info-boxes">
+            <textarea id="telescope-info"  placeholder="INFO"></textarea>
+            <textarea id="pec_table" placeholder="PEC Table"></textarea>       
+        </div>
+        <div id="result-boxes">
+            <textarea id="result" placeholder="Result"></textarea>
+        </div>
     </div>
     
-    <form id="uploadForm" enctype="multipart/form-data">
-        <label for="firmware">Upload firmware:</label>
-        <input type="file" id="firmware" name="firmware" accept=".hex">
-        <button type="button" onclick="uploadFirmware()">Upload</button>
-    </form>
-    <table style="width:100%;">
-        <tr>
-            <td style="width:50%;">
-                <textarea id="result" placeholder="Result"></textarea>
-            </td>
-            <td>
-                <textarea id="pec_table" placeholder="PEC Table"></textarea>                
-            </td>
-        </tr>
-    </table>
+    <div id="command-shell">
+        <h3>Command Shell</h3>
+        <textarea id="shell-output" readonly style="width: 100%; height: 200px;"></textarea>
+        <input id="shell-input" type="text" placeholder="Enter command" style="width: 100%; margin-top: 10px;">
+        <button class="command-button" onclick="executeCommand()">Execute</button>
+    </div>
+    
+    <script src="../static/socket.io.min.js"></script>
 
     <script>
+        last_info = last_pec = "";
+
         function appendToResult(message) {
             const resultTextarea = document.getElementById('result');
             resultTextarea.value += message + '\n';
         }
+        function setInfo(message) {
+            const resultTextarea = document.getElementById('telescope-info');
+            resultTextarea.value = message;
+        }
+        function setPEC(message) {
+            const resultTextarea = document.getElementById('pec_table');
+            resultTextarea.value = message;
+        }
+        
 
         function sendDirection(direction) {
             fetch('/control_move', {
@@ -71,6 +175,23 @@
             })
             .catch((error) => {
                 appendToResult('Error: ' + error);
+            });
+        }
+
+        function sendCorrection(direction) {
+            fetch('/control_correction', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `direction=${direction}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToResult('Success:', data);
+            })
+            .catch((error) => {
+                appendToResult('Error:', error);
             });
         }
 
@@ -102,7 +223,8 @@
                     const formattedTable = pecTable.map((value, index) => {
                         return index % 2 === 0 ? `${value},` : `${value}\n`;
                     }).join('');
-                    document.getElementById('pec_table').value = formattedTable;
+                    last_pec = formattedTable;
+                    setPEC(last_pec)
                     appendToResult('Received PEC table successfully.');
                 } else {
                     appendToResult('Error: ' + data.message);
@@ -141,10 +263,11 @@
             });
         }
 
+
         function uploadFirmware() {
             const form = document.getElementById('uploadForm');
             const formData = new FormData(form);
-
+            appendToResult('Starting firmware upload. Please do not disconnect telescope.');
             fetch('/command_upload', {
                 method: 'POST',
                 body: formData
@@ -171,18 +294,59 @@
             });
         }
 
+        function sendAutoguiderCommand(start) {
+            fetch('/command_autoguider', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ start: start })
+            })
+            .then(response => response.json())
+            .then(data => {
+                appendToResult('Success: ' + JSON.stringify(data));
+            })
+            .catch(error => {
+                appendToResult('Error:', error);
+            });
+        }
+
         function getInfo() {
             fetch('/command_info', {
                 method: 'GET'
             })
             .then(response => response.json())
             .then(data => {
-                appendToResult(data.info);
+                last_info = data.info;
+                setInfo(last_info)
             })
             .catch((error) => {
                 appendToResult('Error: ' + error);
             });
         }
+
+        const socket = io();
+
+        // Listen for command output from the server
+        socket.on('command_output', (data) => {
+            const shellOutput = document.getElementById('shell-output');
+            shellOutput.value += data.output; // Append new output
+            shellOutput.scrollTop = shellOutput.scrollHeight; // Auto-scroll to the bottom
+        });
+
+        function executeCommand() {
+            const commandInput = document.getElementById('shell-input');
+            const command = commandInput.value.trim();
+            if (!command) {
+                alert('Error: Command cannot be empty.');
+                return;
+            }
+
+            // Send the command to the server
+            socket.emit('execute_command', { command: command });
+            commandInput.value = ''; // Clear the input field
+        }
+
     </script>
 </body>
 </html>

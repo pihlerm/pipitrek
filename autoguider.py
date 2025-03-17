@@ -44,7 +44,11 @@ class Autoguider:
         self.recovery_attempts = 0
         self.max_recovery_attempts = 3
         
+        self.cap = None
         self.controls = get_v4l2_controls()
+        if self.controls is None:
+            raise RuntimeError("Failed to fetch v4l2 controls. Ensure the camera is connected and v4l2-ctl is installed.")
+              
 
         self.init_camera()
         # Check if camera opened successfully
