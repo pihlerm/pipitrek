@@ -209,10 +209,9 @@ class Telescope:
         return True
 
     def send_correction(self, direction, t=0.5):
-        with self.lock:
-            self.send_direct_command(f":M{direction}#")
-            time.sleep(t)
-            self.send_direct_command(f":Q{direction}#")
+        self.send_command(f":M{direction}#")
+        time.sleep(t)
+        self.send_command(f":Q{direction}#")
 
     def get_info(self):
         with self.lock:
