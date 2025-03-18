@@ -28,6 +28,8 @@ class Telescope:
             self.tcp_serial = TCPSerial()
             self.tcp_serial.open()  
             self.lock = RLock()  # Thread lock for serial operations
+            time.sleep(2) # wait arduino
+            self.get_info()
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
@@ -66,10 +68,18 @@ class Telescope:
                         raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
+        #print(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
-        return self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
+        data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
+        #print(f"scope read: {data}")
+        return data
+
+    def readline_scope(self, timeout=1):
+        data =  self.try_on_scope(lambda: self._serial_connection.readline())
+        #print(f"scope readline: {data}")
+        return data
 
     def run_serial_bridge(self):
         self.running = True
@@ -80,7 +90,6 @@ class Telescope:
 
         self._serial_connection.timeout = 0  # Non-blocking mode
         print("Starting serial bridge...")
-        
         while self.running:
             if not self.pause:
                 # check if btserial open/closed; it will auto open/close serial port
@@ -88,26 +97,22 @@ class Telescope:
 
                 if bt.in_waiting() > 0:  # Check if there’s any data waiting
                     data = bt.read(bt.in_waiting())  # Read all available bytes
-                    if data: 
-                        print(f"scope send: {data}")
+                    if data:                         
                         self.write_scope(data)  # Write it to scope
 
                 if virt.in_waiting_tx() > 0:  # Check if there’s any data waiting
                     data = virt.read_tx(virt.in_waiting_tx())  # Read all available bytes
                     if data:
-                        print(f"scope send: {data}")
                         self.write_scope(data)  # Write it to the other port
 
                 if tcp.in_waiting() > 0:  # Check if there’s any data waiting
                     data = tcp.read(tcp.in_waiting())  # Read all available bytes
                     if data:
-                        print(f"scope send: {data}")
                         self.write_scope(data)  # Write it to the other port
 
                 with self.lock:
                     if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
                         data = self.read_scope()  # Read all available bytes
-                        print(f"scope read: {data}")
                         if data:  # Ensure data was read                        
                             bt.write(data)       # will write if open
                             tcp.write(data)  # will write if open
@@ -180,67 +185,86 @@ class Telescope:
         else:
             self.send_command("!TD#")
 
+    
+    def send_direct_command(self, command):
+        self.write_scope(command.encode())
+
+    def read_direct_response(self):
+        self._serial_connection.timeout = 1
+        data =  self.readline_scope().decode().strip()
+        self._serial_connection.timeout = 0
+        return data
+
+    def clear_direct_inbuffer(self):
+        self._serial_connection.timeout = 1
+        while self._serial_connection.in_waiting:
+            self._serial_connection.read(1)             
+        self._serial_connection.timeout = 0
+
+
     def send_pier(self, pier):
         if pier not in ['W', 'E']:
             return False
         self.send_command(f"!M{pier}#")
-
+        return True
 
     def send_correction(self, direction, t=0.5):
-        self.send_command(f":M{direction}#")
-        time.sleep(t)
-        self.send_command(f":Q{direction}#")
+        with self.lock:
+            self.send_direct_command(f":M{direction}#")
+            time.sleep(t)
+            self.send_direct_command(f":Q{direction}#")
 
     def get_info(self):
-        self.read_until_timeout() # clear in buffer
-        self.send_command(f"!IN#")
-        info = ""
-        resp ="X"
-        while resp != "":
-            resp = self.read_response(timeout=20)
-            info += resp + "\n"
+        with self.lock:
+            self.clear_direct_inbuffer()
+            self.send_direct_command(f"!IN#")
+            info = ""
+            resp ="X"
+            while resp != "":
+                resp = self.read_direct_response()
+                info += resp + "\n"
 
-        lines = info.strip().split('\n')
-        data = {}
-        # Line 1: Software and version
-        software_parts = lines[0].split()
-        data["software"] = {
-            "name": software_parts[0],
-            "version": software_parts[1]
-        }
-        # Line 2: Memory
-        data["memory"] = int(lines[1].split()[1])
-        # Line 3: Uptime
-        data["uptime"] = int(lines[2].split()[1])
-        # Line 4: RA
-        ra = lines[3].split()[1].rstrip('#')
-        data["coordinates"] = {"ra": ra}
-        # Line 5: DEC
-        dec = lines[4].split()[1].rstrip('#').replace('*', ':')
-        data["coordinates"]["dec"] = dec
-        # Line 6: Pier side
-        data["pier"] = lines[5].split()[1]
-        # Line 7: PEC
-        pec_parts = lines[6].split()
-        data["pec"] = {
-            "progress": pec_parts[1].lstrip('@'),
-            "value": int(pec_parts[2])
-        }
-        # Line 8: Camera
-        camera_parts = lines[7].split()
-        data["camera"] = {
-            "exposure": int(camera_parts[2]),
-            "shots": int(camera_parts[4].rstrip(':')),
-            "state": camera_parts[5]
-        }
-        # Line 9: Tracking
-        data["tracking"] = lines[8].split()[1]
-        self.scope_info = data
-        return info
+            lines = info.strip().split('\n')
+            data = {}
+            # Line 1: Software and version
+            software_parts = lines[0].split()
+            data["software"] = {
+                "name": software_parts[0],
+                "version": software_parts[1]
+            }
+            # Line 2: Memory
+            data["memory"] = int(lines[1].split()[1])
+            # Line 3: Uptime
+            data["uptime"] = int(lines[2].split()[1])
+            # Line 4: RA
+            ra = lines[3].split()[1].rstrip('#')
+            data["coordinates"] = {"ra": ra}
+            # Line 5: DEC
+            dec = lines[4].split()[1].rstrip('#').replace('*', ':')
+            data["coordinates"]["dec"] = dec
+            # Line 6: Pier side
+            data["pier"] = lines[5].split()[1]
+            # Line 7: PEC
+            pec_parts = lines[6].split()
+            data["pec"] = {
+                "progress": pec_parts[1].lstrip('@'),
+                "value": int(pec_parts[2])
+            }
+            # Line 8: Camera
+            camera_parts = lines[7].split()
+            data["camera"] = {
+                "exposure": int(camera_parts[2]),
+                "shots": int(camera_parts[4].rstrip(':')),
+                "state": camera_parts[5]
+            }
+            # Line 9: Tracking
+            data["tracking"] = lines[8].split()[1]
+            self.scope_info = data
+            return info
 
     def send_pec_table(self, pec_table):
 
-        self.read_until_timeout() # clear in buffer
+        self.read_until_timeout(0.1) # clear in buffer
         self.send_command(f"!PI#")
 
         num_points = len(pec_table) // 2
@@ -255,7 +279,7 @@ class Telescope:
 
     def receive_pec_table(self):
 
-        self.read_until_timeout() # clear in buffer
+        self.read_until_timeout(0.1) # clear in buffer
         self.send_command("!PO#")  # Request PEC table from Arduino
 
         # Read first response line, expecting "PEC num_points 1,2,3,...,4"

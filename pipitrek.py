@@ -7,14 +7,15 @@ from telescope import Telescope
 import logging
 import cv2
 import os
+import signal
 from settings import AutoguiderSettings
 from werkzeug.serving import make_server
 import sys
 import subprocess
-from flask_socketio import SocketIO, emit
-import eventlet
-
-eventlet.monkey_patch()
+import select
+from flask_sock import Sock
+import pty
+import re
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
@@ -25,6 +26,10 @@ log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
 shutdown_event = Event()
 
 app = Flask(__name__)
+sock = Sock(app)
+
+# Global variable to track the current process for terminal
+current_process = None
 
 telescope = Telescope()
 telescope_thread = Thread(target=telescope.run_serial_bridge)
@@ -34,9 +39,6 @@ telescope_thread.start()
 autoguider = None
 autoguider_sett  = None
 autoguider_thread = None
-
-# Initialize Flask-SocketIO
-socketio = SocketIO(app)
 
 
 def draw_info(frame):
@@ -55,63 +57,77 @@ def draw_info(frame):
         cv2.putText(frame, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
 def gen_frames():
+    if  autoguider_thread is None:
+        return
     last_valid_frame = None
-    while autoguider.running:
-        with autoguider.lock:
-            frame = autoguider.frame.copy() if autoguider.frame is not None else last_valid_frame
+    try:
+        while autoguider.running:
+            with autoguider.lock:
+                frame = autoguider.frame.copy() if autoguider.frame is not None else last_valid_frame
 
-        if frame is not None and frame.size > 0:
-            last_valid_frame = frame.copy()  # Store valid frame
-            #draw_info(frame)
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ret:
-                frame_data = buffer.tobytes()
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+            if frame is not None and frame.size > 0:
+                last_valid_frame = frame.copy()  # Store valid frame
+                #draw_info(frame)
+                ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ret:
+                    frame_data = buffer.tobytes()
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+                else:
+                    print("Frame encoding failed")
             else:
-                print("Frame encoding failed")
-        else:
-            print("No frame")
-        time.sleep(1)
+                print("No frame")
+            time.sleep(1)
+    except GeneratorExit:
+        print("Client disconnected from video feed", flush=True)
+        # Cleanup (e.g., stop camera)
+    except Exception as e:
+        print(f"Video feed error: {e}", flush=True)
+
 
 def gen_thresh_frames():
+    if  autoguider_thread is None:
+        return
     last_valid_thresh = None
-    while autoguider.running:
-        with autoguider.lock:
-            thresh = autoguider.threshold
-        if thresh is None or thresh.size == 0:
-            thresh = last_valid_thresh
+    try:
+        while autoguider.running:
+            with autoguider.lock:
+                thresh = autoguider.threshold
+            if thresh is None or thresh.size == 0:
+                thresh = last_valid_thresh
 
-        if thresh is not None:
-            thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
-            draw_info(thresh_color)
-            ret, buffer = cv2.imencode('.jpg', thresh_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ret:
-                thresh_data = buffer.tobytes()
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + thresh_data + b'\r\n')
+            if thresh is not None:
+                thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
+                #draw_info(thresh_color)
+                ret, buffer = cv2.imencode('.jpg', thresh_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ret:
+                    thresh_data = buffer.tobytes()
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + thresh_data + b'\r\n')
+                else:
+                    print("Threshold encoding failed")
             else:
-                print("Threshold encoding failed")
-        else:
-            print("No thresh")
-        time.sleep(1)
+                print("No thresh")
+            time.sleep(1)
+    except GeneratorExit:
+        print("Client disconnected from video feed", flush=True)
+        # Cleanup (e.g., stop camera)
+    except Exception as e:
+        print(f"Video feed error: {e}", flush=True)
 
 
 
 
-@app.route('/')
+@app.route('/control')
 def control():
     return render_template('control.html')
 
-@app.route('/autoguider')
+@app.route('/')
 def index():
-    if autoguider_thread is not None:
-        return render_template('autoguider.html', correction=autoguider.last_correction, threshold=autoguider.gray_threshold,
-                           max_drift=autoguider.max_drift, star_size=autoguider.star_size,
-                           rotation_angle=autoguider.rotation_angle, pixel_scale=autoguider.pixel_scale, 
-                           exposure=autoguider.exposure, gain=autoguider.gain, integrate_frames=autoguider.integrate_frames, 
-                           guiding=autoguider.guiding)
-    else:
-        return Response(b'', status=503)
-
+    return render_template('autoguider.html')
+    
+@app.route('/terminal')
+def terminal():
+    return render_template('terminal.html')
+    
 @app.route('/video_feed')
 def video_feed():
     if autoguider_thread is not None:
@@ -128,7 +144,10 @@ def thresh_feed():
 
 @app.route('/properties', methods=['GET'])
 def get_autoguider_properties():
-    properties = {
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        properties = {
         "tracked_centroid": autoguider.tracked_centroid,
         "current_centroid": autoguider.current_centroid,
         "max_drift": autoguider.max_drift,
@@ -143,118 +162,163 @@ def get_autoguider_properties():
         "r_channel": autoguider.r_channel,
         "g_channel": autoguider.g_channel,
         "b_channel": autoguider.b_channel,
-        "tracked_centroid": autoguider.tracked_centroid,
-        "current_centroid": autoguider.current_centroid,
-        "guiding": autoguider.guiding,
-        "scope_info": telescope.scope_info
-    }
+        "guiding": autoguider.guiding
+        }
     return jsonify(properties)
+
+@app.route('/scope_info', methods=['GET'])
+def scope_info():
+    return jsonify(telescope.scope_info)
+
 
 @app.route('/set_channels', methods=['POST'])
 def set_autoguider_settings():
-    data = request.json
-    autoguider.r_channel = float(data.get('r_channel', autoguider.r_channel))
-    autoguider.g_channel = float(data.get('g_channel', autoguider.g_channel))
-    autoguider.b_channel = float(data.get('b_channel', autoguider.b_channel))
-    return jsonify({"status": "success"})
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        data = request.json
+        autoguider.r_channel = float(data.get('r_channel', autoguider.r_channel))
+        autoguider.g_channel = float(data.get('g_channel', autoguider.g_channel))
+        autoguider.b_channel = float(data.get('b_channel', autoguider.b_channel))
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_threshold', methods=['POST'])
 def set_threshold():
-    new_threshold = request.form.get('threshold', type=int, default=autoguider.gray_threshold)
-    if 0 <= new_threshold <= 255:
-        autoguider.gray_threshold = new_threshold
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        new_threshold = request.form.get('threshold', type=int, default=autoguider.gray_threshold)
+        if 0 <= new_threshold <= 255:
+            autoguider.gray_threshold = new_threshold
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_max_drift', methods=['POST'])
 def set_max_drift():
-    new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift)
-    if 0 <= new_max_drift <= 50:
-        autoguider.max_drift = new_max_drift
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift)
+        if 0 <= new_max_drift <= 50:
+            autoguider.max_drift = new_max_drift
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_star_size', methods=['POST'])
 def set_star_size():
-    new_star_size = request.form.get('star_size', type=int, default=autoguider.star_size)
-    if 1 <= new_star_size <= 100:
-        autoguider.star_size = new_star_size
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        new_star_size = request.form.get('star_size', type=int, default=autoguider.star_size)
+        if 1 <= new_star_size <= 100:
+            autoguider.star_size = new_star_size
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_rotation_angle', methods=['POST'])
 def set_rotation_angle():
-    new_angle = request.form.get('rotation_angle', type=float, default=autoguider.rotation_angle)
-    if -180 <= new_angle <= 180:
-        autoguider.rotation_angle = new_angle
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        new_angle = request.form.get('rotation_angle', type=float, default=autoguider.rotation_angle)
+        if -180 <= new_angle <= 180:
+            autoguider.rotation_angle = new_angle
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_pixel_scale', methods=['POST'])
 def set_pixel_scale():
-    new_scale = request.form.get('pixel_scale', type=float, default=autoguider.pixel_scale)
-    if 0.1 <= new_scale <= 10.0:
-        autoguider.pixel_scale = new_scale
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        new_scale = request.form.get('pixel_scale', type=float, default=autoguider.pixel_scale)
+        if 0.1 <= new_scale <= 10.0:
+            autoguider.pixel_scale = new_scale
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_exposure', methods=['POST'])
 def set_exposure():
-    exp = request.form.get('exposure', type=float, default=0.5)  # Default to 0.5 (mid-range)
-    if 0.0 <= exp <= 1.0:
-        autoguider.set_exposure(exp)
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        exp = request.form.get('exposure', type=float, default=0.5)  # Default to 0.5 (mid-range)
+        if 0.0 <= exp <= 1.0:
+            autoguider.set_exposure(exp)
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_gain', methods=['POST'])
 def set_gain():
-    gain = request.form.get('gain', type=float, default=0.5)  # Default to 0.5 (mid-range)
-    if 0.0 <= gain <= 1.0:
-        autoguider.set_gain(gain)
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        gain = request.form.get('gain', type=float, default=0.5)  # Default to 0.5 (mid-range)
+        if 0.0 <= gain <= 1.0:
+            autoguider.set_gain(gain)
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_integrate_frames', methods=['POST'])
 def set_integrate_frames():
-    integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
-    if 1 <= integrate_frames <= 20:
-        autoguider.integrate_frames = integrate_frames
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
+        if 1 <= integrate_frames <= 20:
+            autoguider.integrate_frames = integrate_frames
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_guiding', methods=['POST'])
 def set_guiding():
-    guiding = request.form.get('guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-    autoguider.guiding = guiding
-    return '', 204
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        guiding = request.form.get('guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+        autoguider.guiding = guiding
+        return jsonify({"status": "success"}), 200
 
 @app.route('/set_tracking', methods=['POST'])
 def set_tracking():
     tracking = request.form.get('tracking', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    telescope.scope_info
     telescope.send_tracking(tracking)
-    return '', 204
+    time.sleep(0.5)
+    telescope.get_info()
+    return jsonify({'status': 'success', 'message': f'Tracking set to {tracking}'})
 
 @app.route('/set_pier', methods=['POST'])
 def set_pier():
     pier = request.form.get('pier')
-    if not telescope.send_pier(pier):
-        return jsonify({'status': 'error', 'message': 'Invalid pier value'}), 400
-    else:
+    bok = telescope.send_pier(pier)
+    time.sleep(0.5)
+    telescope.get_info()
+    if bok:
         return jsonify({'status': 'success', 'message': f'Pier set to {pier}'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Invalid pier value'}), 400
 
 @app.route('/acquire', methods=['POST'])
 def acquire():
-    # Debug: Print the raw request body
-    print(f"Request body: {request.get_data().decode('utf-8')}")
-    x = request.form.get('x', type=float)
-    y = request.form.get('y', type=float)
-    print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
-    if x is not None and y is not None:
-        autoguider.acquire_star((x, y))
-        print(f"Acquisition triggered at ({x}, {y})")
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
     else:
-        print("Failed to parse x or y from request")
-    return '', 204
+        print(f"Request body: {request.get_data().decode('utf-8')}")
+        x = request.form.get('x', type=float)
+        y = request.form.get('y', type=float)
+        print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
+        if x is not None and y is not None:
+            autoguider.acquire_star((x, y))
+            print(f"Acquisition triggered at ({x}, {y})")
+            return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"})
+        else:
+            print("Failed to parse x or y from request")
+            return jsonify({'status': 'error', 'message': "Failed to parse x or y from request"}), 400
 
 @app.route('/calibrate', methods=['POST'])
 def calibrate():
-    if autoguider.calibrate_angle():
-        print(f"Calibration successful")
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
     else:
-        print("Failed to calibrate")
-    return '', 204
+        if autoguider.calibrate_angle():
+            print(f"Calibration successful")
+            return jsonify({'status': 'success', 'message': 'Calibration successful'})
+        else:
+            print("Failed to calibrate")
+            return jsonify({'status': 'error', 'message': "Failed to calibrate"}), 400
 
 @app.route('/control_move', methods=['POST'])
 def control_move():
@@ -343,7 +407,8 @@ def command_info():
         info = telescope.get_info()
         return jsonify({'status': 'success', 'info': info})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        print(f"Exception {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
     
 
 # Shutdown route
@@ -369,6 +434,67 @@ def shutdown():
         Thread(target=lambda: [time.sleep(1), os._exit(0)]).start()
         return jsonify({"message": "Shutdown initiated, forcing exit"}), 200
 
+def strip_ansi(text):
+    # Remove ANSI escape sequences
+    return re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\([A-Z0-9])', '', text)
+
+@sock.route('/command_terminal')
+def command_terminal(ws):
+    global current_process
+    while True:
+        message = ws.receive()
+        if message is None:
+            break
+        try:
+            command = f"/bin/bash -c '. /boot/dietpi/func/dietpi-globals && {message}'"
+            current_process = subprocess.Popen(
+                command, 
+                shell=True, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                text=True,
+                preexec_fn=os.setsid
+            )
+            
+            def read_send(inp):
+                line = inp.readline()                
+                if line:
+                   clean_line = strip_ansi(line.strip())
+                   ws.send(clean_line)
+                return not line
+
+            while current_process.poll() is None:
+                readable, _, _ = select.select([current_process.stdout, current_process.stderr, ws.sock], [], [], 0.1)
+                for r in readable:
+                    if r == current_process.stdout:
+                        read_send(current_process.stdout)
+                    elif r == current_process.stderr:
+                        read_send(current_process.stderr)
+                    elif r == ws.sock:
+                        message = ws.receive()
+                        if message == "abort":
+                            os.killpg(current_process.pid, signal.SIGTERM)
+                            try:
+                                current_process.wait(timeout=1)
+                            except subprocess.TimeoutExpired:
+                                os.killpg(current_process.pid, signal.SIGKILL)
+                            ws.send("info: Command aborted")
+                            break
+
+            # Drain remaining output after process ends
+            while not read_send(current_process.stdout):
+                pass
+            while not read_send(current_process.stderr):
+                pass
+            
+            ws.send(f"exit: {current_process.returncode}")
+            current_process = None
+        except Exception as e:
+            ws.send(f"error: {str(e)}")
+            current_process = None
+
+
+
 @app.route('/command_autoguider', methods=['POST'])
 def command_autoguider():
     data = request.json
@@ -379,30 +505,6 @@ def command_autoguider():
     else:
         stop_autoguider()
         return jsonify({'status': 'OK', 'message': 'Stopped'}), 200
-
-
-@socketio.on('execute_command')
-def handle_execute_command(data):
-    command = data.get('command')
-    if not command:
-        emit('command_output', {'output': 'Error: Command cannot be empty.\n'})
-        return
-
-    def stream_command_output():
-        try:
-            # Run the command and stream output
-            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            for line in process.stdout:
-                emit('command_output', {'output': line}, namespace='/')
-            for line in process.stderr:
-                emit('command_output', {'output': line}, namespace='/')
-            process.wait()
-            emit('command_output', {'output': f"Command finished with exit code {process.returncode}\n"})
-        except Exception as e:
-            emit('command_output', {'output': f"Error: {str(e)}\n"})
-
-    # Run the command in a separate thread to avoid blocking
-    Thread(target=stream_command_output).start()
 
 
 def start_autoguider():
@@ -488,11 +590,8 @@ class ServerThread(Thread):
 
 
 if __name__ == '__main__':
-    
-    socketio.run(app, host='0.0.0.0', port=80, debug=True)
     server = ServerThread(app)
     server.start()
-
     try:
         while server.is_alive():
             time.sleep(1)

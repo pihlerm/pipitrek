@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Telescope Control Terminal</title>
+    <style>
+        #terminal {
+            width: 680px;
+            height: 400px;
+            background: #000;
+            color: #0f0;
+            font-family: monospace;
+            padding: 10px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+        #input {
+            width: 567px;
+            padding: 5px;
+        }
+        #abort {
+            padding: 5px 10px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal"></div>
+    <div>
+        <input type="text" id="input" placeholder="Enter command (e.g., ls -l)">
+        <button id="abort">Abort (Ctrl+C)</button>    
+    </div>
+    
+
+    <script>
+
+        const ws = new WebSocket('ws://' + window.location.hostname + '/command_terminal');
+        const terminal = document.getElementById('terminal');
+        const input = document.getElementById('input');
+        const abortBtn = document.getElementById('abort');
+
+        ws.onmessage = function(event) {
+            const line = document.createElement('div');
+            line.textContent = event.data;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        };
+
+        ws.onclose = function() {
+            terminal.innerHTML += '<div>Connection closed</div>';
+        };
+
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                ws.send(input.value);
+                input.value = '';
+            }
+        });
+
+        abortBtn.addEventListener('click', function() {
+            ws.send('abort');
+            terminal.innerHTML += '<div>Sent abort signal</div>';
+            terminal.scrollTop = terminal.scrollHeight;
+        });
+
+    </script>
+</body>
+</html>

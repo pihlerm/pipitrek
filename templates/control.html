@@ -2,79 +2,7 @@
 <html>
 <head>
     <title>Telescope Control</title>
-    <style>
-        .telescope-container {
-            display: flex;
-            align-items: flex-start;
-            gap: 20px;
-            height: 50vh;
-            border: 0px solid black;
-        }
-        .control-button {
-            width: 50px;
-            height: 50px;
-            margin: 5px;
-            font-size: 18px;
-            text-align: center;
-            vertical-align: middle;
-        }
-        
-        #command-buttons {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 5px;
-        }
-
-        #info-boxes {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 0px;
-            height : 100%;
-        }
-
-        #result-boxes {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 0px;
-            height : 100%;
-        }
-        
-        .command-button {
-            width: 200px;
-            height: 30px;
-            margin: 0px;
-            font-size: 14px;
-            text-align: center;
-            vertical-align: middle;
-        }
-        
-        #result {
-            width: 400px;
-            height: 100%;
-            margin-top: 0px;
-        }
-        #telescope-info {
-            width: 300px;
-            height: 50%;
-            margin-top: 0px;
-        }
-        #pec_table {
-            width: 300px;
-            height: 50%;
-            margin-top: 0px;
-        }
-
-        #upload-firmware {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
-            border: 2px solid black;
-        }
-    </style>
+    <link rel="stylesheet" href="../static/style.css" />
 </head>
 <body>
     <h1>Telescope Control</h1>
@@ -93,11 +21,11 @@
                 </tr>
                 <tr>
                     <td>
-                        <button class="control-button" onclick="sendDirection('w')">←</button>
+                        <button class="control-button" onclick="sendDirection('e')">←</button>
                     </td>
                     <td><button class="control-button" onclick="sendStop()">Stop</button></td>
                     <td>
-                        <button class="control-button" onclick="sendDirection('e')">→</button>
+                        <button class="control-button" onclick="sendDirection('w')">→</button>
                     </td>
                 </tr>
                 <tr>
@@ -118,6 +46,19 @@
             <button class="command-button" onclick="receivePEC()">Receive PEC</button>
             <button class="command-button" onclick="sendPEC()">Send PEC</button>
             <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
+            <button class="command-button" onclick="showTerminal()">Terminal</button>
+            <div>
+                <label>Pier:</label>
+                <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
+                <label for="pier_w">W</label>
+                <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
+                <label for="pier_e">E</label>
+            </div>
+            <div>
+                <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
+                <label for="tracking">Tracking</label>
+             </div>
+
             <div id="upload-firmware">
                 <p>Upload Firmware</p>
                 <form id="uploadForm" enctype="multipart/form-data">
@@ -126,35 +67,37 @@
                 <button class="command-button" type="button" onclick="uploadFirmware()">Upload</button>
             </div>
         </div>
-        <div id="info-boxes">
+        <div id="info-boxes" class = "flex1">
             <textarea id="telescope-info"  placeholder="INFO"></textarea>
             <textarea id="pec_table" placeholder="PEC Table"></textarea>       
         </div>
-        <div id="result-boxes">
+        <div id="result-boxes" class = "flex1">
             <textarea id="result" placeholder="Result"></textarea>
         </div>
+        <iframe id="terminal_frame" src="{{ url_for('terminal') }}" width="720" height="480" class="hidden"></iframe>
     </div>
     
-    <div id="command-shell">
-        <h3>Command Shell</h3>
-        <textarea id="shell-output" readonly style="width: 100%; height: 200px;"></textarea>
-        <input id="shell-input" type="text" placeholder="Enter command" style="width: 100%; margin-top: 10px;">
-        <button class="command-button" onclick="executeCommand()">Execute</button>
-    </div>
-    
-    <script src="../static/socket.io.min.js"></script>
 
     <script>
+
         last_info = last_pec = "";
+
+        function showTerminal() {
+            document.getElementById('info-boxes').classList.toggle('hidden');
+            document.getElementById('result-boxes').classList.toggle('hidden');
+            document.getElementById('terminal_frame').classList.toggle('hidden');
+        }
 
         function appendToResult(message) {
             const resultTextarea = document.getElementById('result');
             resultTextarea.value += message + '\n';
         }
+
         function setInfo(message) {
             const resultTextarea = document.getElementById('telescope-info');
             resultTextarea.value = message;
         }
+
         function setPEC(message) {
             const resultTextarea = document.getElementById('pec_table');
             resultTextarea.value = message;
@@ -175,23 +118,6 @@
             })
             .catch((error) => {
                 appendToResult('Error: ' + error);
-            });
-        }
-
-        function sendCorrection(direction) {
-            fetch('/control_correction', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `direction=${direction}`
-            })
-            .then(response => response.json())
-            .then(data => {
-                appendToResult('Success:', data);
-            })
-            .catch((error) => {
-                appendToResult('Error:', error);
             });
         }
 
@@ -295,6 +221,7 @@
         }
 
         function sendAutoguiderCommand(start) {
+
             fetch('/command_autoguider', {
                 method: 'POST',
                 headers: {
@@ -325,27 +252,38 @@
             });
         }
 
-        const socket = io();
-
-        // Listen for command output from the server
-        socket.on('command_output', (data) => {
-            const shellOutput = document.getElementById('shell-output');
-            shellOutput.value += data.output; // Append new output
-            shellOutput.scrollTop = shellOutput.scrollHeight; // Auto-scroll to the bottom
-        });
-
-        function executeCommand() {
-            const commandInput = document.getElementById('shell-input');
-            const command = commandInput.value.trim();
-            if (!command) {
-                alert('Error: Command cannot be empty.');
-                return;
-            }
-
-            // Send the command to the server
-            socket.emit('execute_command', { command: command });
-            commandInput.value = ''; // Clear the input field
+        function updateScopeInfo() {
+            fetch('/scope_info')
+                .then(response => response.json())
+                .then(data => {
+                    if(data.pier) {
+                        document.getElementById('pier_w').checked = (data.pier === 'W');
+                        document.getElementById('pier_e').checked = (data.pier === 'E');
+                        document.getElementById('tracking').checked = (data.tracking === 'enabled');
+                    }
+                })  
+            .catch(error => appendToResult('Error:', error));
         }
+        
+        setInterval(updateScopeInfo, 1000);
+
+        function submitSetting(name, value) {
+            fetch(`/set_${name}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `${name}=${value}`
+            })
+            .catch(error => appendToResult('Error:', error));
+        }
+
+        function setPier(pier) {
+            submitSetting("pier", pier);
+        }
+        
+        function setTracking(isTracking) {
+            submitSetting("tracking", isTracking);
+        }
+
 
     </script>
 </body>

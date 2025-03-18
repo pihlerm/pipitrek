@@ -23,12 +23,11 @@ apt install -y \
 	python3-opencv \
 	python3-flask \
 	python3-requests \
-	python3-flask-socketio \
 	libgpiod \
 	gpiod \
 	python3-libgpiod
 	
-
+pip3 install flask flask-sock --break-system-packages
 
 # Configure Nginx for HTTP proxy
 echo "Setting up Nginx..."

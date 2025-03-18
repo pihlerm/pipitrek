@@ -257,9 +257,9 @@ class Autoguider:
         if self.last_correction["dec"] != 0:
             telescope = Telescope()
             if self.last_correction["dec"]==1:
-                telescope.send_correction('n')
-            else:
                 telescope.send_correction('s')
+            else:
+                telescope.send_correction('n')
 
     def calculate_drift(self, centroid):
         if centroid and self.tracked_centroid:

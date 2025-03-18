@@ -2,96 +2,43 @@
 <html>
 <head>
     <title>Autoguider Live Feed</title>
-    <style>
-        img {
-          cursor: crosshair;
-        }
-        .hidden {
-          display: none;
-        }
-        #canvas {
-          position: absolute;
-          top: 0;
-          left: 0;
-          z-index: 10;
-        }
-        #video_container {
-          position: relative;
-          display: inline-block;
-        }
-        .parameter {
-          margin-bottom: 5px;
-        }
-        .parameter input {
-          margin-left: 10px;
-        }
-        .control-button {
-            width: 50px;
-            height: 50px;
-            margin: 5px;
-            font-size: 24px;
-            text-align: center;
-            vertical-align: middle;
-        }
-        .tracking-pad {
-            display: grid;
-            grid-template-columns: repeat(3, 50px);
-            grid-gap: 5px;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .parameters-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 10px 0;
-        }
-
-        .parameters-table td {
-            padding: 0px;
-            vertical-align: middle;
-        }
-
-        .parameters-table td:first-child {
-            text-align: left;
-            font-weight: normal;
-        }
-
-        .parameters-table td:nth-child(2) {
-            display: flex;
-            align-items: center;
-            gap: 10px; /* Space between input and span */
-        }
-
-        input[type="range"] {
-            width: 200px; /* Adjust as needed */
-        }
-
-        span {
-            min-width: 50px; /* Ensure consistent spacing */
-            text-align: left;
-        }
-    </style>
+    <link rel="stylesheet" href="../static/style.css" />
+    <script src="../static/chart.js"></script>
 </head>
-<body>
-    <p>Autoguider 0.4</p>
-    <button onclick="showVideoFeed()">Show Video Feed</button>
-    <button onclick="showThreshFeed()">Show Threshold Feed</button>
-    <button onclick="showControl()">Show Control</button>
-    <button onclick="shutdown()">Shutdown</button>
+<body onload="Load()">
+    <button class="command-button" onclick="showControl()">Show Control</button>
+    <button class="command-button" onclick="showVideoFeed()">Show Video Feed</button>
+    <button class="command-button" onclick="showThreshFeed()">Show Threshold Feed</button>
+    <button class="command-button" onclick="shutdown()">Shutdown</button>
+    Autoguider 0.4
 
-    <table style="width:100%;">
+    <table style="width:100%; height:740px;">
         <tr>
             <td>
                 <div id="video_container">
-                    <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720">
+                    <iframe id="control_frame" src="{{ url_for('control') }}" width="1280" height="720"></iframe>
+                    <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720" class="hidden">
                     <img id="thresh_feed" src="{{ url_for('thresh_feed') }}" width="1280" height="720" class="hidden">
-                    <iframe id="control_frame" src="{{ url_for('control') }}" width="1280" height="720" class="hidden"></iframe>
-                    <canvas id="canvas" width="1280" height="720"></canvas>
+                    <canvas id="canvas" width="1280" height="720" class="hidden"></canvas>
                 </div>
             </td>
-            <td>
-                <table class="parameters-table">
+            <td >
+                <table id="autoguider_panel" class="parameters-table">
+                    
+                    <tr>
+                        <td><input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input></td>
+                        <td></td>
+                    </tr>
+
+                    <tr>
+                        <td><button class="command-button" onclick="acquire()">Acquire Star</button></td>
+                        <td>Acquire the brightest guide star.</td>
+                    </tr>
+                    <tr>
+                        <td><button class="command-button" onclick="calibrate()">Calibrate angle</button></td>
+                        <td>Find rotation of ra/dec axis. Moves telescope.</td>
+                    </tr>
+
                     <tr>
                         <td><label for="threshold">Threshold:</label></td>
                         <td>
@@ -169,62 +116,96 @@
                             <span id="b_channel_value">{{ b_channel }}</span>
                         </td>
                     </tr>
+                    <tr>
+                        <td>
+                            <p>dx px  : <span id="dx">0</span> dy px: <span id="dy">0</span></p>            
+                            <p>RA arcs: <span id="ra_arcsec">0.0</span> DEC arcs: <span id="dec_arcsec">0.0</span></p>
+                            <p>RA corr  : <span id="ra">0</span> DEC corr:   <span id="dec">0</span></p>
+                        </td>
+                        <td>
+                            <div >
+                                <table>
+                                    <tr>
+                                        <td></td>
+                                        <td>
+                                            <button class="control-button" onclick="sendCorrection('n')">↑</button>
+                                        </td>
+                                        <td></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <button class="control-button" onclick="sendCorrection('e')">←</button>
+                                        </td>
+                                        <td></td>
+                                        <td>
+                                            <button class="control-button" onclick="sendCorrection('w')">→</button>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td></td>
+                                        <td>
+                                            <button class="control-button" onclick="sendCorrection('s')">↓</button>
+                                        </td>
+                                        <td></td>
+                                    </tr>
+                                </table>
+                                
+                            </div>
+                        </td>
+                    </tr>
                 </table>
-
-                <button onclick="acquire()">Acquire Star</button>
-                <button onclick="calibrate()">Calibrate angle</button>
-                <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input>
-                <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>Tracking</input>
-                <div>
-                    <label>Pier:</label>
-                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
-                    <label for="pier_w">W</label>
-                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
-                    <label for="pier_e">E</label>
-                </div>
-            
-                <p>dx px  : <span id="dx">0</span> dy px: <span id="dy">0</span></p>            
-                <p>RA arcs: <span id="ra_arcsec">0.0</span> DEC arcs: <span id="dec_arcsec">0.0</span></p>
-                <p>RA corr  : <span id="ra">0</span> DEC corr:   <span id="dec">0</span></p>
-                <div >
-                    <table>
-                        <tr>
-                            <td></td>
-                            <td>
-                                <button class="control-button" onclick="sendCorrection('n')">↑</button>
-                            </td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td>
-                                <button class="control-button" onclick="sendCorrection('w')">←</button>
-                            </td>
-                            <td></td>
-                            <td>
-                                <button class="control-button" onclick="sendCorrection('e')">→</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td></td>
-                            <td>
-                                <button class="control-button" onclick="sendCorrection('s')">↓</button>
-                            </td>
-                            <td></td>
-                        </tr>
-                    </table>
-                    
-                </div>
             </td>
         </tr>
     </table>
-
+    <canvas id="correctionsChart" width="1200" height="300"></canvas>
 </body>
 
 <script>
+    let correctionsChart;
+
+    function initializeChart() {
+        const ctx = document.getElementById('correctionsChart').getContext('2d');
+        correctionsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'RA', data: [], borderColor: 'red', fill: false },
+                    { label: 'DEC', data: [], borderColor: 'blue', fill: false },
+                    { label: 'DX', data: [], borderColor: 'green', fill: false },
+                    { label: 'DY', data: [], borderColor: 'orange', fill: false },
+                    { label: 'RA Arcsec', data: [], borderColor: 'purple', fill: false },
+                    { label: 'DEC Arcsec', data: [], borderColor: 'brown', fill: false },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { title: { display: true, text: 'Time' } },
+                    y: { title: { display: true, text: 'Values' } },
+                },
+            },
+        });
+    }
+
+    function Load() {
+
+        // Call this function once when the page loads
+        initializeChart();
+
+    }
+    
     function updateCorrections() {
         fetch('/properties')
             .then(response => response.json())
             .then(data => {
+                if(data.status === 'error') {
+                    // autoguider is off
+                    document.getElementById('autoguider_panel').classList.add('disabled');
+                    return;
+                }
+                document.getElementById('autoguider_panel').classList.remove('disabled');
+                
                 document.getElementById('ra').textContent = data.last_correction.ra;
                 document.getElementById('dec').textContent = data.last_correction.dec;
                 document.getElementById('dx').textContent = data.last_correction.dx;
@@ -263,11 +244,6 @@
 
                 document.getElementById('guiding').checked = data.guiding;
 
-                if(data.scope_info) {
-                    document.getElementById('pier_w').checked = data.scope_info.pier === 'W';
-                    document.getElementById('pier_e').checked = data.scope_info.pier === 'E';
-                    document.getElementById('tracking').checked = data.scope_info.tracking === 'enabled';
-                }
 
                 const canvas = document.getElementById('canvas');
                 const ctx = canvas.getContext('2d');
@@ -288,6 +264,30 @@
                 }
                 
                 drawAxes(data.rotation_angle);
+
+
+
+
+                // Update the chart with new data
+                const currentTime = new Date().toLocaleTimeString(); // Use current time as the label
+
+                // Add new data points to each dataset
+                correctionsChart.data.labels.push(currentTime);
+                correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
+                correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
+                correctionsChart.data.datasets[2].data.push(data.last_correction.dx);
+                correctionsChart.data.datasets[3].data.push(data.last_correction.dy);
+                correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
+                correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
+
+                // Limit the number of data points to avoid overcrowding
+                if (correctionsChart.data.labels.length > 120) {
+                    correctionsChart.data.labels.shift(); // Remove the oldest label
+                    correctionsChart.data.datasets.forEach(dataset => dataset.data.shift()); // Remove the oldest data point
+                }
+
+                // Update the chart
+                correctionsChart.update();
 
             })
             .catch(error => console.error('Error:', error));
@@ -411,13 +411,6 @@
     function setGuiding(isGuiding) {
       submitSetting("guiding", isGuiding);
     }
-    function setTracking(isTracking) {
-      submitSetting("tracking", isTracking);
-    }
-
-    function setPier(pier) {
-        submitSetting("pier", pier);
-    }
 
     function acquire() {
         fetch('/acquire', { method: 'POST' })
@@ -445,6 +438,9 @@
     });
 
     function showVideoFeed() {
+        document.getElementById('video_feed').src = "{{ url_for('video_feed') }}";
+        document.getElementById('thresh_feed').src = '';
+
         document.getElementById('video_feed').classList.remove('hidden');
         document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.add('hidden');
@@ -452,6 +448,9 @@
     }
 
     function showThreshFeed() {
+        document.getElementById('video_feed').src = '';
+        document.getElementById('thresh_feed').src = "{{ url_for('thresh_feed') }}";
+
         document.getElementById('video_feed').classList.add('hidden');
         document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.remove('hidden');
@@ -459,6 +458,8 @@
     }
 
     function showControl() {
+        document.getElementById('video_feed').src = '';
+        document.getElementById('thresh_feed').src = '';
         document.getElementById('video_feed').classList.add('hidden');
         document.getElementById('thresh_feed').classList.add('hidden');
         document.getElementById('canvas').classList.add('hidden');
