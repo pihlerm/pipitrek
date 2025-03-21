@@ -19,8 +19,8 @@ class Telescope:
     def __init__(self):
         if not hasattr(self, '_initialized'):
             self._initialized = True
-            self._virtual_port = VirtualSerialPort()
-            self._virtual_port.open()
+#            self._virtual_port = VirtualSerialPort()
+#            self._virtual_port.open()
             self.open_serial()
             self.pause = False
             self.scope_info = None
@@ -28,8 +28,12 @@ class Telescope:
             self.tcp_serial = TCPSerial()
             self.tcp_serial.open()  
             self.lock = RLock()  # Thread lock for serial operations
-            time.sleep(2) # wait arduino
-            self.get_info()
+            self.scope_info = {}
+            self.scope_info["pec"] = {}
+            self.scope_info["pec"]["progress"] = 0
+            self.scope_info["pier"] = "W"
+            self.scope_info["quiet"] = False
+            self.quiet = False
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
@@ -44,6 +48,13 @@ class Telescope:
         self._serial_connection.dtr = False  # Disable DTR to prevent reset
         self._serial_connection.flush()  # Clear the buffer
         print("Telescope serial connection initialized")
+
+    def current_pecpos(self):
+        if self.scope_info and "pec" in self.scope_info and "progress" in self.scope_info["pec"]:
+            pec_progress = self.scope_info["pec"]["progress"]
+            if isinstance(pec_progress, int) and 0 <= pec_progress <= 99:
+                return pec_progress
+        return 0
 
 
     def try_on_scope(self, func):
@@ -68,30 +79,48 @@ class Telescope:
                         raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
-        #print(f"scope send: {data}")
+        print(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
-        #print(f"scope read: {data}")
+        print(f"scope read: {data}")
         return data
 
     def readline_scope(self, timeout=1):
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
-        #print(f"scope readline: {data}")
+        print(f"scope readline: {data}")
         return data
 
     def run_serial_bridge(self):
         self.running = True
         
-        virt = self._virtual_port
+ #       virt = self._virtual_port
         bt = self.bt_serial
         tcp = self.tcp_serial
 
         self._serial_connection.timeout = 0  # Non-blocking mode
+        # last PEC call time
+        last_pec_position_time = 0
+        # last info call time
+        last_info_time = 0
+
         print("Starting serial bridge...")
         while self.running:
             if not self.pause:
+                current_time = time.time()
+                
+                if not self.quiet:  # in quiet mode, do not disturb traffic
+                    # get PEC position every 10 seconds
+                    if current_time - last_pec_position_time >= 10:
+                        self.get_PEC_position()
+                        last_pec_position_time = current_time
+
+                    # get info every 33 seconds
+                    if current_time - last_info_time >= 33:
+                        self.get_info()
+                        last_info_time = current_time
+
                 # check if btserial open/closed; it will auto open/close serial port
                 bt.check_status_bt()
 
@@ -100,10 +129,10 @@ class Telescope:
                     if data:                         
                         self.write_scope(data)  # Write it to scope
 
-                if virt.in_waiting_tx() > 0:  # Check if there’s any data waiting
-                    data = virt.read_tx(virt.in_waiting_tx())  # Read all available bytes
-                    if data:
-                        self.write_scope(data)  # Write it to the other port
+ #               if virt.in_waiting_tx() > 0:  # Check if there’s any data waiting
+ #                   data = virt.read_tx(virt.in_waiting_tx())  # Read all available bytes
+ #                   if data:
+ #                       self.write_scope(data)  # Write it to the other port
 
                 if tcp.in_waiting() > 0:  # Check if there’s any data waiting
                     data = tcp.read(tcp.in_waiting())  # Read all available bytes
@@ -116,7 +145,7 @@ class Telescope:
                         if data:  # Ensure data was read                        
                             bt.write(data)       # will write if open
                             tcp.write(data)  # will write if open
-                            virt.write_rx(data)  # will write if open
+#                           virt.write_rx(data)  # will write if open
                 
                 # Brief sleep to avoid high CPU usage
                 time.sleep(0.01)  # 10ms delay
@@ -133,12 +162,17 @@ class Telescope:
 
     def reset_arduino(self):
         with self.lock:
+            # get PEC
+            self.get_PEC_position()
             self._serial_connection.dtr = True
             time.sleep(0.5)
             self._serial_connection.dtr = False
             self.close_connection()
             time.sleep(2)
             self.open_serial()
+            time.sleep(2)
+            self.send_PEC_position(self.current_pecpos())
+            self.send_tracking(True)    #now enable tracking
 
     def reset_usb(self):
         try:
@@ -164,54 +198,108 @@ class Telescope:
             return False
 
 
-    def send_command(self, command):
-        self._virtual_port.write_tx(command.encode())
+#    def send_command(self, command):
+#        self._virtual_port.write_tx(command.encode())
 
-    def read_response(self, timeout=10):
-        return self._virtual_port.readline_rx(timeout=timeout).decode().strip()
+#    def read_response(self, timeout=10):
+#        return self._virtual_port.readline_rx(timeout = timeout).decode().strip()
 
-    def read_until_timeout(self, timeout=1):       
-        return self._virtual_port.readline_rx(timeout = timeout).decode().strip()
+#    def read_until_timeout(self, timeout=1):       
+#        return self._virtual_port.readline_rx(timeout = timeout).decode().strip()
 
-    def send_move(self, direction):
-        self.send_command(f":M{direction}#")
+    def set_quiet(self, quiet):
+        self.scope_info["quiet"] = quiet
+        self.quiet= quiet
 
-    def send_stop(self, direction=""):
-        self.send_command(f":Q{direction}#")
-
-    def send_tracking(self, tracking=True):
-        if tracking:
-            self.send_command("!TE#")
-        else:
-            self.send_command("!TD#")
-
-    
     def send_direct_command(self, command):
-        self.write_scope(command.encode())
+        with self.lock:
+            self.write_scope(command.encode())
 
     def read_direct_response(self):
-        self._serial_connection.timeout = 1
-        data =  self.readline_scope().decode().strip()
-        self._serial_connection.timeout = 0
-        return data
+        with self.lock:
+            self._serial_connection.timeout = 1
+            data =  self.readline_scope().decode().strip()
+            self._serial_connection.timeout = 0
+            return data
 
     def clear_direct_inbuffer(self):
-        self._serial_connection.timeout = 1
-        while self._serial_connection.in_waiting:
-            self._serial_connection.read(1)             
-        self._serial_connection.timeout = 0
+        with self.lock:
+            self._serial_connection.timeout = 1
+            while self._serial_connection.in_waiting:
+                self._serial_connection.read(1)             
+            self._serial_connection.timeout = 0
 
+    def send_move(self, direction):
+        self.send_direct_command(f":M{direction}#")
+
+    def send_stop(self, direction=""):
+        self.send_direct_command(f":Q{direction}#")
+
+    def send_speed(self, speed):
+        self.send_direct_command(f":R{speed}#")
+
+    def send_PEC_position(self, position=0):
+        if position<0 or position>99:
+            print(f"PEC position must be 0-99 but is {position}")
+            return False
+        with self.lock:
+            self.send_direct_command(f"!PS{int(position):02d}#")
+            resp = self.read_direct_response()
+
+    def get_PEC_position(self):
+        with self.lock:
+            self.send_direct_command(f"!PG#")
+            resp = self.read_direct_response().rstrip('#')
+        try:
+            pos = int(resp)
+        except ValueError:
+            pos = 0
+        self.scope_info["pec"]["progress"] = pos
+
+    def send_tracking(self, tracking=True):
+        with self.lock:
+            if tracking:
+                self.send_direct_command("!TE#")
+            else:
+                self.send_direct_command("!TD#")
+            resp = self.read_direct_response()
 
     def send_pier(self, pier):
         if pier not in ['W', 'E']:
             return False
-        self.send_command(f"!M{pier}#")
+        with self.lock:
+            self.send_direct_command(f"!M{pier}#")
+            resp = self.read_direct_response()
         return True
 
     def send_correction(self, direction, t=0.5):
-        self.send_command(f":M{direction}#")
+        self.send_direct_command(f":M{direction}#")
         time.sleep(t)
-        self.send_command(f":Q{direction}#")
+        self.send_direct_command(f":Q{direction}#")
+
+    def send_camera(self, shots, exposure):
+        with self.lock:
+            try:
+                self.send_direct_command(f"!CN{int(shots):03d}#")
+                resp = self.read_direct_response()
+                self.send_direct_command(f"!CE{int(exposure):03d}#")
+                resp = self.read_direct_response()
+                return True
+            except ValueError:
+                print(f"Error: shots({shots})/exposure({exposure}) must be a valid integer.")    
+                return False
+
+    def start_camera(self):
+        with self.lock:
+            self.send_direct_command(f"!CO#")
+            resp = self.read_direct_response()
+            return True
+
+    def stop_camera(self):
+        with self.lock:
+            self.send_direct_command(f"!CX#")
+            resp = self.read_direct_response()
+            return True
 
     def get_info(self):
         with self.lock:
@@ -245,10 +333,17 @@ class Telescope:
             data["pier"] = lines[5].split()[1]
             # Line 7: PEC
             pec_parts = lines[6].split()
-            data["pec"] = {
-                "progress": pec_parts[1].lstrip('@'),
-                "value": int(pec_parts[2])
-            }
+            if pec_parts[1]=='disabled':
+                data["pec"] = {
+                    "progress": pec_parts[1],
+                    "value": 0
+                }
+            else:
+                data["pec"] = {
+                    "progress": pec_parts[1].lstrip('@').rstrip('%'),
+                    "value": int(pec_parts[2])
+                }
+
             # Line 8: Camera
             camera_parts = lines[7].split()
             data["camera"] = {
@@ -263,26 +358,29 @@ class Telescope:
 
     def send_pec_table(self, pec_table):
 
-        self.read_until_timeout(0.1) # clear in buffer
-        self.send_command(f"!PI#")
+        with self.lock:
+            self.clear_direct_inbuffer() # clear in buffer
+            self.send_direct_command(f"!PI#")
 
-        num_points = len(pec_table) // 2
-        self.send_command(f"PEC {num_points} ")
-        
-        data_str = ",".join(map(str, pec_table)) + "\n"
-        self.send_command(data_str)
-        
-        print("PEC table sent.")
-        data = self.read_until_timeout(0.3)
-        return data
+            num_points = len(pec_table) // 2
+            self.send_direct_command(f"PEC {num_points} ")
+            
+            data_str = ",".join(map(str, pec_table)) + "\n"
+            self.send_direct_command(data_str)
+            
+            print("PEC table sent.")
+            data = self.read_direct_response()
+            return data
 
     def receive_pec_table(self):
 
-        self.read_until_timeout(0.1) # clear in buffer
-        self.send_command("!PO#")  # Request PEC table from Arduino
+        with self.lock:
+            self.clear_direct_inbuffer() # clear in buffer
+            self.send_direct_command("!PO#")  # Request PEC table from Arduino
 
-        # Read first response line, expecting "PEC num_points 1,2,3,...,4"
-        response = self.read_response()
+            # Read first response line, expecting "PEC num_points 1,2,3,...,4"
+            response = self.read_direct_response()
+
         print(f"{response}")
 
         if not response.startswith("PEC "):

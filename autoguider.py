@@ -8,44 +8,50 @@ from telescope import Telescope
 from threading import Thread, Lock
 from v412_ctl import get_v4l2_controls
 
+null_correction = { "ra": 0 , "dec": 0, "dx": 0, "dy": 0, "ra_arcsec": 0, "dec_arcsec": 0 }
+
 class Autoguider:
     def __init__(self):
-        self.frame = None  # Last captured frame
-        self.threshold = None  # Last threshold image
-        self.last_thresh = None
+        self.guiding = True                 # Guiding status on/off
 
-        self.guiding = True  # Guiding status
+        self.frame = None                   # Last captured frame
+        self.threshold = None               # Last threshold image
+        self.last_loop_time = 0             # Last loop time
+        self.last_status = ""               # Last status message
+        self.tracked_centroid = None        # Reference point we are tracking
+        self.current_centroid = None        # Last position of tracked star
+        self.star_locked = False            # If autoguider currently has a guide star locked
+        # last error and correction needed
+        self.last_correction = null_correction
 
-        self.last_loop_time = 0  # Last loop time
-        self.last_status = ""  # Last status message
-
-        self.tracked_centroid = None  # Reference point
-        self.current_centroid = None  # Position of last detect_star
-        self.max_drift = 10  # Integer for max_drift (0–50)
-        self.star_size = 100  # Integer for star_size (1–100)
-        self.gray_threshold = 150  # Integer for threshold (0–255)
-        self.rotation_angle = 0.0  # Float for rotation angle (-180 to 180)
-        self.pixel_scale = 3.6  # Float for pixel scale (0.1–10.0)
-        self.last_correction = {"ra": 0, "dec": 0, "dx": 0, "dy": 0, "ra_arcsec": 0, "dec_arcsec": 0}
-        self.exposure = 0  # Float for exposure (0.0–10.0 0=AUTO)
-
-        self.r_channel = 1.0  # Float for R channel (0.0–1.0)
-        self.g_channel = 1.0  # Float for G channel (0.0–1.0)
-        self.b_channel = 1.0  # Float for B channel (0.0–1.0)
-
-        self.integrate_frames = 5  # no. frames to integrate
-        self.time_period = 1  # Time period for tracking in seconds
+        # tracking settings
+        self.max_drift = 10                 # Integer for max_drift (0–50)
+        self.star_size = 100                # Integer for star_size (1–100)
+        self.gray_threshold = 150           # Integer for threshold (0–255)
+        self.rotation_angle = 0.0           # Float for rotation angle (-180 to 180)
+        self.pixel_scale = 3.6              # Float for pixel scale (0.1–10.0)
+        self.time_period = 1                # Time period for tracking in seconds
+        self.correction_length = 0.6        # Correction length: time between move start and move end (seconds)
+        
+        # camera settings
+        self.exposure = 0                   # Float for exposure (0.0–10.0 0=AUTO)
+        self.r_channel = 1.0                # Float for R channel (0.0–1.0)
+        self.g_channel = 1.0                # Float for G channel (0.0–1.0)
+        self.b_channel = 1.0                # Float for B channel (0.0–1.0)
+        self.integrate_frames = 5           # no. frames to integrate
 
         self.output_dir = "/root/astro/images"
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self.max_failures = 5  # Increased to allow more recovery attempts
-        self.failure_count = 0
-        self.recovery_attempts = 0
-        self.max_recovery_attempts = 3
+        # camera usb reconnect/retry settings
+        self.max_failures = 5               # Number of failures to attept reconnect
+        self.failure_count = 0              # Current number of failures
+        self.recovery_attempts = 0          # Current number of recovery attempts
+        self.max_recovery_attempts = 3      # Max recovery attempts before we quit
         
-        self.cap = None
-        self.controls = get_v4l2_controls()
+        
+        self.cap = None                     # cv2 object
+        self.controls = get_v4l2_controls() 
         if self.controls is None:
             raise RuntimeError("Failed to fetch v4l2 controls. Ensure the camera is connected and v4l2-ctl is installed.")
               
@@ -90,23 +96,46 @@ class Autoguider:
         # disable awb
         self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)  
 
-        #if self.cap.isOpened():
-        #    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.running = False
         self.lock = Lock()  # Thread lock for frame and threshold
+
+    def write_track_log(self, log_entry):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        day = datetime.datetime.now().strftime("%Y-%m-%d")
+        with open(f"tracking_{day}.log", "a") as log_file:
+            log_file.write(f"{timestamp}, {log_entry}\n")
+
+
+#       How It Works
+#       Initial Centroid:
+#       Uses cv2.findContours() and cv2.moments() on the thresholded image to find the unweighted centroid of the largest or nearest star (same as your original code).
+#       Returns None if no valid star is found (area too small or zero moment).
+#       Cropping:
+#       Defines a square region (crop_size x crop_size, e.g., 50x50 pixels) around the initial centroid (cx, cy).
+#       Clamps edges to avoid exceeding image bounds (max, min).
+#       Extracts this region from the original grayscale image (gray), not the thresholded one, to preserve brightness data.
+#       Weighted Centroid:
+#       Applies cv2.moments() to the cropped grayscale region (star_region).
+#       Weights pixel positions by their intensity (0–255), giving a centroid skewed toward the brightest part of the star.
+#       Falls back to the initial centroid if the weighted moment fails (e.g., m00 == 0).
+#       Coordinate Adjustment:
+#       Adds the crop’s top-left corner (x0, y0) to the weighted centroid (cx_weighted, cy_weighted) to get full-image coordinates (cx_full, cy_full).
+#       Returns as a tuple of floats for sub-pixel precision.
 
     def detect_star(self, frame, search_near=None):
         with self.lock:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
-            #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             _, thresh = cv2.threshold(gray, self.gray_threshold, 255, cv2.THRESH_BINARY)
             self.threshold = thresh  # Store last threshold
+
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
+
+        # Find the largest or nearest contour
         if search_near is not None:
-            # Search near the provided centroid
-            distances = [np.linalg.norm(np.array(c.mean(axis=0)[0]) - np.array(search_near)) for c in contours if len(c) > 0]
+            distances = [np.linalg.norm(np.array(c.mean(axis=0)[0]) - np.array(search_near)) 
+                        for c in contours if len(c) > 0]
             if distances:
                 closest_idx = np.argmin(distances)
                 largest = contours[closest_idx]
@@ -114,12 +143,69 @@ class Autoguider:
                 largest = max(contours, key=cv2.contourArea)
         else:
             largest = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(largest) > self.star_size:
-            M = cv2.moments(largest)
-            if M["m00"] != 0:
-                centroid = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-                return centroid
-        return None
+
+        # Check if contour is large enough
+        if cv2.contourArea(largest) <= self.star_size:
+            return None
+
+        # Initial unweighted centroid and moments
+        M = cv2.moments(largest)
+        if M["m00"] == 0:
+            return None
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+        initial_centroid = (cx, cy)
+
+        # Adaptive crop size based on moments
+        area_diameter = np.sqrt(M["m00"])  # Rough diameter from area
+        x_spread = np.sqrt(M["mu20"] / M["m00"]) if M["m00"] > 0 else 0  # Std dev in x
+        y_spread = np.sqrt(M["mu02"] / M["m00"]) if M["m00"] > 0 else 0  # Std dev in y
+        max_spread = max(area_diameter, x_spread, y_spread)
+        crop_size = int(max_spread * 3)  # 3x spread for full star + buffer
+        crop_size = max(crop_size, 10)   # Minimum size (e.g., 10 pixels)
+        crop_size = min(crop_size, 50)   # Maximum size to avoid over-cropping
+
+        # Ensure even crop_size for symmetry
+        crop_size = crop_size + (crop_size % 2)  # Round up to even number
+        half_size = crop_size // 2
+
+        # Crop grayscale image
+        x0 = max(0, cx - half_size)
+        y0 = max(0, cy - half_size)
+        x1 = min(gray.shape[1], cx + half_size)
+        y1 = min(gray.shape[0], cy + half_size)
+        star_region = gray[y0:y1, x0:x1]
+
+        # Optional: Background subtraction
+        background = np.median(star_region)
+        star_region = cv2.subtract(star_region, int(background))
+        
+        
+        # Make a copy of star_region
+        enhanced_star_region = star_region.copy()
+
+        # Apply gamma correction with gamma = 3.5
+        gamma = 3.5
+        inv_gamma = 1.0 / gamma
+        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
+        enhanced_star_region = cv2.LUT(enhanced_star_region, lut)
+        with self.lock:
+            self.centroid_image = enhanced_star_region
+
+        # Weighted centroid
+        M_weighted = cv2.moments(star_region)
+        if M_weighted["m00"] == 0:
+            print(f"Found rough centroid: {cx}, {cy}")
+            return initial_centroid  # Fallback
+        cx_weighted = M_weighted["m10"] / M_weighted["m00"]
+        cy_weighted = M_weighted["m01"] / M_weighted["m00"]
+
+        # Adjust for crop origin
+        cx_full = round(cx_weighted + x0, 4)  # Round to 4 decimal places
+        cy_full = round(cy_weighted + y0, 4)  # Round to 4 decimal places
+
+        print(f"Found precise centroid: {cx_full}, {cy_full}")
+        return (cx_full, cy_full)
 
     def set_exposure(self, exp) :
         self.exposure = exp
@@ -155,8 +241,8 @@ class Autoguider:
     def rotate_vector(self, dx, dy):
         """Rotate (dx, dy) vector by rotation_angle (degrees) counterclockwise."""
         angle_rad = math.radians(self.rotation_angle)
-        new_dx = dx * math.cos(angle_rad) - dy * math.sin(angle_rad)
-        new_dy = dx * math.sin(angle_rad) + dy * math.cos(angle_rad)
+        new_dx = round(dx * math.cos(angle_rad) - dy * math.sin(angle_rad), 4)
+        new_dy = round(dx * math.sin(angle_rad) + dy * math.cos(angle_rad), 4)
         return new_dx, new_dy
     
     def capture_frame(self):
@@ -236,12 +322,6 @@ class Autoguider:
             self.write_track_log(self.last_status)
         
 
-    def write_track_log(self, log_entry):
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        day = datetime.datetime.now().strftime("%Y-%m-%d")
-        with open(f"tracking_{day}.log", "a") as log_file:
-            log_file.write(f"{timestamp}, {log_entry}\n")
-
     def guide_scope(self):
         trackmsg =  f"move({self.last_correction['ra']}, {self.last_correction['dec']})"
         self.write_track_log(trackmsg)
@@ -250,24 +330,24 @@ class Autoguider:
         if self.last_correction["ra"] != 0:
             telescope = Telescope()
             if self.last_correction["ra"]==1:
-                telescope.send_correction('w')
+                telescope.send_correction('w', self.correction_length)
             else:
-                telescope.send_correction('e')
+                telescope.send_correction('e', self.correction_length)
 
         if self.last_correction["dec"] != 0:
             telescope = Telescope()
             if self.last_correction["dec"]==1:
-                telescope.send_correction('s')
+                telescope.send_correction('s', self.correction_length)
             else:
-                telescope.send_correction('n')
+                telescope.send_correction('n', self.correction_length)
 
     def calculate_drift(self, centroid):
         if centroid and self.tracked_centroid:
-            dx = float(centroid[0] - self.tracked_centroid[0])
-            dy = float(centroid[1] - self.tracked_centroid[1])
+            dx = round(float(centroid[0] - self.tracked_centroid[0]), 4)
+            dy = round(float(centroid[1] - self.tracked_centroid[1]), 4)
             dx_rot, dy_rot = self.rotate_vector(dx, dy)
-            ra_arcsec = dx_rot * self.pixel_scale
-            dec_arcsec = dy_rot * self.pixel_scale
+            ra_arcsec = round(dx_rot * self.pixel_scale, 4)
+            dec_arcsec = round(dy_rot * self.pixel_scale, 4)
             self.last_correction = {
                 "ra": 1 if ra_arcsec > self.max_drift else -1 if ra_arcsec < -self.max_drift else 0,
                 "dec": 1 if dec_arcsec > self.max_drift else -1 if dec_arcsec < -self.max_drift else 0,
@@ -335,6 +415,7 @@ class Autoguider:
                     detect_time = time.perf_counter()
                     print(f"detect_star took {detect_time - frame_time:.2f} seconds")                    # Get current timestamp
                     if centroid and self.tracked_centroid:
+                        self.star_locked = True
                         self.calculate_drift(centroid)
                         self.current_centroid = centroid
                         # Send correction to telescope
@@ -346,18 +427,14 @@ class Autoguider:
                         self.write_track_log(trackmsg)
                         print(trackmsg)
                     else:
-                        self.last_correction = {
-                            "ra": 0 ,
-                            "dec": 0,
-                            "dx": 0, "dy": 0,
-                            "ra_arcsec": 0, "dec_arcsec": 0
-                        }
+                        self.star_locked = False
+                        self.last_correction = null_correction
                         if not centroid:
-                            self.last_status = "LOST TRACKING: Star moved out of frame."
+                            self.last_status = "LOST TRACKING: Tracked star not detected."
                             print(self.last_status)
                             self.write_track_log(self.last_status)
                         else:
-                            self.last_status = "LOST TRACKING: No star detected."
+                            self.last_status = "NO TRACKING: No star being tracked."
                             print(self.last_status)
                             self.write_track_log(self.last_status)
 

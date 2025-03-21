@@ -8,7 +8,7 @@ import logging
 import cv2
 import os
 import signal
-from settings import AutoguiderSettings
+from settings import Settings
 from werkzeug.serving import make_server
 import sys
 import subprocess
@@ -31,10 +31,20 @@ sock = Sock(app)
 # Global variable to track the current process for terminal
 current_process = None
 
+all_settings = Settings()
+all_settings.load_settings()
+
+#telescope startup
 telescope = Telescope()
+
+all_settings.set_telescope_settings(telescope)
+time.sleep(2) # wait arduino
+# update PEC position that was loaded from settings since arduino was restarted
+telescope.send_PEC_position(telescope.current_pecpos())
+telescope.send_pier(telescope.scope_info["pier"])
+telescope.send_tracking(True)    #now enable tracking
 telescope_thread = Thread(target=telescope.run_serial_bridge)
 telescope_thread.start()
-#telescope.get_info()
 
 autoguider = None
 autoguider_sett  = None
@@ -113,6 +123,29 @@ def gen_thresh_frames():
     except Exception as e:
         print(f"Video feed error: {e}", flush=True)
 
+def gen_detail_frames():
+    if  autoguider_thread is None:
+        return
+    try:
+        while autoguider.running:
+            with autoguider.lock:
+                detail = autoguider.centroid_image
+            if detail is None or detail.size == 0:
+                continue
+
+            detail_color = cv2.cvtColor(detail, cv2.COLOR_GRAY2BGR)
+            ret, buffer = cv2.imencode('.jpg', detail_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ret:
+                detail_data = buffer.tobytes()
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + detail_data + b'\r\n')
+            else:
+                print("Threshold encoding failed")
+            time.sleep(1)
+    except GeneratorExit:
+        print("Client disconnected from video feed", flush=True)
+        # Cleanup (e.g., stop camera)
+    except Exception as e:
+        print(f"Video feed error: {e}", flush=True)
 
 
 
@@ -142,34 +175,45 @@ def thresh_feed():
     else:
         return Response(b'', status=503)
 
+@app.route('/detail_feed')
+def detail_feed():
+    if autoguider_thread is not None:
+        return Response(gen_detail_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    else:
+        return Response(b'', status=503)
+
+
 @app.route('/properties', methods=['GET'])
 def get_autoguider_properties():
     if  autoguider_thread is None:
         return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
     else:
         properties = {
-        "tracked_centroid": autoguider.tracked_centroid,
-        "current_centroid": autoguider.current_centroid,
-        "max_drift": autoguider.max_drift,
-        "star_size": autoguider.star_size,
-        "gray_threshold": autoguider.gray_threshold,
-        "rotation_angle": autoguider.rotation_angle,
-        "pixel_scale": autoguider.pixel_scale,
-        "last_correction": autoguider.last_correction,
-        "exposure": autoguider.exposure,
-        "gain": autoguider.gain,
-        "integrate_frames": autoguider.integrate_frames,
-        "r_channel": autoguider.r_channel,
-        "g_channel": autoguider.g_channel,
-        "b_channel": autoguider.b_channel,
-        "guiding": autoguider.guiding
+            "tracked_centroid": autoguider.tracked_centroid,
+            "current_centroid": autoguider.current_centroid,
+            "max_drift": autoguider.max_drift,
+            "star_size": autoguider.star_size,
+            "gray_threshold": autoguider.gray_threshold,
+            "rotation_angle": autoguider.rotation_angle,
+            "pixel_scale": autoguider.pixel_scale,
+            "exposure": autoguider.exposure,
+            "gain": autoguider.gain,
+            "integrate_frames": autoguider.integrate_frames,
+            "r_channel": autoguider.r_channel,
+            "g_channel": autoguider.g_channel,
+            "b_channel": autoguider.b_channel,
+            "guiding": autoguider.guiding,
+            "correction_length" : autoguider.correction_length,
+            "last_correction": autoguider.last_correction,
+            "star_locked": autoguider.star_locked,
+            "last_loop_time": autoguider.last_loop_time,
+            "last_status" : autoguider.last_status
         }
     return jsonify(properties)
 
 @app.route('/scope_info', methods=['GET'])
 def scope_info():
     return jsonify(telescope.scope_info)
-
 
 @app.route('/set_channels', methods=['POST'])
 def set_autoguider_settings():
@@ -276,20 +320,52 @@ def set_tracking():
     tracking = request.form.get('tracking', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
     telescope.scope_info
     telescope.send_tracking(tracking)
-    time.sleep(0.5)
+    time.sleep(0.1)
     telescope.get_info()
     return jsonify({'status': 'success', 'message': f'Tracking set to {tracking}'})
+
+
+@app.route('/set_quiet', methods=['POST'])
+def set_quiet():
+    quiet = request.form.get('quiet', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    telescope.set_quiet(quiet)
+    return jsonify({'status': 'success', 'message': f'Quiet mode set to {quiet}'})
 
 @app.route('/set_pier', methods=['POST'])
 def set_pier():
     pier = request.form.get('pier')
     bok = telescope.send_pier(pier)
-    time.sleep(0.5)
+    time.sleep(0.1)
     telescope.get_info()
     if bok:
         return jsonify({'status': 'success', 'message': f'Pier set to {pier}'})
     else:
         return jsonify({'status': 'error', 'message': 'Invalid pier value'}), 400
+    
+@app.route('/set_camera', methods=['POST'])
+def set_camera():
+    data = request.json
+    shots = data.get('shots')
+    exposure = data.get('exposure')
+    if telescope.send_camera(shots, exposure):
+        return jsonify({'status': 'success', 'message': f'Camera set to shots {shots} and exposure {exposure}'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Invalid numbers'}), 400
+
+@app.route('/command_camera', methods=['POST'])
+def command_camera():
+    data = request.json
+    action = data.get('action')
+    if action=='START':
+       telescope.start_camera()
+       print(f"camera START")
+       return jsonify({'status': 'success', 'message': f'Camera START'})
+    elif  action=='STOP':
+       telescope.stop_camera()
+       print(f"camera STOP")
+       return jsonify({'status': 'success', 'message': f'Camera STOP'})
+    else:
+        return jsonify({'status': 'error', 'message': f'Invalid camera action {action}'}), 400
 
 @app.route('/acquire', methods=['POST'])
 def acquire():
@@ -332,6 +408,17 @@ def control_move():
     else:
         return jsonify({"status": "error", "message": "Invalid direction"}), 400
 
+@app.route('/control_speed', methods=['POST'])
+def control_speed():
+    speed = request.form.get('speed')
+    if speed in ['G', 'C', 'M', 'S']:
+        print(f"Received speed: {speed}")
+        # You can add code here to send the direction command to the telescope
+        telescope.send_speed(speed)
+        return jsonify({"status": "success", "speed": speed})
+    else:
+        return jsonify({"status": "error", "message": "Invalid speed"}), 400
+
 @app.route('/control_stop', methods=['POST'])
 def control_stop():
     direction = request.form.get('direction', default='')
@@ -350,7 +437,7 @@ def command_receivePEC():
     if pec_table:
         return jsonify({"status": "success", "pec_table": pec_table})
     else:
-        return jsonify({"status": "error", "message": "Failed to receive PEC table"})
+        return jsonify({"status": "error", "message": "Failed to receive PEC table"}), 500
 
 @app.route('/command_sendPEC', methods=['POST'])
 def command_sendPEC():
@@ -360,7 +447,22 @@ def command_sendPEC():
         ret = telescope.send_pec_table(pec_table)
         return jsonify({"status": "success", "message": ret})
     else:
-        return jsonify({"status": "error", "message": "Invalid PEC table data"})
+        return jsonify({"status": "error", "message": "Invalid PEC table data"}), 500
+
+@app.route('/set_pec_position', methods=['POST'])
+def set_pec_position():
+    try:
+        pec_position = request.form.get('pec_position', type=float)  # Get pec_position as a float
+        if pec_position is None:
+            raise ValueError("PEC position is missing or invalid")
+        
+        rounded_position = round(pec_position)  # Round the float to the nearest integer
+        print(f"Pec position (rounded): {rounded_position}")
+        telescope.send_PEC_position(int(rounded_position))  # Send the rounded position
+        return jsonify({'status': 'success', 'message': f'PEC pos set to {rounded_position}'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @app.route('/command_upload', methods=['POST'])
 def control_upload():
@@ -375,7 +477,7 @@ def control_upload():
         if telescope.upload_firmware(filename):
             return jsonify({"status": "success"})
         else:
-            return jsonify({"status": "error", "message": "Error uploading file."})
+            return jsonify({"status": "error", "message": "Error uploading file."}), 500
     return 'Invalid file type', 400
 
 @app.route('/control_correction', methods=['POST'])
@@ -408,8 +510,26 @@ def command_info():
         return jsonify({'status': 'success', 'info': info})
     except Exception as e:
         print(f"Exception {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        return jsonify({'status': 'error', 'message': str(e)}), 500
     
+@app.route('/command_goto', methods=['POST'])
+def command_goto():
+    data = request.json
+    ra = data.get('ra')
+    dec = data.get('dec')
+    # Process the RA and DEC values
+    print(f"GOTO command received: RA={ra}, DEC={dec}")
+    return jsonify({'status': 'success', 'message': f'GOTO to RA={ra}, DEC={dec}'})
+
+@app.route('/command_set_to', methods=['POST'])
+def command_set_to():
+    data = request.json
+    ra = data.get('ra')
+    dec = data.get('dec')
+    # Process the RA and DEC values
+    print(f"SET TO command received: RA={ra}, DEC={dec}")
+    return jsonify({'status': 'success', 'message': f'SET TO RA={ra}, DEC={dec}'})
+
 
 # Shutdown route
 @app.route('/shutdown', methods=['POST'])
@@ -511,10 +631,7 @@ def start_autoguider():
     global autoguider, autoguider_sett, autoguider_thread
     try:
         autoguider = Autoguider()
-        autoguider_sett  = AutoguiderSettings()
-        s = autoguider_sett.load_settings()
-        if s:
-            autoguider_sett.set_settings(autoguider, s)
+        all_settings.set_autoguider_settings(autoguider)
         autoguider_thread = Thread(target=autoguider.run_autoguider)
         autoguider_thread.start()
         return jsonify({'status': 'success', 'message': 'Autoguider started successfully'}), 200
@@ -536,7 +653,8 @@ def stop_autoguider():
         return
 
     # Save settings
-    autoguider_sett.save_settings(autoguider_sett.get_settings(autoguider))
+    all_settings.update_autoguider_settings(autoguider)
+    all_settings.save_settings()
     print("Settings saved")
 
     autoguider.running = False
@@ -558,6 +676,10 @@ def cleanup():
     try:
         stop_autoguider()
         # Stop telescope
+        telescope.get_PEC_position()
+        telescope.send_tracking(False)    #disable tracking to not spoil PEC position
+        all_settings.update_telescope_settings(telescope)
+        all_settings.save_settings()
         telescope.running = False
         telescope_thread.join(timeout=10)
         if telescope_thread.is_alive():

@@ -3,6 +3,8 @@
 <head>
     <title>Telescope Control</title>
     <link rel="stylesheet" href="../static/style.css" />
+    <script src="../static/inputmask.min.js"></script>
+    <script src="../static/wheel.js"></script>
 </head>
 <body>
     <h1>Telescope Control</h1>
@@ -13,11 +15,15 @@
                     <img src="../static/PIPITREK.webp" style="width: 100%; max-width: 200px; margin-top: 0px; ">
                 </tr>
                 <tr>
-                    <td></td>
+                    <td>
+                        <button class="control-button" onclick="sendSpeed('G')">slow</button>
+                    </td>
                     <td>
                         <button class="control-button" onclick="sendDirection('n')">↑</button>
                     </td>
-                    <td></td>
+                    <td>
+                        <button class="control-button" onclick="sendSpeed('S')">fast</button>
+                    </td>
                 </tr>
                 <tr>
                     <td>
@@ -35,37 +41,105 @@
                     </td>
                     <td></td>
                 </tr>
+
+                <tr>
+                    <td colspan="3">
+                        <div id="turning-wheel-container">
+                            <canvas id="pec-wheel" width="80" height="80"></canvas>
+                            <div>
+                                <label for="pec-position">PEC</label>
+                                <input class="mini_num_input" type="text" id="pec-position" value="0">
+                                <button class="mini-button" onclick="setPECPosition()">SET</button>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+
             </table>       
         </div>
 
         <div id="command-buttons">
             
-            <button class="command-button" onclick="sendAutoguiderCommand(true)">Start Autoguider</button>
-            <button class="command-button" onclick="sendAutoguiderCommand(false)">Stop Autoguider</button>
-            <button class="command-button" onclick="getInfo()">Get Info</button>
-            <button class="command-button" onclick="receivePEC()">Receive PEC</button>
-            <button class="command-button" onclick="sendPEC()">Send PEC</button>
-            <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
-            <button class="command-button" onclick="showTerminal()">Terminal</button>
-            <div>
-                <label>Pier:</label>
-                <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
-                <label for="pier_w">W</label>
-                <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
-                <label for="pier_e">E</label>
+            <div class = 'two_buttons'>
+                <button class="command-button" onclick="sendAutoguiderCommand(true)">Start Autoguider</button>
+                <button class="command-button" onclick="sendAutoguiderCommand(false)">Stop Autoguider</button>    
             </div>
-            <div>
-                <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
-                <label for="tracking">Tracking</label>
-             </div>
+            <div class = 'two_buttons'>
+                <button class="command-button" onclick="getInfo()">Get Info</button>
+                <button class="command-button" onclick="showTerminal()">Terminal</button>
+            </div>
+            <div class = 'two_buttons'>
+                <button class="command-button" onclick="receivePEC()">Receive PEC</button>
+                <button class="command-button" onclick="sendPEC()">Send PEC</button>
+            </div>
+            <div class = 'two_buttons'>
+                <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
+                <div>
+                    <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" checked>
+                    <label for="quiet">Quiet mode</label>
+                </div>
+            </div>
+            <div class = 'two_buttons'>
+                <div>
+                    <label>Pier:</label>
+                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
+                    <label for="pier_w">W</label>
+                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
+                    <label for="pier_e">E</label>
+                </div>
+                <div>
+                    <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
+                    <label for="tracking">Tracking</label>
+                </div>
+            </div>
 
-            <div id="upload-firmware">
-                <p>Upload Firmware</p>
-                <form id="uploadForm" enctype="multipart/form-data">
-                    <input class="command-button" type="file" id="firmware" name="firmware" accept=".hex">
-                </form>
-                <button class="command-button" type="button" onclick="uploadFirmware()">Upload</button>
+            <div class = 'boxy'>
+                <div class = 'two_buttons'>
+                    <button class="command-button" onclick="submitSetTo()">SET to</button>
+                    <button class="command-button" onclick="submitGoto()">GOTO</button>
+                </div>
+                <div class = 'two_buttons'>
+                    <div>
+                        <label for="ra-input">RA</label>
+                        <input class="two_buttons_input" type="text" id="ra-input" placeholder="+HH:MM:SS#"  required>
+                    </div>
+                    <div>
+                        <label for="dec-input">DE</label>
+                        <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM'SS#"  required>
+                    </div>
+                </div>
             </div>
+            
+            <div class = 'boxy'>
+                Camera
+                <div class = 'two_buttons'>
+                    <div>
+                        <label for="shots-input">Shots</label>
+                        <input class="num_input" type="text" id="shots-input" placeholder="0">
+                    </div>
+                    <div>
+                        <label for="exposure-input"> each </label>
+                        <input class="num_input" type="text" id="exposure-input" placeholder="30">
+                        seconds
+                    </div>
+                </div>
+                <div class = 'two_buttons'>
+                    <button class="command-button" onclick="submitCamera()">SET</button>
+                    <button id="camera-shooting" class="command-button" onclick="startCamera()">START</button>
+                </div>
+            </div>
+
+            <div class = 'two_buttons vspacer'>
+            </div>
+
+            <div id="upload-firmware" class="boxy">
+                Upload Firmware
+                <form id="uploadForm" enctype="multipart/form-data" style="width:100%;">
+                    <input type="file" id="firmware" name="firmware" accept=".hex" style="width:100%;">
+                </form>
+                <button class="command-button red" type="button" onclick="uploadFirmware()">Upload</button>
+            </div>
+
         </div>
         <div id="info-boxes" class = "flex1">
             <textarea id="telescope-info"  placeholder="INFO"></textarea>
@@ -79,6 +153,7 @@
     
 
     <script>
+        PEC_wheel = make_wheel();
 
         last_info = last_pec = "";
 
@@ -91,8 +166,9 @@
         function appendToResult(message) {
             const resultTextarea = document.getElementById('result');
             resultTextarea.value += message + '\n';
+            resultTextarea.scrollTop = resultTextarea.scrollHeight; // Auto-scroll to the bottom
         }
-
+        
         function setInfo(message) {
             const resultTextarea = document.getElementById('telescope-info');
             resultTextarea.value = message;
@@ -105,37 +181,21 @@
         
 
         function sendDirection(direction) {
-            fetch('/control_move', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `direction=${direction}`
-            })
-            .then(response => response.json())
-            .then(data => {
-                appendToResult('Success: ' + JSON.stringify(data));
-            })
-            .catch((error) => {
-                appendToResult('Error: ' + error);
-            });
+            submit('/control_move',
+                `direction=${direction}`
+            );
         }
-
+        
+        function sendSpeed(speed) {
+            submit('/control_speed',
+                `speed=${speed}`
+            );
+        }
+        
         function sendStop() {
-            fetch('/control_stop', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `direction=`
-            })
-            .then(response => response.json())
-            .then(data => {
-                appendToResult('Success: ' + JSON.stringify(data));
-            })
-            .catch((error) => {
-                appendToResult('Error: ' + error);
-            });
+            submit('/control_stop',
+                `direction=`
+            );
         }
 
         function receivePEC() {
@@ -173,20 +233,9 @@
                 }
             });
 
-            fetch('/command_sendPEC', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ pec_table: pecTable })
-            })
-            .then(response => response.json())
-            .then(data => {
-                appendToResult('Success: ' + JSON.stringify(data));
-            })
-            .catch((error) => {
-                appendToResult('Error: ' + error);
-            });
+            submitJSON('/command_sendPEC',
+                { pec_table: pecTable }
+            );
         }
 
 
@@ -208,34 +257,22 @@
         }
 
         function resetArduino() {
-            fetch('/command_reset', {
-                method: 'POST'
-            })
-            .then(response => response.json())
-            .then(data => {
-                appendToResult('Reset Success: ' + JSON.stringify(data));
-            })
-            .catch((error) => {
-                appendToResult('Error: ' + error);
-            });
+            if (confirm("Are you sure you want to reset the Arduino?")) {
+                submit('/command_reset', '');
+            } else {
+                appendToResult('Arduino reset canceled.');
+            }        
         }
 
         function sendAutoguiderCommand(start) {
 
-            fetch('/command_autoguider', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ start: start })
-            })
-            .then(response => response.json())
-            .then(data => {
-                appendToResult('Success: ' + JSON.stringify(data));
-            })
-            .catch(error => {
-                appendToResult('Error:', error);
-            });
+            if(start==false) {
+                if (!confirm("Are you sure you want to stop the Autoguider?")) {
+                    appendToResult('Autoguider shutdown canceled.');
+                    return;
+                }
+            }
+            submitJSON('/command_autoguider', { start: start });
         }
 
         function getInfo() {
@@ -260,21 +297,22 @@
                         document.getElementById('pier_w').checked = (data.pier === 'W');
                         document.getElementById('pier_e').checked = (data.pier === 'E');
                         document.getElementById('tracking').checked = (data.tracking === 'enabled');
+                        document.getElementById('quiet').checked = (data.quiet);
+                        btnCamStart = document.getElementById('camera-shooting');
+                        if(data.camera.state === 'shooting') {
+                            btnCamStart.innerText = 'STOP';
+                            btnCamStart.style.backgroundColor = 'lightcoral'; // Change to light red
+                        } else {
+                            btnCamStart.innerText = 'START';
+                            btnCamStart.style.backgroundColor = ''; // Reset to default
+                        }
+                        PEC_wheel.setPECPositon(data.pec.progress);
                     }
                 })  
             .catch(error => appendToResult('Error:', error));
         }
         
         setInterval(updateScopeInfo, 1000);
-
-        function submitSetting(name, value) {
-            fetch(`/set_${name}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: `${name}=${value}`
-            })
-            .catch(error => appendToResult('Error:', error));
-        }
 
         function setPier(pier) {
             submitSetting("pier", pier);
@@ -284,6 +322,130 @@
             submitSetting("tracking", isTracking);
         }
 
+        function setQuiet(isQuiet) {
+            submitSetting("quiet", isQuiet);
+        }
+
+        function setPECPosition() {
+            submitSetting("pec_position", PEC_wheel.getPECPosition());
+        }
+
+        function submitCamera() {
+            const shots = document.getElementById('shots-input').value.trim();
+            const exposure = document.getElementById('exposure-input').value.trim();
+            submitJSON('/set_camera', 
+                { shots: shots, exposure: exposure }
+            );
+        }
+
+        function startCamera() {
+            btnCamStart = document.getElementById('camera-shooting');
+            submitJSON('/command_camera',
+                {action: btnCamStart.innerText}
+            );
+        }
+
+        function submitGoto() {
+            const ra = document.getElementById('ra-input').value.trim();
+            const dec = document.getElementById('dec-input').value.trim();
+
+            if (!validateRA(ra) || !validateDEC(dec)) {
+                appendToResult('Error: Invalid RA or DEC format.');
+                return;
+            }
+            submitJSON('/command_goto',
+                { ra: ra, dec: dec }
+            );
+        }
+
+        function submitSetTo() {
+            const ra = document.getElementById('ra-input').value.trim();
+            const dec = document.getElementById('dec-input').value.trim();
+
+            if (!validateRA(ra) || !validateDEC(dec)) {
+                appendToResult('Error: Invalid RA or DEC format.');
+                return;
+            }
+            submitJSON('/command_set_to',
+                { ra: ra, dec: dec }
+            );
+        }
+
+        function validateRA(ra) {
+            const raPattern = /^[+-][0-2][0-9]:[0-5][0-9]:[0-5][0-9]#$/;
+            return raPattern.test(ra);
+        }
+
+        function validateDEC(dec) {
+            const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]'[0-5][0-9]#$/;
+            return decPattern.test(dec);
+        }
+
+        // Apply input mask for RA
+        Inputmask({
+            mask: "+23:59:59#",
+            placeholder: "+HH:MM:SS#",
+            definitions: {
+                '2': { validator: "[0-2]" }, 
+                '3': { validator: "[0-3]" }, 
+                '5': { validator: "[0-5]" },  
+                '9': { validator: "[0-9]" }, 
+            }
+        }).mask(document.getElementById('ra-input'));
+
+        // Apply input mask for DEC
+        Inputmask({
+            mask: "[+|-]99\\*59'59#",
+            placeholder: "+DD*MM'SS#",
+            definitions: {
+                '5': { validator: "[0-5]" },
+                '9': { validator: "[0-9]" },
+            }
+        }).mask(document.getElementById('dec-input'));
+
+
+        function submitSetting(name, value) {
+            submit(`/set_${name}`,`${name}=${value}`);
+        }
+
+        function submit(name, body) {
+            fetch(name, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: body
+            })
+            .then(response => {
+                if (!response.ok) {
+                    // Throw an error to trigger the .catch block
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json(); // Parse the JSON response
+            })
+            .then(data => {
+              appendToResult('Success: ' + JSON.stringify(data));
+            })
+            .catch(error => appendToResult('Error:', error.message));
+        }
+
+        function submitJSON(name, obj) {
+
+            fetch(name, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(obj)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    // Throw an error to trigger the .catch block
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json(); // Parse the JSON response
+            })
+            .then(data => {
+              appendToResult('Success: ' + JSON.stringify(data));
+            })
+            .catch(error => appendToResult('Error:', error.message));
+        }
 
     </script>
 </body>

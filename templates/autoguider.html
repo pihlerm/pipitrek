@@ -6,9 +6,9 @@
     <script src="../static/chart.js"></script>
 </head>
 <body onload="Load()">
-    <button class="command-button" onclick="showControl()">Show Control</button>
-    <button class="command-button" onclick="showVideoFeed()">Show Video Feed</button>
-    <button class="command-button" onclick="showThreshFeed()">Show Threshold Feed</button>
+    <button class="command-button" onclick="showControl()">Control</button>
+    <button class="command-button" onclick="showVideoFeed()">Video</button>
+    <button class="command-button" onclick="showThreshFeed()">Threshold</button>
     <button class="command-button" onclick="shutdown()">Shutdown</button>
     Autoguider 0.4
 
@@ -27,16 +27,20 @@
                     
                     <tr>
                         <td><input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input></td>
-                        <td></td>
+                        <td>
+                            <span id="star-lock-state" class="no-lock">NO LOCK</span>
+                            <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
+                            <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span></div>
+                            <div>dRA:<span id="ra_arcsec">0.0</span>(<span id="ra">0</span>) <br> dDE:<span id="dec_arcsec">0.0</span>(<span id="dec">0</span>)</div>
+                        </td>
+                        
                     </tr>
 
                     <tr>
                         <td><button class="command-button" onclick="acquire()">Acquire Star</button></td>
-                        <td>Acquire the brightest guide star.</td>
+                        <td><button class="command-button" onclick="calibrate()">Calibrate angle</button></td>
                     </tr>
                     <tr>
-                        <td><button class="command-button" onclick="calibrate()">Calibrate angle</button></td>
-                        <td>Find rotation of ra/dec axis. Moves telescope.</td>
                     </tr>
 
                     <tr>
@@ -49,14 +53,14 @@
                     <tr>
                         <td><label for="max_drift">Max Drift:</label></td>
                         <td>
-                            <input type="range" id="max_drift" name="max_drift" min="0" max="50" value="{{ max_drift }}" oninput="submitMaxDrift()">
+                            <input type="range" id="max_drift" name="max_drift" min="0" max="10" step = "0.1" value="{{ max_drift }}" oninput="submitMaxDrift()">
                             <span id="max_drift_value">{{ max_drift }}</span>
                         </td>
                     </tr>
                     <tr>
                         <td><label for="star_size">Star Size:</label></td>
                         <td>
-                            <input type="range" id="star_size" name="star_size" min="1" max="100" value="{{ star_size }}" oninput="submitStarSize()">
+                            <input type="range" id="star_size" name="star_size" min="1" max="20" value="{{ star_size }}" oninput="submitStarSize()">
                             <span id="star_size_value">{{ star_size }}</span>
                         </td>
                     </tr>
@@ -118,9 +122,6 @@
                     </tr>
                     <tr>
                         <td>
-                            <p>dx px  : <span id="dx">0</span> dy px: <span id="dy">0</span></p>            
-                            <p>RA arcs: <span id="ra_arcsec">0.0</span> DEC arcs: <span id="dec_arcsec">0.0</span></p>
-                            <p>RA corr  : <span id="ra">0</span> DEC corr:   <span id="dec">0</span></p>
                         </td>
                         <td>
                             <div >
@@ -157,7 +158,7 @@
             </td>
         </tr>
     </table>
-    <canvas id="correctionsChart" width="1980px" height="200px"></canvas>
+    <canvas id="correctionsChart" width="1600px" height="200px"></canvas>
 </body>
 
 <script>
@@ -170,7 +171,7 @@
             data: {
                 labels: [],
                 datasets: [
-                    { label: 'RA', data: [], borderColor: 'red', fill: false },
+                    { label: 'RA', data: [], borderColor: 'yellow', fill: false },
                     { label: 'DEC', data: [], borderColor: 'blue', fill: false },
                     { label: 'DX', data: [], borderColor: 'green', fill: false },
                     { label: 'DY', data: [], borderColor: 'orange', fill: false },
@@ -179,7 +180,7 @@
                 ],
             },
             options: {
-                responsive: true,
+                responsive: false,
                 scales: {
                     x: { title: { display: true, text: 'Time' } },
                     y: { title: { display: true, text: 'Values' } },
@@ -244,6 +245,17 @@
 
                 document.getElementById('guiding').checked = data.guiding;
 
+                // Update the star lock state
+                const starLockState = document.getElementById('star-lock-state');
+                if (data.star_locked) {
+                    starLockState.textContent = "LOCK";
+                    starLockState.classList.remove('no-lock');
+                    starLockState.classList.add('lock');
+                } else {
+                    starLockState.textContent = "NO LOCK";
+                    starLockState.classList.remove('lock');
+                    starLockState.classList.add('no-lock');
+                }
 
                 const canvas = document.getElementById('canvas');
                 const ctx = canvas.getContext('2d');
@@ -263,37 +275,68 @@
                     ctx.stroke();
                 }
                 
+                
                 drawAxes(data.rotation_angle);
-
-
-
 
                 // Update the chart with new data
                 const currentTime = new Date().toLocaleTimeString(); // Use current time as the label
 
-                // Add new data points to each dataset
                 correctionsChart.data.labels.push(currentTime);
-                correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
-                correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
-                correctionsChart.data.datasets[2].data.push(data.last_correction.dx);
-                correctionsChart.data.datasets[3].data.push(data.last_correction.dy);
-                correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
-                correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
+                // Add new data points to each dataset
+                if (data.star_locked) {
+                    correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
+                    correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
+                    correctionsChart.data.datasets[2].data.push(data.last_correction.dx);
+                    correctionsChart.data.datasets[3].data.push(data.last_correction.dy);
+                    correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
+                    correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
+                } else {
+                    // Add null to the main datasets to maintain alignment
+                    for(i=0;i<6;i++) {
+                        correctionsChart.data.datasets[i].data.push(null);
+                    }
+                }
 
                 // Limit the number of data points to avoid overcrowding
                 if (correctionsChart.data.labels.length > 120) {
                     correctionsChart.data.labels.shift(); // Remove the oldest label
-                    correctionsChart.data.datasets.forEach(dataset => dataset.data.shift()); // Remove the oldest data point
+                    correctionsChart.data.datasets.forEach(dataset => {
+                    if (dataset.data.length > 0) {
+                        dataset.data.shift(); // Remove the oldest data point
+                        }
+                    });
                 }
 
                 // Update the chart
                 correctionsChart.update();
 
             })
-            .catch(error => console.error('Error:', error));
+            .catch(error => console.error('Error:', error.message));
     }
     setInterval(updateCorrections, 1000);
+    
+    // Check the feed availability every 5 seconds
+    setInterval(checkDetailFeed, 5000);
 
+    function checkDetailFeed() {
+        const detailFeed = document.getElementById('detail_feed');
+        const feedUrl = "{{ url_for('detail_feed') }}"; // Replace with the actual feed URL
+
+        // Set the feed URL and handle errors
+        detailFeed.src = feedUrl;
+
+        // Handle the case where the feed is not available
+        detailFeed.onerror = function () {
+            detailFeed.src = "../static/Airy.png"; // Fallback to placeholder
+            detailFeed.alt = "Not Available";
+        };
+
+        // Handle the case where the feed becomes available
+        detailFeed.onload = function () {
+            detailFeed.alt = "Detail Feed";
+        };
+    }
+    
     function drawAxes(rotation_angle) {
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -485,16 +528,21 @@
     }
 
     function shutdown() {
-        fetch('/shutdown', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log('Success:', data);
-        })
-        .catch((error) => {
-            console.log('Error:', error);
-        });
+        if (confirm("Are you sure you want to shut down the telescope?")) {
+            fetch('/shutdown', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.log('Error:', error);
+            });
+        } else {
+            console.log('Shutdown canceled.');
+        }        
+
     }
 
 

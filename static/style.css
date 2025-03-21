@@ -4,6 +4,18 @@
     padding: 5px; 
 }*/
 
+td {
+    vertical-align: middle;
+}
+
+img {
+    cursor: crosshair;
+}
+
+input[type="range"] {
+    width: 200px; /* Adjust as needed */
+}
+
 .hidden {
     display: none !important;
 }
@@ -11,6 +23,12 @@
 .disabled {
     pointer-events: none; /* Disable interactions */
     opacity: 0.5; /* Make it look grayed out */
+}
+
+.red {
+    color: black;
+    font-weight: 800;
+    background-color: lightcoral;
 }
 
 .telescope-container {
@@ -25,6 +43,24 @@
     height: 50px;
     margin: 5px;
     font-size: 18px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.mini-button {
+    width: 36px;
+    height: 20px;
+    margin: 0px;
+    font-size: 12px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.command-button {
+    width: 120px;
+    height: 30px;
+    margin: 0px;
+    font-size: 14px;
     text-align: center;
     vertical-align: middle;
 }
@@ -44,14 +80,6 @@
     height : 100%;
 }
 
-.command-button {
-    width: 200px;
-    height: 30px;
-    margin: 0px;
-    font-size: 14px;
-    text-align: center;
-    vertical-align: middle;
-}
 
 #result {
     width: 400px;
@@ -69,23 +97,51 @@
     margin-top: 0px;
 }
 
-#upload-firmware {
+
+.vspacer {
+    height: 50px;
+}
+
+.two_buttons {
+    width: 300px;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1px;
+    border: 0px solid black;
+}
+
+.two_buttons_input {
+    width: 88px;
+    padding: 1px;
+}
+
+.num_input {
+    width: 40px;
+    padding: 1px;
+}
+
+.mini_num_input {
+    width: 16px;
+    padding: 0px;
+}
+
+.boxy {
+    width: 240px;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
+    gap: 1px;
     border: 2px solid black;
 }
 
-img {
-    cursor: crosshair;
-}
 
 #canvas {
     position: absolute;
     top: 0;
     left: 0;
     z-index: 10;
+    cursor: crosshair;
 }
 #video_container {
     position: relative;
@@ -109,28 +165,58 @@ img {
     width: 100%;
     height: 100%;
     margin: 0px 0px;
+    vertical-align: middle;
 }
 
 .parameters-table td {
     padding: 1px;
+    align-items: center;
 }
 
 .parameters-table td:first-child {
-text-align: left;
-font-weight: normal;
+    text-align: left;
+    align-items: center;
+    font-weight: normal;
 }
 
 .parameters-table td:nth-child(2) {
     display: flex;
     align-items: center;
-    gap: 10px; /* Space between input and span */
+    height: auto; /* Ensure the height adjusts dynamically */
+    gap: 5px; /* Space between input and span */
 }
 
-  input[type="range"] {
-      width: 200px; /* Adjust as needed */
-  }
 
-  span {
-      min-width: 50px; /* Ensure consistent spacing */
-      text-align: left;
-  }
+
+  /* Green text for "LOCK" */
+.lock {
+    color: green;
+    font-weight: bold;
+}
+
+/* Red text for "NO LOCK" */
+.no-lock {
+    color: red;
+    font-weight: bold;
+}
+
+#turning-wheel-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 20px;
+}
+
+#turning-wheel {
+    border: 1px solid #ccc;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+
+#detail_feed {
+    width: 80px; /* Set the width to 80px */
+    height: 80px; /* Set the height to 80px */
+    image-rendering: pixelated; /* Disable interpolation for sharp pixels */
+    image-rendering: crisp-edges; /* Fallback for some browsers */
+}
