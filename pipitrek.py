@@ -1,5 +1,6 @@
 from flask import Flask, request, redirect, url_for, render_template, Response, jsonify
 from autoguider import Autoguider
+from camera import Camera
 from threading import Thread, Event
 import time
 import numpy as np
@@ -16,6 +17,7 @@ import select
 from flask_sock import Sock
 import pty
 import re
+import json
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
@@ -29,26 +31,14 @@ app = Flask(__name__)
 sock = Sock(app)
 
 # Global variable to track the current process for terminal
+global autoguider, autoguider_sett, autoguider_thread
 current_process = None
-
-all_settings = Settings()
-all_settings.load_settings()
-
-#telescope startup
-telescope = Telescope()
-
-all_settings.set_telescope_settings(telescope)
-time.sleep(2) # wait arduino
-# update PEC position that was loaded from settings since arduino was restarted
-telescope.send_PEC_position(telescope.current_pecpos())
-telescope.send_pier(telescope.scope_info["pier"])
-telescope.send_tracking(True)    #now enable tracking
-telescope_thread = Thread(target=telescope.run_serial_bridge)
-telescope_thread.start()
-
 autoguider = None
 autoguider_sett  = None
 autoguider_thread = None
+all_settings = None
+telescope = None
+camera = None
 
 
 def draw_info(frame):
@@ -66,27 +56,24 @@ def draw_info(frame):
                 f"DX: {autoguider.last_correction['dx']}, DY: {autoguider.last_correction['dy']}")
         cv2.putText(frame, text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
+
 def gen_frames():
-    if  autoguider_thread is None:
-        return
     last_valid_frame = None
     try:
-        while autoguider.running:
-            with autoguider.lock:
-                frame = autoguider.frame.copy() if autoguider.frame is not None else last_valid_frame
-
-            if frame is not None and frame.size > 0:
-                last_valid_frame = frame.copy()  # Store valid frame
+        while camera.running:
+            frame = camera.frame
+            if frame is not last_valid_frame and frame is not None and frame.size > 0:
                 #draw_info(frame)
+                last_valid_frame = frame
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ret:
                     frame_data = buffer.tobytes()
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
                 else:
                     print("Frame encoding failed")
-            else:
-                print("No frame")
-            time.sleep(1)
+            #else:
+                #print("No frame")
+            time.sleep(0.5)
     except GeneratorExit:
         print("Client disconnected from video feed", flush=True)
         # Cleanup (e.g., stop camera)
@@ -100,12 +87,9 @@ def gen_thresh_frames():
     last_valid_thresh = None
     try:
         while autoguider.running:
-            with autoguider.lock:
-                thresh = autoguider.threshold
-            if thresh is None or thresh.size == 0:
-                thresh = last_valid_thresh
-
-            if thresh is not None:
+            thresh = autoguider.threshold
+            if thresh is not last_valid_thresh and thresh is not None :
+                last_valid_thresh = thresh
                 thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
                 #draw_info(thresh_color)
                 ret, buffer = cv2.imencode('.jpg', thresh_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -114,9 +98,9 @@ def gen_thresh_frames():
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + thresh_data + b'\r\n')
                 else:
                     print("Threshold encoding failed")
-            else:
-                print("No thresh")
-            time.sleep(1)
+            #else:
+                #print("No thresh")
+            time.sleep(0.5)
     except GeneratorExit:
         print("Client disconnected from video feed", flush=True)
         # Cleanup (e.g., stop camera)
@@ -163,7 +147,7 @@ def terminal():
     
 @app.route('/video_feed')
 def video_feed():
-    if autoguider_thread is not None:
+    if camera.running:
         return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
     else:
         return Response(b'', status=503)
@@ -183,12 +167,8 @@ def detail_feed():
         return Response(b'', status=503)
 
 
-@app.route('/properties', methods=['GET'])
-def get_autoguider_properties():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        properties = {
+def form_properties():
+        return {
             "tracked_centroid": autoguider.tracked_centroid,
             "current_centroid": autoguider.current_centroid,
             "max_drift": autoguider.max_drift,
@@ -196,35 +176,49 @@ def get_autoguider_properties():
             "gray_threshold": autoguider.gray_threshold,
             "rotation_angle": autoguider.rotation_angle,
             "pixel_scale": autoguider.pixel_scale,
-            "exposure": autoguider.exposure,
-            "gain": autoguider.gain,
-            "integrate_frames": autoguider.integrate_frames,
-            "r_channel": autoguider.r_channel,
-            "g_channel": autoguider.g_channel,
-            "b_channel": autoguider.b_channel,
             "guiding": autoguider.guiding,
-            "correction_length" : autoguider.correction_length,
+            "guide_interval" : autoguider.guide_interval,
+            "guide_pulse" : autoguider.guide_pulse,
             "last_correction": autoguider.last_correction,
             "star_locked": autoguider.star_locked,
             "last_loop_time": autoguider.last_loop_time,
-            "last_status" : autoguider.last_status
+            "last_frame_time": autoguider.last_frame_time,
+            "last_status" : autoguider.last_status,
+            "exposure": camera.exposure,
+            "gain": camera.gain,
+            "integrate_frames": camera.integrate_frames,
+            "r_channel": camera.r_channel,
+            "g_channel": camera.g_channel,
+            "b_channel": camera.b_channel,
         }
-    return jsonify(properties)
+
+@app.route('/properties', methods=['GET'])
+def get_autoguider_properties():
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    return jsonify(form_properties())
+
+
+@sock.route('/autoguider_socket')
+def autoguider_socket(ws):
+    while True:
+        if(autoguider.data_ready):
+            autoguider.data_ready = False
+            ws.send(json.dumps(form_properties()))
+        time.sleep(0.1)
+            
 
 @app.route('/scope_info', methods=['GET'])
 def scope_info():
     return jsonify(telescope.scope_info)
 
 @app.route('/set_channels', methods=['POST'])
-def set_autoguider_settings():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        data = request.json
-        autoguider.r_channel = float(data.get('r_channel', autoguider.r_channel))
-        autoguider.g_channel = float(data.get('g_channel', autoguider.g_channel))
-        autoguider.b_channel = float(data.get('b_channel', autoguider.b_channel))
-        return jsonify({"status": "success"}), 200
+def set_channels():
+    data = request.json
+    camera.r_channel = float(data.get('r_channel', camera.r_channel))
+    camera.g_channel = float(data.get('g_channel', camera.g_channel))
+    camera.b_channel = float(data.get('b_channel', camera.b_channel))
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_threshold', methods=['POST'])
 def set_threshold():
@@ -278,33 +272,38 @@ def set_pixel_scale():
 
 @app.route('/set_exposure', methods=['POST'])
 def set_exposure():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        exp = request.form.get('exposure', type=float, default=0.5)  # Default to 0.5 (mid-range)
-        if 0.0 <= exp <= 1.0:
-            autoguider.set_exposure(exp)
-        return jsonify({"status": "success"}), 200
+    exp = request.form.get('exposure', type=float, default=0.5)  # Default to 0.5 (mid-range)
+    if 0.0 <= exp <= 1.0:
+        camera.set_exposure(exp)
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_gain', methods=['POST'])
 def set_gain():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        gain = request.form.get('gain', type=float, default=0.5)  # Default to 0.5 (mid-range)
-        if 0.0 <= gain <= 1.0:
-            autoguider.set_gain(gain)
-        return jsonify({"status": "success"}), 200
+    gain = request.form.get('gain', type=float, default=0.5)  # Default to 0.5 (mid-range)
+    if 0.0 <= gain <= 1.0:
+        camera.set_gain(gain)
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_integrate_frames', methods=['POST'])
 def set_integrate_frames():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
-        if 1 <= integrate_frames <= 20:
-            autoguider.integrate_frames = integrate_frames
-        return jsonify({"status": "success"}), 200
+    integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
+    if 1 <= integrate_frames <= 20:
+        camera.integrate_frames = integrate_frames
+    return jsonify({"status": "success"}), 200
+
+
+@app.route('/set_guide_interval', methods=['POST'])
+def set_guide_interval():
+    guide_interval = request.form.get('guide_interval', type=float, default=1)
+    autoguider.guide_interval = guide_interval
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_guide_pulse', methods=['POST'])
+def set_guide_pulse():
+    guide_pulse = request.form.get('guide_pulse', type=float, default=1)
+    autoguider.guide_pulse = guide_pulse
+    return jsonify({"status": "success"}), 200
+
 
 @app.route('/set_guiding', methods=['POST'])
 def set_guiding():
@@ -312,7 +311,7 @@ def set_guiding():
         return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
     else:
         guiding = request.form.get('guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-        autoguider.guiding = guiding
+        autoguider.enable_guiding(guiding)
         return jsonify({"status": "success"}), 200
 
 @app.route('/set_tracking', methods=['POST'])
@@ -377,7 +376,7 @@ def acquire():
         y = request.form.get('y', type=float)
         print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
         if x is not None and y is not None:
-            autoguider.acquire_star((x, y))
+            autoguider.acquire_star(centroid=(x, y))
             print(f"Acquisition triggered at ({x}, {y})")
             return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"})
         else:
@@ -403,7 +402,18 @@ def control_move():
         # Handle the direction command here
         print(f"Received direction: {direction}")
         # You can add code here to send the direction command to the telescope
-        telescope.send_move(direction)
+        dec=0
+        ra=0
+        if direction == 'n':
+            dec = 10
+        elif direction == 's':
+            dec = -10
+        elif direction == 'e':
+            ra = 10
+        elif direction == 'w':
+            ra = -10
+        telescope.send_start_movement_speed(ra,dec)
+        #telescope.send_move(direction)
         return jsonify({"status": "success", "direction": direction})
     else:
         return jsonify({"status": "error", "message": "Invalid direction"}), 400
@@ -614,81 +624,37 @@ def command_terminal(ws):
             current_process = None
 
 
-
-@app.route('/command_autoguider', methods=['POST'])
-def command_autoguider():
-    data = request.json
-    onoff = data.get('start')
-
-    if onoff == True:
-        return start_autoguider()
-    else:
-        stop_autoguider()
-        return jsonify({'status': 'OK', 'message': 'Stopped'}), 200
-
-
-def start_autoguider():
-    global autoguider, autoguider_sett, autoguider_thread
+def cleanup():
+    # Perform cleanup
     try:
-        autoguider = Autoguider()
-        all_settings.set_autoguider_settings(autoguider)
-        autoguider_thread = Thread(target=autoguider.run_autoguider)
-        autoguider_thread.start()
-        return jsonify({'status': 'success', 'message': 'Autoguider started successfully'}), 200
-    except RuntimeError as e:
-        autoguider_thread = None
-        print(f"Error starting autoguider: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 200
-    except Exception as e:
-        autoguider_thread = None
-        print(f"Unexpected error: {e}")
-        return jsonify({'status': 'error', 'message': 'An unexpected error occurred'}), 200
-
-
-
-def stop_autoguider():
-    # Stop autoguider
-    global autoguider, autoguider_sett, autoguider_thread
-    if autoguider_thread is None:
-        return
-
-    # Save settings
-    all_settings.update_autoguider_settings(autoguider)
-    all_settings.save_settings()
-    print("Settings saved")
-
-    autoguider.running = False
-    if not autoguider_thread is None:
+        
+        print("Stopping autoguider..")
+        all_settings.update_autoguider_settings(autoguider)
+        autoguider.running = False
         autoguider_thread.join(timeout=10)
         if autoguider_thread.is_alive():
             print("Warning: Autoguider thread did not stop in time")
         else:
             print("Autoguider thread stopped")
-    # Release resources
-    autoguider.release_camera()
-    autoguider_sett  = None
-    autoguider_thread = None
-    return jsonify({'status': 'success', 'message': 'Autoguider stopped successfully'}), 200
-
-
-def cleanup():
-    # Perform cleanup
-    try:
-        stop_autoguider()
+        print("autoguider stopped.")
         # Stop telescope
+
+        print("Saving telescope state and cosing connection..")
         telescope.get_PEC_position()
         telescope.send_tracking(False)    #disable tracking to not spoil PEC position
         all_settings.update_telescope_settings(telescope)
-        all_settings.save_settings()
-        telescope.running = False
-        telescope_thread.join(timeout=10)
-        if telescope_thread.is_alive():
-            print("Warning: Telescope thread did not stop in time")
-        else:
-            print("Telescope thread stopped")
-
+        telescope.stop_bridge()
         telescope.close_connection()
+        print("telescope closed.")
+
+        print("Stopping autoguider camera..")
+        camera.stop_capture()
+        camera.release_camera()
+        all_settings.update_camera_settings(camera)
+        print("camera stopped.")
+
         cv2.destroyAllWindows()
+        all_settings.save_settings()
         print("Resources released")
 
     except Exception as e:
@@ -712,6 +678,38 @@ class ServerThread(Thread):
 
 
 if __name__ == '__main__':
+    
+    print("PipiTrek commander starting up...")
+    all_settings = Settings()
+    all_settings.load_settings()
+
+    #telescope startup
+    print("Connecting to telescope..")
+    telescope = Telescope()
+
+    all_settings.set_telescope_settings(telescope)
+    time.sleep(2) # wait arduino
+    # update PEC position that was loaded from settings since arduino was restarted
+    telescope.send_PEC_position(telescope.current_pecpos())
+    telescope.send_pier(telescope.scope_info["pier"])
+    telescope.send_tracking(telescope.scope_info["tracking"]=="enabled")    #now enable tracking
+    telescope.start_bridge()
+    print("telescope started.")
+
+    print("Setting up autoguider camera..")
+    camera = Camera()
+    camera.init_camera()
+    all_settings.set_camera_settings(camera)
+    camera.start_capture()
+    print("camera set up.")
+
+    print("Setting up autoguider..")
+    autoguider = Autoguider()
+    all_settings.set_autoguider_settings(autoguider)
+    autoguider_thread = Thread(target=autoguider.run_autoguider)
+    autoguider_thread.start()
+    print("autoguider set up.")
+
     server = ServerThread(app)
     server.start()
     try:

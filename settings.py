@@ -2,6 +2,7 @@ import json
 import os
 from autoguider import Autoguider
 from telescope import Telescope
+from camera import Camera
 
 # File path for settings
 SETTINGS_FILE = 'settings.json'
@@ -17,47 +18,59 @@ class Settings:
         self.settings["gray_threshold"] = autoguider.gray_threshold
         self.settings["rotation_angle"] = autoguider.rotation_angle
         self.settings["pixel_scale"] = autoguider.pixel_scale
-        self.settings["exposure"] = autoguider.exposure
-        self.settings["gain"] = autoguider.gain
-        self.settings["integrate_frames"] = autoguider.integrate_frames
-        self.settings["r_channel"] = autoguider.r_channel
-        self.settings["g_channel"] = autoguider.g_channel
-        self.settings["b_channel"] = autoguider.b_channel
-        self.settings["set_fps"] = autoguider.set_fps
+        self.settings["guide_interval"] = autoguider.guide_interval
+        self.settings["guide_pulse"] = autoguider.guide_pulse
+        
+
+    def update_camera_settings(self, camera: Camera):
+        self.settings["exposure"] = camera.exposure
+        self.settings["gain"] = camera.gain
+        self.settings["integrate_frames"] = camera.integrate_frames
+        self.settings["r_channel"] = camera.r_channel
+        self.settings["g_channel"] = camera.g_channel
+        self.settings["b_channel"] = camera.b_channel
+        self.settings["cam_fps"] = camera.cam_fps
 
     def update_telescope_settings(self, telescope:Telescope):        
         self.settings["scope_info"] = telescope.scope_info        
 
-    def set_autoguider_settings(self, autoguider:Autoguider):
-        """Set autoguider properties from a dictionary."""
+    def set_autoguider_settings(self, autoguider: Autoguider):
         try:
-            # Channel settings (converted to float)
-            autoguider.r_channel = float(self.settings["r_channel"])
-            autoguider.g_channel = float(self.settings["g_channel"])
-            autoguider.b_channel = float(self.settings["b_channel"])
-
             # Integer settings
-            autoguider.gray_threshold = int(self.settings["gray_threshold"])
-            autoguider.star_size = int(self.settings["star_size"])
-            autoguider.integrate_frames = int(self.settings["integrate_frames"])
+            autoguider.gray_threshold = int(self.settings.get("gray_threshold", 150))
+            autoguider.star_size = int(self.settings.get("star_size", 10))
+            autoguider.guide_pulse = float(self.settings.get("guide_pulse", 0.4))  
 
             # Float settings
-            autoguider.pixel_scale = float(self.settings["pixel_scale"])
-            autoguider.rotation_angle = float(self.settings["rotation_angle"])
-            autoguider.max_drift = float(self.settings["max_drift"])
+            autoguider.pixel_scale = float(self.settings.get("pixel_scale", 3.5))
+            autoguider.rotation_angle = float(self.settings.get("rotation_angle", 0.0))
+            autoguider.max_drift = float(self.settings.get("max_drift", 5.0))
+            autoguider.guide_interval = float(self.settings.get("guide_interval", 1.0))
 
-            # Method calls for exposure, gain, and fps
-            autoguider.set_exposure(float(self.settings["exposure"]))
-            autoguider.set_gain(float(self.settings["gain"]))
-            autoguider.setfps(float(self.settings["set_fps"]))  # Corrected to match get_settings
-
-        except KeyError as e:
-            print(f"Missing property in settings: {e}")
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")
         except AttributeError as e:
             print(f"Error setting autoguider attribute/method: {e}")
 
+    def set_camera_settings(self, camera: Camera):
+        try:
+            # Channel settings (converted to float) with default values
+            camera.r_channel = float(self.settings.get("r_channel", 1.0))  # Default to 1.0
+            camera.g_channel = float(self.settings.get("g_channel", 1.0))  # Default to 1.0
+            camera.b_channel = float(self.settings.get("b_channel", 1.0))  # Default to 1.0
+
+            # Integer settings with default values
+            camera.integrate_frames = int(self.settings.get("integrate_frames", 10))  # Default to 10
+
+            # Method calls for exposure, gain, and fps with default values
+            camera.set_exposure(float(self.settings.get("exposure", 0.5)))  # Default to 0.5
+            camera.set_gain(float(self.settings.get("gain", 1.0)))  # Default to 1.0
+            camera.setfps(float(self.settings.get("cam_fps", 30.0)))  # Default to 30.0
+
+        except (ValueError, TypeError) as e:
+            print(f"Error converting property value: {e}")
+        except AttributeError as e:
+            print(f"Error setting camera attribute/method: {e}")
 
     def set_telescope_settings(self, telescope:Telescope):
         """Set telescope properties from a dictionary."""

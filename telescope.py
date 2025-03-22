@@ -1,5 +1,5 @@
 
-from threading import RLock
+from threading import RLock, Thread
 import serial
 import time
 import subprocess
@@ -34,6 +34,9 @@ class Telescope:
             self.scope_info["pier"] = "W"
             self.scope_info["quiet"] = False
             self.quiet = False
+            self.scope_info["tracking"] = "disabled"
+            self._thread = None
+
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
@@ -91,6 +94,23 @@ class Telescope:
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
         print(f"scope readline: {data}")
         return data
+
+    def start_bridge(self):
+        if self._thread is not None:
+            print("telescope bridge started...")
+            return
+        self._thread = Thread(target=self.run_serial_bridge)
+        self._thread.start()
+
+    def stop_bridge(self):
+        if self._thread is None:
+            print("telescope bridge already stopped...")
+            return
+        self.running = False
+        self._thread.join(timeout=10)
+        if self._thread.is_alive():
+            print("Warning: Telescope bridge thread did not stop in time")
+
 
     def run_serial_bridge(self):
         self.running = True
@@ -237,6 +257,16 @@ class Telescope:
 
     def send_speed(self, speed):
         self.send_direct_command(f":R{speed}#")
+
+    def send_start_movement_speed(self, ra, dec):
+        # Ensure ra and dec are integers
+        ra = int(ra)
+        dec = int(dec)
+        rasign = '+' if ra>=0 else '-'
+        decsign = '+' if dec>=0 else '-'
+        str = f"!S{rasign}{abs(ra):02d}{decsign}{abs(dec):02d}#"
+        # Format and send the command
+        self.send_direct_command(str)
 
     def send_PEC_position(self, position=0):
         if position<0 or position>99:

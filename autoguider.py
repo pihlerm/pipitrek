@@ -7,15 +7,57 @@ import datetime
 from telescope import Telescope
 from threading import Thread, Lock
 from v412_ctl import get_v4l2_controls
+from analyzer import Analyzer
+from camera import Camera
+from concurrent.futures import ThreadPoolExecutor
 
 null_correction = { "ra": 0 , "dec": 0, "dx": 0, "dy": 0, "ra_arcsec": 0, "dec_arcsec": 0 }
 
+
+
+class PIDController:
+    def __init__(self, Kp, Ki, Kd, alpha=0.9, dt=1.0):
+        self.Kp = Kp        # Proportional gain
+        self.Ki = Ki        # Integral gain
+        self.Kd = Kd        # Derivative gain
+        self.alpha = alpha  # Integral decay factor (0–1)
+        self.dt = dt        # Time step (seconds)
+        self.integral = 0.0 # Accumulated error
+        self.prev_error = 0.0  # Last error
+
+    def compute(self, error):
+        # Proportional term
+        P = self.Kp * error
+
+        # Integral term with decay
+        self.integral = self.alpha * self.integral + error * self.dt
+        I = self.Ki * self.integral
+
+        # Derivative term
+        derivative = (error - self.prev_error) / self.dt
+        D = self.Kd * derivative
+        self.prev_error = error  # Update previous error
+
+        # Total output
+        output = P + I + D
+        return output
+
+    def reset(self):
+        self.integral = 0.0
+        self.prev_error = 0.0
+
 class Autoguider:
     def __init__(self):
-        self.guiding = True                 # Guiding status on/off
+        self.executor = ThreadPoolExecutor(max_workers=4)  # Create a thread pool with 4 workers
+        self.pending_tasks = 0  # Counter for pending tasks
+        self.task_lock = Lock()  # Lock to ensure thread-safe updates to the counter
 
-        self.frame = None                   # Last captured frame
+        self.analyzer = Analyzer()
+        self.camera = Camera()
+
+        self.guiding = False                # Guiding status on/off
         self.threshold = None               # Last threshold image
+        self.last_frame_time = 0            # Last frame capture  time
         self.last_loop_time = 0             # Last loop time
         self.last_status = ""               # Last status message
         self.tracked_centroid = None        # Reference point we are tracking
@@ -30,74 +72,16 @@ class Autoguider:
         self.gray_threshold = 150           # Integer for threshold (0–255)
         self.rotation_angle = 0.0           # Float for rotation angle (-180 to 180)
         self.pixel_scale = 3.6              # Float for pixel scale (0.1–10.0)
-        self.time_period = 1                # Time period for tracking in seconds
-        self.correction_length = 0.6        # Correction length: time between move start and move end (seconds)
+        self.guide_interval = 1.0           # Time period for tracking in seconds
+        self.guide_pulse = 0.4              # Correction length: time between move start and move end (seconds)
         
-        # camera settings
-        self.exposure = 0                   # Float for exposure (0.0–10.0 0=AUTO)
-        self.r_channel = 1.0                # Float for R channel (0.0–1.0)
-        self.g_channel = 1.0                # Float for G channel (0.0–1.0)
-        self.b_channel = 1.0                # Float for B channel (0.0–1.0)
-        self.integrate_frames = 5           # no. frames to integrate
-
         self.output_dir = "/root/astro/images"
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # camera usb reconnect/retry settings
-        self.max_failures = 5               # Number of failures to attept reconnect
-        self.failure_count = 0              # Current number of failures
-        self.recovery_attempts = 0          # Current number of recovery attempts
-        self.max_recovery_attempts = 3      # Max recovery attempts before we quit
-        
-        
-        self.cap = None                     # cv2 object
-        self.controls = get_v4l2_controls() 
-        if self.controls is None:
-            raise RuntimeError("Failed to fetch v4l2 controls. Ensure the camera is connected and v4l2-ctl is installed.")
-              
-
-        self.init_camera()
-        # Check if camera opened successfully
-        if not self.cap.isOpened():
-            print("Error: Could not open webcam.")
-            exit()
-
-        # check mode
-        fourcc = int(self.cap.get(cv2.CAP_PROP_FOURCC))  
-        fourcc_str = fourcc.to_bytes(4, 'little').decode('utf-8', errors='replace')
-        print(f"Camera mode: {fourcc_str}")
-
-        # Set the frame rate
-        self.setfps(5)
-
-        # check max esposure
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
-        self.cap.set(cv2.CAP_PROP_EXPOSURE,  0)
-        self.max_exposure = 2000
-        if 'exposure_time_absolute' in self.controls:
-            self.max_exposure = self.controls['exposure_time_absolute']['max']
-
-        #self.max_exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE)  # Get current exposure
-        print(f"Max exposure: {self.max_exposure}")
-        print(f"Frame size: {self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)} X {self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
-
-        # get gain range
-        self.min_gain = 0
-        self.cap.set(cv2.CAP_PROP_GAIN, 10000)  # Try setting a high value
-        self.max_gain = self.cap.get(cv2.CAP_PROP_GAIN)
-        self.gain = 0
-        print(f"Gain range: {self.min_gain} - {self.max_gain}")
-        self.cap.set(cv2.CAP_PROP_GAIN, self.min_gain)
-        
-        # set auto exposure to 3 to enable it
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-        print(f"Exposure set to AUTO" )
-
-        # disable awb
-        self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)  
-
         self.running = False
         self.lock = Lock()  # Thread lock for frame and threshold
+
+        self.data_ready = False     # set to true when new processing data available for monitoring
 
     def write_track_log(self, log_entry):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -106,137 +90,15 @@ class Autoguider:
             log_file.write(f"{timestamp}, {log_entry}\n")
 
 
-#       How It Works
-#       Initial Centroid:
-#       Uses cv2.findContours() and cv2.moments() on the thresholded image to find the unweighted centroid of the largest or nearest star (same as your original code).
-#       Returns None if no valid star is found (area too small or zero moment).
-#       Cropping:
-#       Defines a square region (crop_size x crop_size, e.g., 50x50 pixels) around the initial centroid (cx, cy).
-#       Clamps edges to avoid exceeding image bounds (max, min).
-#       Extracts this region from the original grayscale image (gray), not the thresholded one, to preserve brightness data.
-#       Weighted Centroid:
-#       Applies cv2.moments() to the cropped grayscale region (star_region).
-#       Weights pixel positions by their intensity (0–255), giving a centroid skewed toward the brightest part of the star.
-#       Falls back to the initial centroid if the weighted moment fails (e.g., m00 == 0).
-#       Coordinate Adjustment:
-#       Adds the crop’s top-left corner (x0, y0) to the weighted centroid (cx_weighted, cy_weighted) to get full-image coordinates (cx_full, cy_full).
-#       Returns as a tuple of floats for sub-pixel precision.
-
     def detect_star(self, frame, search_near=None):
         with self.lock:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
-            _, thresh = cv2.threshold(gray, self.gray_threshold, 255, cv2.THRESH_BINARY)
-            self.threshold = thresh  # Store last threshold
-
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return None
-
-        # Find the largest or nearest contour
-        if search_near is not None:
-            distances = [np.linalg.norm(np.array(c.mean(axis=0)[0]) - np.array(search_near)) 
-                        for c in contours if len(c) > 0]
-            if distances:
-                closest_idx = np.argmin(distances)
-                largest = contours[closest_idx]
-            else:
-                largest = max(contours, key=cv2.contourArea)
-        else:
-            largest = max(contours, key=cv2.contourArea)
-
-        # Check if contour is large enough
-        if cv2.contourArea(largest) <= self.star_size:
-            return None
-
-        # Initial unweighted centroid and moments
-        M = cv2.moments(largest)
-        if M["m00"] == 0:
-            return None
-        cx = int(M["m10"] / M["m00"])
-        cy = int(M["m01"] / M["m00"])
-        initial_centroid = (cx, cy)
-
-        # Adaptive crop size based on moments
-        area_diameter = np.sqrt(M["m00"])  # Rough diameter from area
-        x_spread = np.sqrt(M["mu20"] / M["m00"]) if M["m00"] > 0 else 0  # Std dev in x
-        y_spread = np.sqrt(M["mu02"] / M["m00"]) if M["m00"] > 0 else 0  # Std dev in y
-        max_spread = max(area_diameter, x_spread, y_spread)
-        crop_size = int(max_spread * 3)  # 3x spread for full star + buffer
-        crop_size = max(crop_size, 10)   # Minimum size (e.g., 10 pixels)
-        crop_size = min(crop_size, 50)   # Maximum size to avoid over-cropping
-
-        # Ensure even crop_size for symmetry
-        crop_size = crop_size + (crop_size % 2)  # Round up to even number
-        half_size = crop_size // 2
-
-        # Crop grayscale image
-        x0 = max(0, cx - half_size)
-        y0 = max(0, cy - half_size)
-        x1 = min(gray.shape[1], cx + half_size)
-        y1 = min(gray.shape[0], cy + half_size)
-        star_region = gray[y0:y1, x0:x1]
-
-        # Optional: Background subtraction
-        background = np.median(star_region)
-        star_region = cv2.subtract(star_region, int(background))
-        
-        
-        # Make a copy of star_region
-        enhanced_star_region = star_region.copy()
-
-        # Apply gamma correction with gamma = 3.5
-        gamma = 3.5
-        inv_gamma = 1.0 / gamma
-        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
-        enhanced_star_region = cv2.LUT(enhanced_star_region, lut)
-        with self.lock:
-            self.centroid_image = enhanced_star_region
-
-        # Weighted centroid
-        M_weighted = cv2.moments(star_region)
-        if M_weighted["m00"] == 0:
-            print(f"Found rough centroid: {cx}, {cy}")
-            return initial_centroid  # Fallback
-        cx_weighted = M_weighted["m10"] / M_weighted["m00"]
-        cy_weighted = M_weighted["m01"] / M_weighted["m00"]
-
-        # Adjust for crop origin
-        cx_full = round(cx_weighted + x0, 4)  # Round to 4 decimal places
-        cy_full = round(cy_weighted + y0, 4)  # Round to 4 decimal places
-
-        print(f"Found precise centroid: {cx_full}, {cy_full}")
-        return (cx_full, cy_full)
-
-    def set_exposure(self, exp) :
-        self.exposure = exp
-        
-        b = math.log(self.max_exposure) 
-        exposure = math.exp(b * exp)   
-        # Clamp and round to integer range [1, 5000]
-        exposure = max(1, min(5000, round(exposure)))
-
-        # set auto exposure to 0.75 to disable it
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
-        # exp range is 0.0 - 1.0 ; stretch to range
-        self.cap.set(cv2.CAP_PROP_EXPOSURE,  exposure)
-        #self.cap.set(cv2.CAP_PROP_EXPOSURE,  2500*exp)
-        if exp==0:
-            # set auto exposure to 3 to enable it
-            self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-            print(f"Exposure set to AUTO" )
-        else:
-            print(f"Exposure set to {self.cap.get(cv2.CAP_PROP_EXPOSURE)}" )
-
-    def set_gain(self, gain) :
-        self.gain = gain
-        self.cap.set(cv2.CAP_PROP_GAIN, self.min_gain + (self.max_gain-self.min_gain)*self.gain)
-        print(f"Gain set to {self.cap.get(cv2.CAP_PROP_GAIN)}" )
-
-    def setfps(self, fps):
-        self.set_fps = fps
-        self.cap.set(cv2.CAP_PROP_FPS, self.set_fps)
-        self.actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-        print(f"Set FPS to {self.set_fps}, actual FPS: {self.actual_fps}")
+            centroid, detail, thresh = self.analyzer.detect_star(frame, 
+                                                                 search_near=search_near, 
+                                                                 gray_threshold = self.gray_threshold,
+                                                                 star_size=self.star_size)
+            self.centroid_image = detail
+            self.threshold = thresh
+            return centroid
 
     def rotate_vector(self, dx, dy):
         """Rotate (dx, dy) vector by rotation_angle (degrees) counterclockwise."""
@@ -245,69 +107,11 @@ class Autoguider:
         new_dy = round(dx * math.sin(angle_rad) + dy * math.cos(angle_rad), 4)
         return new_dx, new_dy
     
-    def capture_frame(self):
-        # get a frame        
-        with self.lock:
-            while True:
-                ret, frame = self.cap.read()
-                if ret:
-                    self.failure_count = 0  # Reset failure counter on success
-                    #gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
-                    return frame
-                else:
-                    self.failure_count += 1
-                    print(f"No frame snapped in get_frame (Failure #{self.failure_count}).")
-                    if self.failure_count >= self.max_failures:
-                        print(f"Max failures ({self.max_failures}) reached. Attempting recovery...")
-                        self.attempt_recovery()
-                    if self.recovery_attempts >= self.max_recovery_attempts:
-                        print(f"Max recovery attempts ({self.max_recovery_attempts}) reached. Terminating...")
-                        self.cleanup_and_exit()        
-    
-    def get_frame(self):
-        # get a frame by multiple exposures        
-        #if(self.integrate_frames==1):
-        #    self.frame = self.capture_frame()
-        #    return
-        
-        frame_accumulator = None
-        num_frames = 0
-        while num_frames < self.integrate_frames:
-            num_frames+=1
-            frame = self.capture_frame()
-            # Convert frame to float32 for accumulation
-            frame_float = frame.astype(np.float32)
-            if frame_accumulator is None:
-                frame_accumulator = frame_float
-            else:
-                frame_accumulator += frame_float  # Summing frames
-        
-        frame_accumulator /= num_frames
 
-        with self.lock:
-            # Apply color channel multipliers
-            if self.r_channel != 1.0:
-                frame_accumulator[:, :, 2] *= self.r_channel
-            if self.g_channel != 1.0:
-                frame_accumulator[:, :, 1] *= self.g_channel
-            if self.b_channel != 1.0:
-                frame_accumulator[:, :, 0] *= self.b_channel
-            # CLIP summed image and convert back to uint8
-            self.frame = np.clip(frame_accumulator, 0, 255).astype(np.uint8)
-            #self.frame = cv2.convertScaleAbs(self.frame, alpha=1.5, beta=0)
-            self.frame = self.apply_gamma_correction(self.frame, gamma=1.5)
-            return
-
-    def apply_gamma_correction(self, image, gamma=1.5):
-        inv_gamma = 1.0 / gamma
-        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
-        return cv2.LUT(image, lut)
-
-    def acquire_star(self, centroid=None, frame=None):
+    def acquire_star(self, frame=None, centroid=None):
         if frame is None:
-            self.get_frame()
-            frame = self.frame
-
+            frame = self.camera.frame
+        
         centroid = self.detect_star(frame, search_near=centroid)
         if centroid:
             with self.lock:
@@ -322,24 +126,83 @@ class Autoguider:
             self.write_track_log(self.last_status)
         
 
-    def guide_scope(self):
+    def guide_scope_abs(self, ra_arcsec_error, dec_arcsec_error):
         trackmsg =  f"move({self.last_correction['ra']}, {self.last_correction['dec']})"
         self.write_track_log(trackmsg)
         print(trackmsg)
+        telescope = Telescope()
 
+        if self.last_correction["ra"] == 0 and self.last_correction["dec"] == 0:
+            #nothing to do
+            return
+
+        # do not add corrections if some still pending
+        if self.pending_tasks>0:
+            print(f"Guide command cancelled because last correction still in progress!")
+            self.last_correction["ra"] = 0
+            self.last_correction["dec"] = 0
+            return
+
+      # Helper function to decrement the counter when a task finishes
+        def task_done_callback(future):
+            with self.task_lock:
+                self.pending_tasks -= 1
+
+        # RA corrections
         if self.last_correction["ra"] != 0:
-            telescope = Telescope()
-            if self.last_correction["ra"]==1:
-                telescope.send_correction('w', self.correction_length)
-            else:
-                telescope.send_correction('e', self.correction_length)
+            dir = 'w' if self.last_correction["ra"] == 1 else 'e'
+            with self.task_lock:
+                self.pending_tasks += 1
+            future = self.executor.submit(telescope.send_correction, dir, self.guide_pulse)
+            future.add_done_callback(task_done_callback)  # Decrement counter when task finishes
 
+        # DEC corrections
         if self.last_correction["dec"] != 0:
-            telescope = Telescope()
-            if self.last_correction["dec"]==1:
-                telescope.send_correction('s', self.correction_length)
-            else:
-                telescope.send_correction('n', self.correction_length)
+            dir = 's' if self.last_correction["dec"] == 1 else 'n'
+            with self.task_lock:
+                self.pending_tasks += 1
+            future = self.executor.submit(telescope.send_correction, dir, self.guide_pulse)
+            future.add_done_callback(task_done_callback)  # Decrement counter when task finishes
+            
+
+    def guide_scope_rel(self, ra_arcsec_error, dec_arcsec_error):
+        # this should be PID controller!        
+        ra_speed = int(-1*ra_arcsec_error)
+        ra_speed = max(-15, min(ra_speed, 15))
+        dec_speed = int(-1*dec_arcsec_error)
+        dec_speed = max(-15, min(dec_speed, 15))
+        trackmsg =  f"move_speed({ra_speed}, {dec_speed})"
+        self.write_track_log(trackmsg)
+        print(trackmsg)
+        telescope = Telescope()
+
+        telescope.send_start_movement_speed(ra_speed, dec_speed)
+
+    def guide_scope_pid(self, ra_arcsec_error, dec_arcsec_error):
+        # Initialize PID controllers (persistent across calls)
+        if not hasattr(self, 'ra_pid'):
+            self.ra_pid = PIDController(Kp=0.5, Ki=0.05, Kd=0.05, dt=1.0)  # Tune these!
+        if not hasattr(self, 'dec_pid'):
+            self.dec_pid = PIDController(Kp=0.5, Ki=0.05, Kd=0.05, dt=1.0)
+
+        # Compute speeds with PID
+        ra_speed = self.ra_pid.compute(-ra_arcsec_error)  # Negative to correct RA
+        dec_speed = self.dec_pid.compute(-dec_arcsec_error)
+
+        # Clamp speeds to -15 to 15 (assuming steps/second)
+        ra_speed = int(max(-15, min(ra_speed, 15)))
+        dec_speed = int(max(-15, min(dec_speed, 15)))
+
+        # Log and send command
+        trackmsg = f"move_speed({ra_speed:.2f}, {dec_speed:.2f})"
+        self.write_track_log(trackmsg)
+        print(trackmsg)
+
+        telescope = Telescope()
+        telescope.send_start_movement_speed(ra_speed, dec_speed)
+
+    def guide_scope(self, ra_arcsec_error, dec_arcsec_error):
+        self.guide_scope_pid(ra_arcsec_error, dec_arcsec_error)
 
     def calculate_drift(self, centroid):
         if centroid and self.tracked_centroid:
@@ -365,14 +228,15 @@ class Autoguider:
             print("No star acquired for calibration.")
             self.guiding = guiding
             return False
-        self.get_frame()
-        centroid1 = self.detect_star(self.frame, search_near=self.tracked_centroid)  # Detect star
+        frame = self.camera.get_frame()
+        centroid1 = self.detect_star(frame, search_near=self.tracked_centroid)  # Detect star
         if not centroid1:
             print("No star detected for calibration.")
             self.guiding = guiding
             return False
-        Telescope().send_correction('e',15)  # Move scope east
-        centroid2 = self.detect_star(self.frame, search_near=self.tracked_centroid)  # Detect star
+        Telescope().send_correction('e',20)  # Move scope east for 20s
+        frame = self.camera.get_frame()
+        centroid2 = self.detect_star(frame, search_near=centroid1)  # Detect star
 
         if centroid2:
             dx = float(centroid2[0] - centroid1[0])
@@ -389,39 +253,54 @@ class Autoguider:
             self.guiding = guiding
             return False
 
+    def enable_guiding(self, enable):
+        if enable:
+            self.guiding = True
+        else:
+            self.guiding=False
+            telescope = Telescope()
+            telescope.send_stop()
+
     def run_autoguider(self):
+        
+        if not self.camera.is_initialized():
+           print(f"Camera not initialized, aborting autoguider")
+           return
+
         self.running = True
-        last_time = time.perf_counter()
         telescope = Telescope()
         time.sleep(2)  # Wait for telescope to initialize
         telescope.get_info()
+        last_time = time.perf_counter()
+        last_frame = None
 
         while self.running:
             start_time = time.perf_counter()
-            self.get_frame()  # Capture and integrate frames
-            frame_time = time.perf_counter()
-            print(f"get_frame took {frame_time - start_time:.2f} seconds")
 
-            #if time.perf_counter() - last_time >= self.time_period:  # Run once per period
-            #last_time = time.perf_counter()
-            if True:
+            if time.perf_counter() - last_time >= self.guide_interval:  # Run once per period
+                last_time = time.perf_counter()
+                frame = self.camera.frame
+                if frame is last_frame or frame is None:
+                    continue
+
+                self.last_frame_time = round(self.camera.last_frame_time, 2)
+                last_frame = frame
+
                 if self.tracked_centroid is None:
                     # Acquisition mode
-                    self.acquire_star(frame = self.frame)
+                    self.acquire_star(frame=frame)
                     self.current_centroid = self.tracked_centroid
                 else:
                     # Tracking mode
-                    centroid = self.detect_star(self.frame, search_near=self.current_centroid)
-                    detect_time = time.perf_counter()
-                    print(f"detect_star took {detect_time - frame_time:.2f} seconds")                    # Get current timestamp
+                    centroid = self.detect_star(frame, search_near=self.current_centroid)
+                    #print(f"detect_star took {detect_time - frame_time:.2f} seconds")                    # Get current timestamp
                     if centroid and self.tracked_centroid:
                         self.star_locked = True
                         self.calculate_drift(centroid)
                         self.current_centroid = centroid
                         # Send correction to telescope
                         if self.guiding:
-                            self.guide_scope()
-
+                            self.guide_scope( self.last_correction['ra_arcsec'], self.last_correction['dec_arcsec'])
                         # Log to tracking.log file
                         trackmsg =  f"pixel error({self.last_correction['dx']}, {self.last_correction['dy']}), RaDec error({self.last_correction['ra_arcsec']:.1f}, {self.last_correction['dec_arcsec']:.1f})"
                         self.write_track_log(trackmsg)
@@ -429,6 +308,8 @@ class Autoguider:
                     else:
                         self.star_locked = False
                         self.last_correction = null_correction
+                        if self.guiding:
+                            self.guide_scope(0,0)
                         if not centroid:
                             self.last_status = "LOST TRACKING: Tracked star not detected."
                             print(self.last_status)
@@ -439,53 +320,7 @@ class Autoguider:
                             self.write_track_log(self.last_status)
 
                 end_time = time.perf_counter()
-                total_time = end_time - start_time
-                self.last_loop_time = total_time
+                self.last_loop_time = round(end_time - start_time, 2)
+                self.data_ready = True
 
-                if total_time > 2.0:  # Flag long delays
-                    print(f"Loop took {total_time:.2f} seconds")
-
-            time.sleep(0.001)  # Small sleep to prevent busy loop
-
-    def init_camera(self):
-        self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Force V4L2 backend
-        # Check if camera opened successfully
-        if not self.cap.isOpened():
-            return False            
-        # Force MJPG pixel format
-        #self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        # Force YUYV pixel format
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'YUYV'))
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        return True
-
-    def release_camera(self):
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
-
-    def attempt_recovery(self):
-        self.recovery_attempts += 1
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
-            print(f"Recovery attempt #{self.recovery_attempts}: Camera released.")
-        time.sleep(1)  # Wait for device to settle
-        self.init_camera()
-        if self.cap.isOpened():
-            print(f"Recovery attempt #{self.recovery_attempts}: Camera reopened successfully.")
-            self.failure_count = 0  # Reset if recovery succeeds
-            self.recovery_attempts = 0
-            telescope = Telescope()
-            telescope.reset_usb()
-            #self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
-            #print(f"Exposure set to AUTO" )
-        else:
-            print(f"Recovery attempt #{self.recovery_attempts}: Failed to reopen camera.")
-
-    def cleanup_and_exit(self):           
-        self.release_camera()
-        os._exit(1)  # Forcefully terminate the process
-
- 
-    def __del__(self):
-        self.release_camera()
+            time.sleep(0.01)  # Small sleep to prevent busy loop

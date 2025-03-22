@@ -26,7 +26,11 @@
                 <table id="autoguider_panel" class="parameters-table">
                     
                     <tr>
-                        <td><input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input></td>
+                        <td>
+                            <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input><br>
+                            loop:<span id="last_loop_time">0</span> s<br>
+                            frame:<span id="last_frame_time">0</span> s
+                        </td>
                         <td>
                             <span id="star-lock-state" class="no-lock">NO LOCK</span>
                             <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
@@ -41,6 +45,21 @@
                         <td><button class="command-button" onclick="calibrate()">Calibrate angle</button></td>
                     </tr>
                     <tr>
+                    </tr>
+
+                    <tr>
+                        <td><label for="guide_interval">Guide interval:</label></td>
+                        <td>
+                            <input type="range" id="guide_interval" name="guide_interval" min="0" max="10" step="0.1" value="{{ guide_interval }}" oninput="submitGuideInterval()">
+                            <span id="guide_interval_value">{{ guide_interval }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="guide_pulse">Guide pulse:</label></td>
+                        <td>
+                            <input type="range" id="guide_pulse" name="guide_pulse" min="0" max="2" step="0.1" value="{{ guide_pulse }}" oninput="submitGuidePulse()">
+                            <span id="guide_pulse_value">{{ guide_pulse }}</span>
+                        </td>
                     </tr>
 
                     <tr>
@@ -196,125 +215,148 @@
 
     }
     
+    const ws = new WebSocket('ws://' + window.location.hostname + '/autoguider_socket');
+    
+    ws.onmessage = function(event) {
+        processCorrections(JSON.parse(event.data));
+    };
+
+    ws.onclose = function() {
+        console.error("Websocket closed.")
+    };
+
+
+    //setInterval(updateCorrections, 1000);
+
     function updateCorrections() {
         fetch('/properties')
             .then(response => response.json())
             .then(data => {
-                if(data.status === 'error') {
-                    // autoguider is off
-                    document.getElementById('autoguider_panel').classList.add('disabled');
-                    return;
-                }
-                document.getElementById('autoguider_panel').classList.remove('disabled');
-                
-                document.getElementById('ra').textContent = data.last_correction.ra;
-                document.getElementById('dec').textContent = data.last_correction.dec;
-                document.getElementById('dx').textContent = data.last_correction.dx;
-                document.getElementById('dy').textContent = data.last_correction.dy;
-                document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
-                document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
-                document.getElementById('threshold').value = data.gray_threshold;
-                document.getElementById('threshold_value').textContent = data.gray_threshold;
-                document.getElementById('max_drift').value = data.max_drift;
-                document.getElementById('max_drift_value').textContent = data.max_drift;
-
-                document.getElementById('star_size').value = data.star_size;
-                document.getElementById('star_size_value').textContent = data.star_size;
-
-                document.getElementById('rotation_angle').value = data.rotation_angle;
-                document.getElementById('rotation_angle_value').textContent = data.rotation_angle;
-
-                document.getElementById('pixel_scale').value = data.pixel_scale;
-                document.getElementById('pixel_scale_value').textContent = data.pixel_scale;
-
-                document.getElementById('exposure').value = data.exposure;
-                document.getElementById('exposure_value').textContent = data.exposure;
-
-                document.getElementById('gain').value = data.gain;
-                document.getElementById('gain_value').textContent = data.gain;
-
-                document.getElementById('integrate_frames').value = data.integrate_frames;
-                document.getElementById('integrate_frames_value').textContent = data.integrate_frames;
-
-                document.getElementById('r_channel').value = data.r_channel;
-                document.getElementById('r_channel_value').textContent = data.r_channel;
-                document.getElementById('g_channel').value = data.g_channel;
-                document.getElementById('g_channel_value').textContent = data.g_channel;
-                document.getElementById('b_channel').value = data.b_channel;
-                document.getElementById('b_channel_value').textContent = data.b_channel;
-
-                document.getElementById('guiding').checked = data.guiding;
-
-                // Update the star lock state
-                const starLockState = document.getElementById('star-lock-state');
-                if (data.star_locked) {
-                    starLockState.textContent = "LOCK";
-                    starLockState.classList.remove('no-lock');
-                    starLockState.classList.add('lock');
-                } else {
-                    starLockState.textContent = "NO LOCK";
-                    starLockState.classList.remove('lock');
-                    starLockState.classList.add('no-lock');
-                }
-
-                const canvas = document.getElementById('canvas');
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                if (data.tracked_centroid) {
-                    ctx.strokeStyle = 'green';
-                    ctx.beginPath();
-                    ctx.arc(data.tracked_centroid[0], data.tracked_centroid[1], 10, 0, 2 * Math.PI);
-                    ctx.stroke();
-                }
-
-                if (data.current_centroid) {
-                    ctx.strokeStyle = 'red';
-                    ctx.beginPath();
-                    ctx.arc(data.current_centroid[0], data.current_centroid[1], 10, 0, 2 * Math.PI);
-                    ctx.stroke();
-                }
-                
-                
-                drawAxes(data.rotation_angle);
-
-                // Update the chart with new data
-                const currentTime = new Date().toLocaleTimeString(); // Use current time as the label
-
-                correctionsChart.data.labels.push(currentTime);
-                // Add new data points to each dataset
-                if (data.star_locked) {
-                    correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
-                    correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
-                    correctionsChart.data.datasets[2].data.push(data.last_correction.dx);
-                    correctionsChart.data.datasets[3].data.push(data.last_correction.dy);
-                    correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
-                    correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
-                } else {
-                    // Add null to the main datasets to maintain alignment
-                    for(i=0;i<6;i++) {
-                        correctionsChart.data.datasets[i].data.push(null);
-                    }
-                }
-
-                // Limit the number of data points to avoid overcrowding
-                if (correctionsChart.data.labels.length > 120) {
-                    correctionsChart.data.labels.shift(); // Remove the oldest label
-                    correctionsChart.data.datasets.forEach(dataset => {
-                    if (dataset.data.length > 0) {
-                        dataset.data.shift(); // Remove the oldest data point
-                        }
-                    });
-                }
-
-                // Update the chart
-                correctionsChart.update();
-
+                processCorrections(data);
             })
             .catch(error => console.error('Error:', error.message));
     }
-    setInterval(updateCorrections, 1000);
-    
+
+    function processCorrections(data) {
+
+        if(data.status === 'error') {
+            // autoguider is off
+            return;
+        }
+        
+        document.getElementById('last_loop_time').textContent = data.last_loop_time;
+        document.getElementById('last_frame_time').textContent = data.last_frame_time;
+
+        document.getElementById('ra').textContent = data.last_correction.ra;
+        document.getElementById('dec').textContent = data.last_correction.dec;
+        document.getElementById('dx').textContent = data.last_correction.dx;
+        document.getElementById('dy').textContent = data.last_correction.dy;
+        document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
+        document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
+        document.getElementById('threshold').value = data.gray_threshold;
+        document.getElementById('threshold_value').textContent = data.gray_threshold;
+        document.getElementById('max_drift').value = data.max_drift;
+        document.getElementById('max_drift_value').textContent = data.max_drift;
+
+        document.getElementById('star_size').value = data.star_size;
+        document.getElementById('star_size_value').textContent = data.star_size;
+
+        document.getElementById('rotation_angle').value = data.rotation_angle;
+        document.getElementById('rotation_angle_value').textContent = data.rotation_angle;
+
+        document.getElementById('pixel_scale').value = data.pixel_scale;
+        document.getElementById('pixel_scale_value').textContent = data.pixel_scale;
+
+        document.getElementById('exposure').value = data.exposure;
+        document.getElementById('exposure_value').textContent = data.exposure;
+
+        document.getElementById('gain').value = data.gain;
+        document.getElementById('gain_value').textContent = data.gain;
+
+        document.getElementById('integrate_frames').value = data.integrate_frames;
+        document.getElementById('integrate_frames_value').textContent = data.integrate_frames;
+
+        document.getElementById('r_channel').value = data.r_channel;
+        document.getElementById('r_channel_value').textContent = data.r_channel;
+        document.getElementById('g_channel').value = data.g_channel;
+        document.getElementById('g_channel_value').textContent = data.g_channel;
+        document.getElementById('b_channel').value = data.b_channel;
+        document.getElementById('b_channel_value').textContent = data.b_channel;
+
+        document.getElementById('guiding').checked = data.guiding;
+        
+        document.getElementById('guide_pulse').value = data.guide_pulse;
+        document.getElementById('guide_pulse_value').textContent = data.guide_pulse;
+        document.getElementById('guide_interval').value = data.guide_interval;
+        document.getElementById('guide_interval_value').textContent = data.guide_interval;
+
+        // Update the star lock state
+        const starLockState = document.getElementById('star-lock-state');
+        if (data.star_locked) {
+            starLockState.textContent = "LOCK";
+            starLockState.classList.remove('no-lock');
+            starLockState.classList.add('lock');
+        } else {
+            starLockState.textContent = "NO LOCK";
+            starLockState.classList.remove('lock');
+            starLockState.classList.add('no-lock');
+        }
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (data.tracked_centroid) {
+            ctx.strokeStyle = 'green';
+            ctx.beginPath();
+            ctx.arc(data.tracked_centroid[0], data.tracked_centroid[1], 10, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
+
+        if (data.current_centroid) {
+            ctx.strokeStyle = 'red';
+            ctx.beginPath();
+            ctx.arc(data.current_centroid[0], data.current_centroid[1], 10, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
+        
+        
+        drawAxes(data.rotation_angle);
+
+        // Update the chart with new data
+        const currentTime = new Date().toLocaleTimeString(); // Use current time as the label
+
+        correctionsChart.data.labels.push(currentTime);
+        // Add new data points to each dataset
+        if (data.star_locked) {
+            correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
+            correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
+            correctionsChart.data.datasets[2].data.push(data.last_correction.dx);
+            correctionsChart.data.datasets[3].data.push(data.last_correction.dy);
+            correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
+            correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
+        } else {
+            // Add null to the main datasets to maintain alignment
+            for(i=0;i<6;i++) {
+                correctionsChart.data.datasets[i].data.push(null);
+            }
+        }
+
+        // Limit the number of data points to avoid overcrowding
+        if (correctionsChart.data.labels.length > 120) {
+            correctionsChart.data.labels.shift(); // Remove the oldest label
+            correctionsChart.data.datasets.forEach(dataset => {
+            if (dataset.data.length > 0) {
+                dataset.data.shift(); // Remove the oldest data point
+                }
+            });
+        }
+
+        // Update the chart
+        correctionsChart.update();
+    }
+
+
     // Check the feed availability every 5 seconds
     setInterval(checkDetailFeed, 5000);
 
@@ -444,6 +486,19 @@
         document.getElementById('gain_value').textContent = gain;
         submitSetting("gain", gain);
     }
+    
+    function submitGuideInterval() {
+        const guide_interval = document.getElementById('guide_interval').value;
+        document.getElementById('guide_interval_value').textContent = guide_interval;
+        submitSetting("guide_interval", guide_interval);
+    }
+    
+    function submitGuidePulse() {
+        const guide_pulse = document.getElementById('guide_pulse').value;
+        document.getElementById('guide_pulse_value').textContent = guide_pulse;
+        submitSetting("guide_pulse", guide_pulse);
+    }
+    
 
     function submitIntegrate_frames() {
         const integrate_frames = document.getElementById('integrate_frames').value;

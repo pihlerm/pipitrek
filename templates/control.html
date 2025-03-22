@@ -61,10 +61,6 @@
         <div id="command-buttons">
             
             <div class = 'two_buttons'>
-                <button class="command-button" onclick="sendAutoguiderCommand(true)">Start Autoguider</button>
-                <button class="command-button" onclick="sendAutoguiderCommand(false)">Stop Autoguider</button>    
-            </div>
-            <div class = 'two_buttons'>
                 <button class="command-button" onclick="getInfo()">Get Info</button>
                 <button class="command-button" onclick="showTerminal()">Terminal</button>
             </div>
@@ -262,17 +258,6 @@
             } else {
                 appendToResult('Arduino reset canceled.');
             }        
-        }
-
-        function sendAutoguiderCommand(start) {
-
-            if(start==false) {
-                if (!confirm("Are you sure you want to stop the Autoguider?")) {
-                    appendToResult('Autoguider shutdown canceled.');
-                    return;
-                }
-            }
-            submitJSON('/command_autoguider', { start: start });
         }
 
         function getInfo() {
