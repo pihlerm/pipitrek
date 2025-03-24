@@ -151,8 +151,6 @@
     <script>
         PEC_wheel = make_wheel();
 
-        last_info = last_pec = "";
-
         function showTerminal() {
             document.getElementById('info-boxes').classList.toggle('hidden');
             document.getElementById('result-boxes').classList.toggle('hidden');
@@ -205,8 +203,7 @@
                     const formattedTable = pecTable.map((value, index) => {
                         return index % 2 === 0 ? `${value},` : `${value}\n`;
                     }).join('');
-                    last_pec = formattedTable;
-                    setPEC(last_pec)
+                    setPEC(formattedTable)
                     appendToResult('Received PEC table successfully.');
                 } else {
                     appendToResult('Error: ' + data.message);
@@ -266,8 +263,7 @@
             })
             .then(response => response.json())
             .then(data => {
-                last_info = data.info;
-                setInfo(last_info)
+                setInfo(data.info)
             })
             .catch((error) => {
                 appendToResult('Error: ' + error);
@@ -279,6 +275,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if(data.pier) {
+                        setInfo(data["text"])
                         document.getElementById('pier_w').checked = (data.pier === 'W');
                         document.getElementById('pier_e').checked = (data.pier === 'E');
                         document.getElementById('tracking').checked = (data.tracking === 'enabled');
@@ -357,7 +354,7 @@
         }
 
         function validateRA(ra) {
-            const raPattern = /^[+-][0-2][0-9]:[0-5][0-9]:[0-5][0-9]#$/;
+            const raPattern = /^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]#$/;
             return raPattern.test(ra);
         }
 
@@ -368,11 +365,11 @@
 
         // Apply input mask for RA
         Inputmask({
-            mask: "+23:59:59#",
-            placeholder: "+HH:MM:SS#",
+            mask: "23:59:59#",
+            placeholder: "HH:MM:SS#",
             definitions: {
                 '2': { validator: "[0-2]" }, 
-                '3': { validator: "[0-3]" }, 
+                '3': { validator: "[0-9]" }, 
                 '5': { validator: "[0-5]" },  
                 '9': { validator: "[0-9]" }, 
             }

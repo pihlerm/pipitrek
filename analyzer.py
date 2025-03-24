@@ -38,7 +38,7 @@ class Analyzer:
 
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
-            return None, None, None
+            return None, None, thresh
 
         # Find the largest or nearest contour
         if search_near is not None:
@@ -54,12 +54,12 @@ class Analyzer:
 
         # Check if contour is large enough
         if cv2.contourArea(largest) <= star_size:
-            return None, None, None
+            return None, None, thresh
 
         # Initial unweighted centroid and moments
         M = cv2.moments(largest)
         if M["m00"] == 0:
-            return None, None, None
+            return None, None, thresh
         cx = int(M["m10"] / M["m00"])
         cy = int(M["m01"] / M["m00"])
         initial_centroid = (cx, cy)
@@ -111,5 +111,5 @@ class Analyzer:
         cx_full = round(cx_weighted + x0, 4)  # Round to 4 decimal places
         cy_full = round(cy_weighted + y0, 4)  # Round to 4 decimal places
 
-        print(f"Found precise centroid: {cx_full}, {cy_full}")
+        #print(f"Found precise centroid: {cx_full}, {cy_full}")
         return (cx_full, cy_full), enhanced_star_region, thresh

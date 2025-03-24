@@ -20,6 +20,7 @@ class Settings:
         self.settings["pixel_scale"] = autoguider.pixel_scale
         self.settings["guide_interval"] = autoguider.guide_interval
         self.settings["guide_pulse"] = autoguider.guide_pulse
+        self.settings["dec_guiding"] = autoguider.dec_guiding
         
 
     def update_camera_settings(self, camera: Camera):
@@ -46,6 +47,7 @@ class Settings:
             autoguider.rotation_angle = float(self.settings.get("rotation_angle", 0.0))
             autoguider.max_drift = float(self.settings.get("max_drift", 5.0))
             autoguider.guide_interval = float(self.settings.get("guide_interval", 1.0))
+            autoguider.dec_guiding = bool(self.settings.get("dec_guiding", False))
 
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")

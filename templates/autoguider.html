@@ -6,28 +6,44 @@
     <script src="../static/chart.js"></script>
 </head>
 <body onload="Load()">
-    <button class="command-button" onclick="showControl()">Control</button>
-    <button class="command-button" onclick="showVideoFeed()">Video</button>
-    <button class="command-button" onclick="showThreshFeed()">Threshold</button>
-    <button class="command-button" onclick="shutdown()">Shutdown</button>
-    Autoguider 0.4
 
     <table style="width:100%; height:740px;">
         <tr>
             <td>
-                <div id="video_container">
-                    <iframe id="control_frame" src="{{ url_for('control') }}" width="1280" height="720"></iframe>
-                    <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720" class="hidden">
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <!-- Left-aligned buttons -->
+                    <div>
+                        <button class="command-button" onclick="showVideoFeed()">Video</button>
+                        <button class="command-button" onclick="showThreshFeed()">Threshold</button>
+                    </div>
+        
+                    <!-- Right-aligned button and text -->
+                    <div>
+                        <button class="command-button" onclick="shutdown()">Shutdown</button>
+                        <span>Autoguider 0.4</span>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <button class="command-button" onclick="showControl()">Control</button>
+                <button class="command-button" onclick="showGuider()">Guider</button>            
+            </td>
+        </tr>
+        <tr>
+            <td width="1280">
+                <div id="video_container" width="1280">
+                    <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720">
                     <img id="thresh_feed" src="{{ url_for('thresh_feed') }}" width="1280" height="720" class="hidden">
-                    <canvas id="canvas" width="1280" height="720" class="hidden"></canvas>
+                    <canvas id="canvas" width="1280" height="720"></canvas>
                 </div>
             </td>
             <td >
-                <table id="autoguider_panel" class="parameters-table">
-                    
+                <iframe id="control_frame" src="{{ url_for('control') }}" width="500" height="720" ></iframe>
+                <table id="autoguider_panel" class="parameters-table hidden">                   
                     <tr>
                         <td>
-                            <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input><br>
+                            <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input>
+                            <input type="checkbox" id="dec_guiding" onchange="setDecGuiding(this.checked)">DEC guiding</input><br>
                             loop:<span id="last_loop_time">0</span> s<br>
                             frame:<span id="last_frame_time">0</span> s
                         </td>
@@ -41,8 +57,14 @@
                     </tr>
 
                     <tr>
-                        <td><button class="command-button" onclick="acquire()">Acquire Star</button></td>
-                        <td><button class="command-button" onclick="calibrate()">Calibrate angle</button></td>
+                        <td>
+                            <button class="command-button" onclick="acquire()">Acquire Star</button>
+                            <button class="command-button" onclick="saveFrame()">Save Frame</button>
+                        </td>
+                        <td>
+                            <button class="command-button" onclick="calibrate(false)">Calib angle</button>
+                            <button class="command-button" onclick="calibrate(true)">Calib+backlash</button>
+                        </td>
                     </tr>
                     <tr>
                     </tr>
@@ -262,7 +284,7 @@
         document.getElementById('star_size_value').textContent = data.star_size;
 
         document.getElementById('rotation_angle').value = data.rotation_angle;
-        document.getElementById('rotation_angle_value').textContent = data.rotation_angle;
+        document.getElementById('rotation_angle_value').textContent = data.rotation_angle.toFixed(3);
 
         document.getElementById('pixel_scale').value = data.pixel_scale;
         document.getElementById('pixel_scale_value').textContent = data.pixel_scale;
@@ -284,6 +306,7 @@
         document.getElementById('b_channel_value').textContent = data.b_channel;
 
         document.getElementById('guiding').checked = data.guiding;
+        document.getElementById('dec_guiding').checked = data.dec_guiding;
         
         document.getElementById('guide_pulse').value = data.guide_pulse;
         document.getElementById('guide_pulse_value').textContent = data.guide_pulse;
@@ -509,6 +532,9 @@
     function setGuiding(isGuiding) {
       submitSetting("guiding", isGuiding);
     }
+    function setDecGuiding(isGuiding) {
+      submitSetting("dec_guiding", isGuiding);
+    }
 
     function acquire() {
         fetch('/acquire', { method: 'POST' })
@@ -516,11 +542,16 @@
             .catch(error => console.error('Acquisition error:', error));
     }
 
-    function calibrate() {
-        fetch('/calibrate', { method: 'POST' })
-            .then(response => console.log('Calibration triggered'))
-            .catch(error => console.error('Calibration error:', error));
+    function calibrate(with_backlash) {
+        fetch('/calibrate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `with_backlash=${with_backlash}`
+        })        
+        .then(response => console.log('Calibration triggered'))
+        .catch(error => console.error('Calibration error:', error));
     }
+
 
     document.getElementById("canvas").addEventListener('click', function(event) {
         const rect = this.getBoundingClientRect();
@@ -542,26 +573,56 @@
         document.getElementById('video_feed').classList.remove('hidden');
         document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.add('hidden');
-        document.getElementById('control_frame').classList.add('hidden');
     }
 
     function showThreshFeed() {
         document.getElementById('video_feed').src = '';
         document.getElementById('thresh_feed').src = "{{ url_for('thresh_feed') }}";
-
         document.getElementById('video_feed').classList.add('hidden');
         document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.remove('hidden');
-        document.getElementById('control_frame').classList.add('hidden');
     }
 
+
     function showControl() {
-        document.getElementById('video_feed').src = '';
-        document.getElementById('thresh_feed').src = '';
-        document.getElementById('video_feed').classList.add('hidden');
-        document.getElementById('thresh_feed').classList.add('hidden');
-        document.getElementById('canvas').classList.add('hidden');
         document.getElementById('control_frame').classList.remove('hidden');
+        document.getElementById('autoguider_panel').classList.add('hidden');
+
+    }
+    function showGuider() {
+        document.getElementById('control_frame').classList.add('hidden');
+        document.getElementById('autoguider_panel').classList.remove('hidden');
+
+    }
+
+    function saveFrame() {
+        fetch('/save_frame', {
+            method: 'POST',
+        })
+        .then(response => {
+            if (response.ok) {
+                return response.blob(); // Convert the response to a Blob
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || 'Failed to save frame');
+                });
+            }
+        })
+        .then(blob => {
+            // Create a temporary link element
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'saved_frame.png'; // Set the file name
+            document.body.appendChild(a);
+            a.click(); // Trigger the download
+            a.remove(); // Remove the link element
+            window.URL.revokeObjectURL(url); // Revoke the object URL
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error: ' + error.message);
+        });
     }
 
 

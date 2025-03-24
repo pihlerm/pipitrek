@@ -33,8 +33,10 @@ class Telescope:
             self.scope_info["pec"]["progress"] = 0
             self.scope_info["pier"] = "W"
             self.scope_info["quiet"] = False
-            self.quiet = False
             self.scope_info["tracking"] = "disabled"
+            self.scope_info["text"] = ""
+
+            self.quiet = False
             self._thread = None
 
 
@@ -242,6 +244,13 @@ class Telescope:
             self._serial_connection.timeout = 0
             return data
 
+    def read_direct_byte(self):
+        with self.lock:
+            self._serial_connection.timeout = 1
+            data =  self.read_scope()
+            self._serial_connection.timeout = 0
+            return data
+
     def clear_direct_inbuffer(self):
         with self.lock:
             self._serial_connection.timeout = 1
@@ -267,6 +276,34 @@ class Telescope:
         str = f"!S{rasign}{abs(ra):02d}{decsign}{abs(dec):02d}#"
         # Format and send the command
         self.send_direct_command(str)
+
+    def send_set_to(self, ra, dec):
+        with self.lock:
+            str = f":Sr{ra}#"
+            self.send_direct_command(str)
+            self.read_direct_byte()
+
+            str = f":Sd{dec}#"
+            self.send_direct_command(str)
+            self.read_direct_byte()
+
+            str = f":CM#"
+            self.send_direct_command(str)
+            self.read_direct_byte()
+
+    def send_go_to(self, ra, dec):
+        with self.lock:
+            str = f":Sr{ra}#"
+            self.send_direct_command(str)
+            self.read_direct_byte()
+
+            str = f":Sd{dec}#"
+            self.send_direct_command(str)
+            self.read_direct_byte()
+
+            str = f":MS#"
+            self.send_direct_command(str)
+            self.read_direct_byte()
 
     def send_PEC_position(self, position=0):
         if position<0 or position>99:
@@ -306,6 +343,11 @@ class Telescope:
         self.send_direct_command(f":M{direction}#")
         time.sleep(t)
         self.send_direct_command(f":Q{direction}#")
+
+    def send_backlash_comp_ra(self, comp):
+        self.send_direct_command(f"!PA{int(abs(comp)):03d}#")
+    def send_backlash_comp_dec(self, comp):
+        self.send_direct_command(f"!PB{int(abs(comp)):03d}#")
 
     def send_camera(self, shots, exposure):
         with self.lock:
@@ -383,6 +425,8 @@ class Telescope:
             }
             # Line 9: Tracking
             data["tracking"] = lines[8].split()[1]
+            data["text"] = info
+
             self.scope_info = data
             return info
 

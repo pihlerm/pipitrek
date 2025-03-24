@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, url_for, render_template, Response, jsonify
+from flask import Flask, request, redirect, url_for, render_template, Response, jsonify, send_file
 from autoguider import Autoguider
 from camera import Camera
 from threading import Thread, Event
@@ -59,11 +59,16 @@ def draw_info(frame):
 
 def gen_frames():
     last_valid_frame = None
+    last_yield = time.time()
     try:
         while camera.running:
+            if time.time() - last_yield > 10:
+                print("Timeout from gen_frames", flush=True)
+                break            
             frame = camera.frame
             if frame is not last_valid_frame and frame is not None and frame.size > 0:
                 #draw_info(frame)
+                last_yield = time.time() 
                 last_valid_frame = frame
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ret:
@@ -75,20 +80,26 @@ def gen_frames():
                 #print("No frame")
             time.sleep(0.5)
     except GeneratorExit:
-        print("Client disconnected from video feed", flush=True)
-        # Cleanup (e.g., stop camera)
+        print("GeneratorExit from video feed", flush=True)
     except Exception as e:
         print(f"Video feed error: {e}", flush=True)
+    finally:
+        print("Client disconnected from gen_frames", flush=True)
 
 
 def gen_thresh_frames():
     if  autoguider_thread is None:
         return
     last_valid_thresh = None
+    last_yield = time.time()
     try:
         while autoguider.running:
+            if time.time() - last_yield > 10:
+                print("Timeout from gen_thresh_frames", flush=True)
+                break            
             thresh = autoguider.threshold
             if thresh is not last_valid_thresh and thresh is not None :
+                last_yield = time.time() 
                 last_valid_thresh = thresh
                 thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
                 #draw_info(thresh_color)
@@ -102,34 +113,41 @@ def gen_thresh_frames():
                 #print("No thresh")
             time.sleep(0.5)
     except GeneratorExit:
-        print("Client disconnected from video feed", flush=True)
+        print("GeneratorExit from gen_thresh_frames", flush=True)
         # Cleanup (e.g., stop camera)
     except Exception as e:
         print(f"Video feed error: {e}", flush=True)
+    finally:
+        print("Client disconnected from gen_thresh_frames", flush=True)
 
 def gen_detail_frames():
     if  autoguider_thread is None:
         return
+    last_yield = time.time()
     try:
         while autoguider.running:
+            if time.time() - last_yield > 10:
+                print("Timeout from gen_detail_frames", flush=True)
+                break            
+
             with autoguider.lock:
                 detail = autoguider.centroid_image
-            if detail is None or detail.size == 0:
-                continue
-
-            detail_color = cv2.cvtColor(detail, cv2.COLOR_GRAY2BGR)
-            ret, buffer = cv2.imencode('.jpg', detail_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ret:
-                detail_data = buffer.tobytes()
-                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + detail_data + b'\r\n')
-            else:
-                print("Threshold encoding failed")
+            if detail is not None and detail.size > 0:
+                detail_color = cv2.cvtColor(detail, cv2.COLOR_GRAY2BGR)
+                ret, buffer = cv2.imencode('.jpg', detail_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ret:
+                    detail_data = buffer.tobytes()
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + detail_data + b'\r\n')
+                else:
+                    print("Threshold encoding failed")
             time.sleep(1)
     except GeneratorExit:
-        print("Client disconnected from video feed", flush=True)
+        print("GeneratorExit from gen_detail_frames", flush=True)
         # Cleanup (e.g., stop camera)
     except Exception as e:
         print(f"Video feed error: {e}", flush=True)
+    finally:
+        print("Client disconnected from gen_detail_frames", flush=True)
 
 
 
@@ -166,6 +184,21 @@ def detail_feed():
     else:
         return Response(b'', status=503)
 
+@app.route('/save_frame', methods=['POST'])
+def save_frame():
+    if camera.running:
+        frame = camera.frame
+        if frame is not None and frame.size > 0:
+            # Save the frame as an image file
+            save_path = os.path.join(os.getcwd(), 'saved_frame.png')
+            cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
+            print(f"Frame saved to {save_path}")
+            return send_file(save_path, as_attachment=True, mimetype='image/png')
+        else:
+            return jsonify({"status": "error", "message": "No valid frame available"}), 400
+    else:
+        return jsonify({"status": "error", "message": "Camera is not running"}), 503
+
 
 def form_properties():
         return {
@@ -177,6 +210,7 @@ def form_properties():
             "rotation_angle": autoguider.rotation_angle,
             "pixel_scale": autoguider.pixel_scale,
             "guiding": autoguider.guiding,
+            "dec_guiding": autoguider.dec_guiding,
             "guide_interval" : autoguider.guide_interval,
             "guide_pulse" : autoguider.guide_pulse,
             "last_correction": autoguider.last_correction,
@@ -198,15 +232,17 @@ def get_autoguider_properties():
         return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
     return jsonify(form_properties())
 
-
 @sock.route('/autoguider_socket')
 def autoguider_socket(ws):
     while True:
-        if(autoguider.data_ready):
-            autoguider.data_ready = False
-            ws.send(json.dumps(form_properties()))
-        time.sleep(0.1)
-            
+        try:
+            if autoguider.data_ready:
+                autoguider.data_ready = False
+                ws.send(json.dumps(form_properties()))
+            time.sleep(0.1)
+        except Exception as e:  # Catches WebSocketConnectionClosedException
+            break
+    print("autoguider_socket disconnected")
 
 @app.route('/scope_info', methods=['GET'])
 def scope_info():
@@ -314,6 +350,16 @@ def set_guiding():
         autoguider.enable_guiding(guiding)
         return jsonify({"status": "success"}), 200
 
+@app.route('/set_dec_guiding', methods=['POST'])
+def set_dec_guiding():
+    if  autoguider_thread is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    else:
+        dec_guiding = request.form.get('dec_guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+        autoguider.enable_dec_guiding(dec_guiding)
+        return jsonify({"status": "success"}), 200
+
+
 @app.route('/set_tracking', methods=['POST'])
 def set_tracking():
     tracking = request.form.get('tracking', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
@@ -388,12 +434,14 @@ def calibrate():
     if  autoguider_thread is None:
         return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
     else:
-        if autoguider.calibrate_angle():
+        with_backlash = request.form.get('with_backlash', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+        if autoguider.calibrate_angle(with_backlash):
             print(f"Calibration successful")
             return jsonify({'status': 'success', 'message': 'Calibration successful'})
         else:
             print("Failed to calibrate")
             return jsonify({'status': 'error', 'message': "Failed to calibrate"}), 400
+
 
 @app.route('/control_move', methods=['POST'])
 def control_move():
@@ -412,8 +460,8 @@ def control_move():
             ra = 10
         elif direction == 'w':
             ra = -10
-        telescope.send_start_movement_speed(ra,dec)
-        #telescope.send_move(direction)
+        #telescope.send_start_movement_speed(ra,dec)
+        telescope.send_move(direction)
         return jsonify({"status": "success", "direction": direction})
     else:
         return jsonify({"status": "error", "message": "Invalid direction"}), 400
@@ -527,8 +575,8 @@ def command_goto():
     data = request.json
     ra = data.get('ra')
     dec = data.get('dec')
-    # Process the RA and DEC values
     print(f"GOTO command received: RA={ra}, DEC={dec}")
+    telescope.send_go_to(ra,dec)
     return jsonify({'status': 'success', 'message': f'GOTO to RA={ra}, DEC={dec}'})
 
 @app.route('/command_set_to', methods=['POST'])
@@ -536,8 +584,8 @@ def command_set_to():
     data = request.json
     ra = data.get('ra')
     dec = data.get('dec')
-    # Process the RA and DEC values
     print(f"SET TO command received: RA={ra}, DEC={dec}")
+    telescope.send_set_to(ra,dec)
     return jsonify({'status': 'success', 'message': f'SET TO RA={ra}, DEC={dec}'})
 
 

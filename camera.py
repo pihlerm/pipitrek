@@ -96,7 +96,7 @@ class Camera:
                self.set_exposure(self.exposure)             # later set to desired exposure
                phase=2
 
-            print(f"get_frame took {self.last_frame_time:.2f} seconds")
+            #print(f"get_frame took {self.last_frame_time:.2f} seconds")
 
     def capture_frame(self):
         # get a frame        
