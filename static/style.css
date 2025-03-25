@@ -1,8 +1,32 @@
 
-/*td, th, tr {
+td, th, tr {
     border: 1px solid black; 
-    padding: 5px; 
-}*/
+}
+
+body.night-mode {
+    background-color: #121212; /* Dark background */
+    color: #919191; /* Light text */
+}
+
+label,div {
+    color: #a1a1a1; /* Light text */
+}
+
+textarea, input {
+    background-color: #323232; /* Dark background */
+    color: #ffffff; /* Light text */
+}
+
+button {
+    background-color: #434343; /* Dark control button background */
+    color: #ffffff; /* Light text */
+    border: 1px solid #555555;
+}
+
+button:hover {
+    background-color: #545454; /* Slightly lighter on hover */
+}
+
 
 td {
     vertical-align: middle;
@@ -34,10 +58,10 @@ input[type="range"] {
 .telescope-container {
     display: flex;
     align-items: flex-start;
-    gap: 20px;
-    height: 50vh;
+    gap: 5px;
     border: 0px solid black;
 }
+
 .control-button {
     width: 50px;
     height: 50px;
@@ -65,11 +89,12 @@ input[type="range"] {
     vertical-align: middle;
 }
 
+
 #command-buttons {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 5px;
+    gap: 6px;
 }
 
 
@@ -83,22 +108,6 @@ input[type="range"] {
 }
 
 
-#result {
-    width: 400px;
-    height: 100%;
-    margin-top: 0px;
-}
-#telescope-info {
-    width: 300px;
-    height: 50%;
-    margin-top: 0px;
-}
-#pec_table {
-    width: 300px;
-    height: 50%;
-    margin-top: 0px;
-}
-
 
 .vspacer {
     height: 50px;
@@ -109,13 +118,14 @@ input[type="range"] {
     display: flex;
     flex-direction: row;
     align-items: flex-start;
-    gap: 1px;
+    gap: 5px;
     border: 0px solid black;
 }
 
 .two_buttons_input {
-    width: 88px;
+    width: 89px;
     padding: 1px;
+    gap: 5px;
 }
 
 .num_input {
@@ -129,26 +139,15 @@ input[type="range"] {
 }
 
 .boxy {
-    width: 240px;
+    width: 245px;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 1px;
-    border: 2px solid black;
+    border: 2px solid #626262;
 }
 
 
-#canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 10;
-    cursor: crosshair;
-}
-#video_container {
-    position: relative;
-    display: inline-block;
-}
 .parameter {
     margin-bottom: 5px;
 }
@@ -202,23 +201,38 @@ input[type="range"] {
     font-weight: bold;
 }
 
-#turning-wheel-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin: 20px;
-}
-
-#turning-wheel {
-    border: 1px solid #ccc;
-    border-radius: 50%;
-    cursor: pointer;
-}
-
-
 #detail_feed {
     width: 80px; /* Set the width to 80px */
     height: 80px; /* Set the height to 80px */
     image-rendering: pixelated; /* Disable interpolation for sharp pixels */
     image-rendering: crisp-edges; /* Fallback for some browsers */
+}
+
+#canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    cursor: crosshair;
+}
+#video_container {
+    position: relative;
+    display: inline-block;
+}
+
+#result {
+    width: 589px;
+    height: 236px;
+    margin-top: 0px;
+}
+
+#telescope-info {
+    width: 130px;
+    height: 200px;
+    margin-top: 0px;
+}
+#pec_table {
+    width: 130px;
+    height: 231px;
+    margin-top: 0px;
 }

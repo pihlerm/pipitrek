@@ -24,7 +24,7 @@ function make_wheel() {
         // Draw the outer circle
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-        ctx.fillStyle = isInputMode ? 'lightgreen' : '#f0f0f0'; // Change color in input mode
+        ctx.fillStyle = isInputMode ? 'lightgreen' : '#909090'; // Change color in input mode
         ctx.fill();
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 2;

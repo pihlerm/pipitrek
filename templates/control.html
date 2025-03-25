@@ -7,12 +7,13 @@
     <script src="../static/wheel.js"></script>
 </head>
 <body>
-    <h1>Telescope Control</h1>
-    <div class="telescope-container">
-        <div id="control-buttons">
+    <span>Telescope Control</span>
+    <div>
+        <div class="telescope-container">
+            <div id="control-buttons">
             <table>
                 <tr>
-                    <img src="../static/PIPITREK.webp" style="width: 100%; max-width: 200px; margin-top: 0px; ">
+                    <img src="../static/PIPITREK.webp" style="width: 100%; max-width: 196px; margin-top: 0px; ">
                 </tr>
                 <tr>
                     <td>
@@ -42,50 +43,43 @@
                     <td></td>
                 </tr>
 
-                <tr>
-                    <td colspan="3">
-                        <div id="turning-wheel-container">
-                            <canvas id="pec-wheel" width="80" height="80"></canvas>
-                            <div>
-                                <label for="pec-position">PEC</label>
-                                <input class="mini_num_input" type="text" id="pec-position" value="0">
-                                <button class="mini-button" onclick="setPECPosition()">SET</button>
-                            </div>
-                        </div>
-                    </td>
-                </tr>
-
             </table>       
         </div>
 
         <div id="command-buttons">
             
-            <div class = 'two_buttons'>
-                <button class="command-button" onclick="getInfo()">Get Info</button>
-                <button class="command-button" onclick="showTerminal()">Terminal</button>
-            </div>
-            <div class = 'two_buttons'>
-                <button class="command-button" onclick="receivePEC()">Receive PEC</button>
-                <button class="command-button" onclick="sendPEC()">Send PEC</button>
-            </div>
-            <div class = 'two_buttons'>
-                <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
-                <div>
-                    <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" checked>
-                    <label for="quiet">Quiet mode</label>
+            <div class = 'boxy'>
+                <div class = 'two_buttons'>
+                    <button class="command-button" onclick="getInfo()">Get Info</button>
+                    <button class="command-button" onclick="showTerminal()">Terminal</button>
+                </div>
+                <div class = 'two_buttons'>
+                    <button class="command-button" onclick="receivePEC()">Receive PEC</button>
+                    <button class="command-button" onclick="sendPEC()">Send PEC</button>
                 </div>
             </div>
-            <div class = 'two_buttons'>
-                <div>
-                    <label>Pier:</label>
-                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
-                    <label for="pier_w">W</label>
-                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
-                    <label for="pier_e">E</label>
+            <div class = 'boxy'>
+                <div class = 'two_buttons'>
+                    <div>
+                        <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
+                    </div>
+                    <div>
+                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" checked>
+                        <label for="quiet">Quiet mode</label>
+                    </div>
                 </div>
-                <div>
-                    <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
-                    <label for="tracking">Tracking</label>
+                <div class = 'two_buttons'>
+                    <div style="width:120px;">
+                        <label>Pier:</label>
+                        <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
+                        <label for="pier_w">W</label>
+                        <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
+                        <label for="pier_e">E</label>
+                    </div>
+                    <div>
+                        <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
+                        <label for="tracking">Tracking</label>
+                    </div>
                 </div>
             </div>
 
@@ -125,7 +119,18 @@
                 </div>
             </div>
 
-            <div class = 'two_buttons vspacer'>
+            <div class = 'boxy'>
+                <div class = 'two_buttons'>
+                    <div style="width:120px;">
+                        <canvas id="pec-wheel" width="80" height="80"></canvas>
+                    </div>
+                    <div>
+                        <br>
+                        <label for="pec-position">PEC</label>
+                        <input class="mini_num_input" type="text" id="pec-position" value="0">
+                        <button class="mini-button" onclick="setPECPosition()">SET</button>
+                    </div>
+                </div>
             </div>
 
             <div id="upload-firmware" class="boxy">
@@ -141,10 +146,14 @@
             <textarea id="telescope-info"  placeholder="INFO"></textarea>
             <textarea id="pec_table" placeholder="PEC Table"></textarea>       
         </div>
+    </div>
+    <div>
         <div id="result-boxes" class = "flex1">
             <textarea id="result" placeholder="Result"></textarea>
         </div>
         <iframe id="terminal_frame" src="{{ url_for('terminal') }}" width="720" height="480" class="hidden"></iframe>
+    </div>
+
     </div>
     
 

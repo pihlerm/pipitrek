@@ -265,6 +265,8 @@ class Telescope:
         self.send_direct_command(f":Q{direction}#")
 
     def send_speed(self, speed):
+        # speed = S - slew speed
+        # speed = G - guide speed
         self.send_direct_command(f":R{speed}#")
 
     def send_start_movement_speed(self, ra, dec):
@@ -382,52 +384,54 @@ class Telescope:
             while resp != "":
                 resp = self.read_direct_response()
                 info += resp + "\n"
-
-            lines = info.strip().split('\n')
-            data = {}
-            # Line 1: Software and version
-            software_parts = lines[0].split()
-            data["software"] = {
-                "name": software_parts[0],
-                "version": software_parts[1]
-            }
-            # Line 2: Memory
-            data["memory"] = int(lines[1].split()[1])
-            # Line 3: Uptime
-            data["uptime"] = int(lines[2].split()[1])
-            # Line 4: RA
-            ra = lines[3].split()[1].rstrip('#')
-            data["coordinates"] = {"ra": ra}
-            # Line 5: DEC
-            dec = lines[4].split()[1].rstrip('#').replace('*', ':')
-            data["coordinates"]["dec"] = dec
-            # Line 6: Pier side
-            data["pier"] = lines[5].split()[1]
-            # Line 7: PEC
-            pec_parts = lines[6].split()
-            if pec_parts[1]=='disabled':
-                data["pec"] = {
-                    "progress": pec_parts[1],
-                    "value": 0
+            try:
+                lines = info.strip().split('\n')
+                data = {}
+                # Line 1: Software and version
+                software_parts = lines[0].split()
+                data["software"] = {
+                    "name": software_parts[0],
+                    "version": software_parts[1]
                 }
-            else:
-                data["pec"] = {
-                    "progress": pec_parts[1].lstrip('@').rstrip('%'),
-                    "value": int(pec_parts[2])
+                # Line 2: Memory
+                data["memory"] = int(lines[1].split()[1])
+                # Line 3: Uptime
+                data["uptime"] = int(lines[2].split()[1])
+                # Line 4: RA
+                ra = lines[3].split()[1].rstrip('#')
+                data["coordinates"] = {"ra": ra}
+                # Line 5: DEC
+                dec = lines[4].split()[1].rstrip('#').replace('*', ':')
+                data["coordinates"]["dec"] = dec
+                # Line 6: Pier side
+                data["pier"] = lines[5].split()[1]
+                # Line 7: PEC
+                pec_parts = lines[6].split()
+                if pec_parts[1]=='disabled':
+                    data["pec"] = {
+                        "progress": pec_parts[1],
+                        "value": 0
+                    }
+                else:
+                    data["pec"] = {
+                        "progress": pec_parts[1].lstrip('@').rstrip('%'),
+                        "value": int(pec_parts[2])
+                    }
+
+                # Line 8: Camera
+                camera_parts = lines[7].split()
+                data["camera"] = {
+                    "exposure": int(camera_parts[2]),
+                    "shots": int(camera_parts[4].rstrip(':')),
+                    "state": camera_parts[5]
                 }
+                # Line 9: Tracking
+                data["tracking"] = lines[8].split()[1]
+                self.scope_info = data
+            except:
+                print("get info failed to parse")
 
-            # Line 8: Camera
-            camera_parts = lines[7].split()
-            data["camera"] = {
-                "exposure": int(camera_parts[2]),
-                "shots": int(camera_parts[4].rstrip(':')),
-                "state": camera_parts[5]
-            }
-            # Line 9: Tracking
-            data["tracking"] = lines[8].split()[1]
-            data["text"] = info
-
-            self.scope_info = data
+            self.scope_info["text"]=info
             return info
 
     def send_pec_table(self, pec_table):

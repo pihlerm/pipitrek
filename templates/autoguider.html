@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="../static/style.css" />
     <script src="../static/chart.js"></script>
 </head>
-<body onload="Load()">
+<body onload="Load()" class="night-mode">
 
     <table style="width:100%; height:740px;">
         <tr>
@@ -15,12 +15,13 @@
                     <div>
                         <button class="command-button" onclick="showVideoFeed()">Video</button>
                         <button class="command-button" onclick="showThreshFeed()">Threshold</button>
+                        <button class="command-button" onclick="toggleNightMode()">Night Mode</button>
                     </div>
         
                     <!-- Right-aligned button and text -->
                     <div>
                         <button class="command-button" onclick="shutdown()">Shutdown</button>
-                        <span>Autoguider 0.4</span>
+                        <span>Autoguider 0.7</span>
                     </div>
                 </div>
             </td>
@@ -38,19 +39,19 @@
                 </div>
             </td>
             <td >
-                <iframe id="control_frame" src="{{ url_for('control') }}" width="500" height="720" ></iframe>
+                <iframe id="control_frame" src="{{ url_for('control') }}" width="618" height="720" style="border: none;"></iframe>
                 <table id="autoguider_panel" class="parameters-table hidden">                   
                     <tr>
                         <td>
+                            <span id="star-lock-state" class="no-lock">NO LOCK</span><br>
                             <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input>
                             <input type="checkbox" id="dec_guiding" onchange="setDecGuiding(this.checked)">DEC guiding</input><br>
                             loop:<span id="last_loop_time">0</span> s<br>
                             frame:<span id="last_frame_time">0</span> s
                         </td>
                         <td>
-                            <span id="star-lock-state" class="no-lock">NO LOCK</span>
                             <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
-                            <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span></div>
+                            <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span><br> focus:<span id="focus_metric">0</span></div>
                             <div>dRA:<span id="ra_arcsec">0.0</span>(<span id="ra">0</span>) <br> dDE:<span id="dec_arcsec">0.0</span>(<span id="dec">0</span>)</div>
                         </td>
                         
@@ -199,7 +200,7 @@
             </td>
         </tr>
     </table>
-    <canvas id="correctionsChart" width="1600px" height="200px"></canvas>
+    <canvas id="correctionsChart" width="1900px" height="200px"></canvas>
 </body>
 
 <script>
@@ -223,17 +224,32 @@
             options: {
                 responsive: false,
                 scales: {
-                    x: { title: { display: true, text: 'Time' } },
-                    y: { title: { display: true, text: 'Values' } },
+                    x: {
+                        title: { display: true, text: 'Time' },
+                        grid: {
+                            color: '#919191', // Set grid line color
+                        },
+                        ticks: {
+                            maxTicksLimit: 10, // Limit the number of ticks shown
+                            maxRotation: 0, // Prevent rotation of ticks
+                            minRotation: 0, // Ensure ticks are horizontal
+                        },
+                    },
+                    y: {
+                        title: { display: true, text: 'Values' },
+                        grid: {
+                            color: '#919191', // Set grid line color
+                        },
+                    },
                 },
             },
         });
     }
-
     function Load() {
 
         // Call this function once when the page loads
         initializeChart();
+        updateCorrections();
 
     }
     
@@ -269,10 +285,12 @@
         document.getElementById('last_loop_time').textContent = data.last_loop_time;
         document.getElementById('last_frame_time').textContent = data.last_frame_time;
 
-        document.getElementById('ra').textContent = data.last_correction.ra;
-        document.getElementById('dec').textContent = data.last_correction.dec;
-        document.getElementById('dx').textContent = data.last_correction.dx;
-        document.getElementById('dy').textContent = data.last_correction.dy;
+        document.getElementById('ra').textContent = data.last_correction.ra.toFixed(2);
+        document.getElementById('dec').textContent = data.last_correction.dec.toFixed(2);
+        document.getElementById('dx').textContent = data.last_correction.dx.toFixed(2);
+        document.getElementById('dy').textContent = data.last_correction.dy.toFixed(2);
+        document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
+        
         document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
         document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
         document.getElementById('threshold').value = data.gray_threshold;
@@ -323,6 +341,17 @@
             starLockState.textContent = "NO LOCK";
             starLockState.classList.remove('lock');
             starLockState.classList.add('no-lock');
+        }
+
+
+        // Decode the Base64 image and set it as the src of the detail_feed image
+        const detailFeed = document.getElementById('detail_feed');
+        if (data.centroid_image) {
+            detailFeed.src = `data:image/png;base64,${data.centroid_image}`;
+            detailFeed.alt = "Detail Feed";
+        } else {
+            detailFeed.src = "../static/Airy.png"; // Fallback to placeholder
+            detailFeed.alt = "Not Available";
         }
 
         const canvas = document.getElementById('canvas');
@@ -380,28 +409,6 @@
     }
 
 
-    // Check the feed availability every 5 seconds
-    setInterval(checkDetailFeed, 5000);
-
-    function checkDetailFeed() {
-        const detailFeed = document.getElementById('detail_feed');
-        const feedUrl = "{{ url_for('detail_feed') }}"; // Replace with the actual feed URL
-
-        // Set the feed URL and handle errors
-        detailFeed.src = feedUrl;
-
-        // Handle the case where the feed is not available
-        detailFeed.onerror = function () {
-            detailFeed.src = "../static/Airy.png"; // Fallback to placeholder
-            detailFeed.alt = "Not Available";
-        };
-
-        // Handle the case where the feed becomes available
-        detailFeed.onload = function () {
-            detailFeed.alt = "Detail Feed";
-        };
-    }
-    
     function drawAxes(rotation_angle) {
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -436,8 +443,8 @@
         // Add labels
         ctx.font = '12px Arial';
         ctx.fillStyle = 'green';
-        ctx.fillText('RA', raX + 5, raY + 5);
-        ctx.fillText('DEC', decX + 5, decY + 5);
+        ctx.fillText('RA(W)', raX + 5, raY + 5);
+        ctx.fillText('DEC(N)', decX + 5, decY + 5);
     }
 
     function submitChannels() {
@@ -659,6 +666,11 @@
             console.log('Shutdown canceled.');
         }        
 
+    }
+
+    function toggleNightMode() {
+        const body = document.body;
+        body.classList.toggle('night-mode'); // Toggle the 'night-mode' class
     }
 
 

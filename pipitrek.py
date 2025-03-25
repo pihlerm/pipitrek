@@ -15,9 +15,9 @@ import sys
 import subprocess
 import select
 from flask_sock import Sock
-import pty
 import re
 import json
+import base64
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
@@ -41,6 +41,8 @@ telescope = None
 camera = None
 
 
+video_interval = 0.5 # interval for generating video frames
+
 def draw_info(frame):
     with autoguider.lock:
         fps_text = f"FPS: {autoguider.cap.get(cv2.CAP_PROP_FPS):.1f}"
@@ -62,13 +64,14 @@ def gen_frames():
     last_yield = time.time()
     try:
         while camera.running:
-            if time.time() - last_yield > 10:
+            start = time.time()
+            if start - last_yield > 10:
                 print("Timeout from gen_frames", flush=True)
                 break            
             frame = camera.frame
             if frame is not last_valid_frame and frame is not None and frame.size > 0:
                 #draw_info(frame)
-                last_yield = time.time() 
+                last_yield = start
                 last_valid_frame = frame
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ret:
@@ -78,7 +81,7 @@ def gen_frames():
                     print("Frame encoding failed")
             #else:
                 #print("No frame")
-            time.sleep(0.5)
+            time.sleep(min(video_interval - (time.time()-start),0))
     except GeneratorExit:
         print("GeneratorExit from video feed", flush=True)
     except Exception as e:
@@ -94,12 +97,13 @@ def gen_thresh_frames():
     last_yield = time.time()
     try:
         while autoguider.running:
-            if time.time() - last_yield > 10:
+            start = time.time()
+            if start - last_yield > 10:
                 print("Timeout from gen_thresh_frames", flush=True)
                 break            
             thresh = autoguider.threshold
             if thresh is not last_valid_thresh and thresh is not None :
-                last_yield = time.time() 
+                last_yield = start
                 last_valid_thresh = thresh
                 thresh_color = cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
                 #draw_info(thresh_color)
@@ -111,7 +115,7 @@ def gen_thresh_frames():
                     print("Threshold encoding failed")
             #else:
                 #print("No thresh")
-            time.sleep(0.5)
+            time.sleep(min(video_interval - (time.time()-start),0))
     except GeneratorExit:
         print("GeneratorExit from gen_thresh_frames", flush=True)
         # Cleanup (e.g., stop camera)
@@ -119,37 +123,6 @@ def gen_thresh_frames():
         print(f"Video feed error: {e}", flush=True)
     finally:
         print("Client disconnected from gen_thresh_frames", flush=True)
-
-def gen_detail_frames():
-    if  autoguider_thread is None:
-        return
-    last_yield = time.time()
-    try:
-        while autoguider.running:
-            if time.time() - last_yield > 10:
-                print("Timeout from gen_detail_frames", flush=True)
-                break            
-
-            with autoguider.lock:
-                detail = autoguider.centroid_image
-            if detail is not None and detail.size > 0:
-                detail_color = cv2.cvtColor(detail, cv2.COLOR_GRAY2BGR)
-                ret, buffer = cv2.imencode('.jpg', detail_color, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if ret:
-                    detail_data = buffer.tobytes()
-                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + detail_data + b'\r\n')
-                else:
-                    print("Threshold encoding failed")
-            time.sleep(1)
-    except GeneratorExit:
-        print("GeneratorExit from gen_detail_frames", flush=True)
-        # Cleanup (e.g., stop camera)
-    except Exception as e:
-        print(f"Video feed error: {e}", flush=True)
-    finally:
-        print("Client disconnected from gen_detail_frames", flush=True)
-
-
 
 @app.route('/control')
 def control():
@@ -177,12 +150,6 @@ def thresh_feed():
     else:
         return Response(b'', status=503)
 
-@app.route('/detail_feed')
-def detail_feed():
-    if autoguider_thread is not None:
-        return Response(gen_detail_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-    else:
-        return Response(b'', status=503)
 
 @app.route('/save_frame', methods=['POST'])
 def save_frame():
@@ -201,30 +168,38 @@ def save_frame():
 
 
 def form_properties():
-        return {
-            "tracked_centroid": autoguider.tracked_centroid,
-            "current_centroid": autoguider.current_centroid,
-            "max_drift": autoguider.max_drift,
-            "star_size": autoguider.star_size,
-            "gray_threshold": autoguider.gray_threshold,
-            "rotation_angle": autoguider.rotation_angle,
-            "pixel_scale": autoguider.pixel_scale,
-            "guiding": autoguider.guiding,
-            "dec_guiding": autoguider.dec_guiding,
-            "guide_interval" : autoguider.guide_interval,
-            "guide_pulse" : autoguider.guide_pulse,
-            "last_correction": autoguider.last_correction,
-            "star_locked": autoguider.star_locked,
-            "last_loop_time": autoguider.last_loop_time,
-            "last_frame_time": autoguider.last_frame_time,
-            "last_status" : autoguider.last_status,
-            "exposure": camera.exposure,
-            "gain": camera.gain,
-            "integrate_frames": camera.integrate_frames,
-            "r_channel": camera.r_channel,
-            "g_channel": camera.g_channel,
-            "b_channel": camera.b_channel,
-        }
+    properties = {
+        "tracked_centroid": autoguider.tracked_centroid,
+        "current_centroid": autoguider.current_centroid,
+        "max_drift": autoguider.max_drift,
+        "star_size": autoguider.star_size,
+        "gray_threshold": autoguider.gray_threshold,
+        "rotation_angle": autoguider.rotation_angle,
+        "pixel_scale": autoguider.pixel_scale,
+        "guiding": autoguider.guiding,
+        "dec_guiding": autoguider.dec_guiding,
+        "guide_interval" : autoguider.guide_interval,
+        "guide_pulse" : autoguider.guide_pulse,
+        "last_correction": autoguider.last_correction,
+        "star_locked": autoguider.star_locked,
+        "focus_metric": autoguider.focus_metric,            
+        "last_loop_time": autoguider.last_loop_time,
+        "last_frame_time": autoguider.last_frame_time,
+        "last_status" : autoguider.last_status,
+        "exposure": camera.exposure,
+        "gain": camera.gain,
+        "integrate_frames": camera.integrate_frames,
+        "r_channel": camera.r_channel,
+        "g_channel": camera.g_channel,
+        "b_channel": camera.b_channel,
+    }
+    # Encode the centroid_image as Base64
+    if autoguider.centroid_image is not None:
+        _, buffer = cv2.imencode('.png', autoguider.centroid_image)  # Encode as PNG
+        properties["centroid_image"] = base64.b64encode(buffer).decode('utf-8')  # Convert to Base64 string
+    else:
+        properties["centroid_image"] = None
+    return properties
 
 @app.route('/properties', methods=['GET'])
 def get_autoguider_properties():

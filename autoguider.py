@@ -63,6 +63,7 @@ class Autoguider:
         self.last_status = ""               # Last status message
         self.tracked_centroid = None        # Reference point we are tracking
         self.current_centroid = None        # Last position of tracked star
+        self.focus_metric = 0               # focus_metric of last detected star
         self.star_locked = False            # If autoguider currently has a guide star locked
         # last error and correction needed
         self.last_correction = null_correction
@@ -93,12 +94,13 @@ class Autoguider:
 
     def detect_star(self, frame, search_near=None):
         with self.lock:
-            centroid, detail, thresh = self.analyzer.detect_star(frame, 
+            centroid, detail, thresh, focus_metric = self.analyzer.detect_star(frame, 
                                                                  search_near=search_near, 
                                                                  gray_threshold = self.gray_threshold,
                                                                  star_size=self.star_size)
             self.centroid_image = detail
             self.threshold = thresh
+            self.focus_metric = focus_metric
             return centroid
 
     def rotate_vector(self, dx, dy):
@@ -226,97 +228,99 @@ class Autoguider:
             #print(self.last_status)
             self.write_track_log(self.last_status)
 
+    def move_and_detect(self, telescope, move_direction, move_time, search_near ):
+        print(f" >> moving {move_direction} for {move_time} seconds...")
+        telescope.send_correction(move_direction,move_time)  # Move scope west for 10s
+        print("settling ... ")
+        time.sleep(2)   # settling scope
+        frame = self.camera.get_frame()
+        centroid = self.detect_star(frame, search_near=search_near)  # Detect star
+        if not centroid:
+           raise ValueError("Failed to detect centroid")
+        return centroid
+
     def calibrate_angle(self, with_backlash=False):
         #TODO : wait for new frames!
         telescope = Telescope()
         guiding = self.guiding
+        self.guiding = False
         quiet = telescope.quiet
         telescope.set_quiet(True)
-
-        self.guiding = False
-        if self.tracked_centroid is None:
-            print("No star acquired for calibration.")
-            self.guiding = guiding
-            return False
+        telescope.send_speed('G')
+        result = True
         
-        telescope.send_backlash_comp_dec(0)
-        telescope.send_backlash_comp_ra(0)
+        try:
+            if self.tracked_centroid is None:
+                raise ValueError("No tracked star, required for calibration.")
+            
+            telescope.send_backlash_comp_dec(0)
+            telescope.send_backlash_comp_ra(0)
 
-        frame = self.camera.get_frame()
-        centroid1 = self.detect_star(frame, search_near=self.tracked_centroid)  # Detect star
+            frame = self.camera.get_frame()
+            centroid1 = self.detect_star(frame, search_near=self.tracked_centroid)  # Detect star
+            print(f"#################1")
+            if not centroid1:
+                raise ValueError("failed to detect centroid1")
 
-        print(f"#################1")
-        telescope.send_correction('e',20)  # Move scope east for 20s
-        frame = self.camera.get_frame()
-        centroid2 = self.detect_star(frame, search_near=centroid1)  # Detect star
-        
-        telescope.send_correction('e',10)  # Move scope east for another 10s
-        print(f"#################2")
-        frame = self.camera.get_frame()
-        centroid3 = self.detect_star(frame, search_near=centroid2)  # Detect star
+            centroid2 = self.move_and_detect(telescope, 'e', 20, centroid1)
+            print(f"#################2")
+            
+            centroid3 = self.move_and_detect(telescope, 'e', 10, centroid2)
+            print(f"#################3")
 
-        telescope.send_correction('w',10)  # Move scope west for 10s
-        print(f"#################3")
-        frame = self.camera.get_frame()
-        centroid4 = self.detect_star(frame, search_near=centroid3)  # Detect star
-
-        if with_backlash:
-
-            # move north a bit
-            telescope.send_correction('n',30)  # Move scope north for 30s
+            centroid4 = self.move_and_detect(telescope, 'w', 10, centroid3)
             print(f"#################4")
-            frame = self.camera.get_frame()
-            centroid5 = self.detect_star(frame, search_near=centroid4)  # Detect star
 
-            telescope.send_correction('n',10)  # Move scope north for another 10s
-            print(f"#################5")
-            frame = self.camera.get_frame()
-            centroid6 = self.detect_star(frame, search_near=centroid5)  # Detect star
-
-            telescope.send_correction('s',10)  # Move scope south for 10s
-            print(f"#################6")
-            frame = self.camera.get_frame()
-            centroid7 = self.detect_star(frame, search_near=centroid6)  # Detect star
-
-            #return scope
-            telescope.send_correction('s',30)
-
-        telescope.send_correction('w',20)
-        print(f"#################END")
-
-
-        if (not with_backlash and centroid1 and centroid2 and centroid3) or ( with_backlash and centroid1 and centroid2 and centroid3 and centroid4 and centroid5 and centroid6 and centroid7):
-            dx = float(centroid3[0] - centroid1[0])
-            dy = float(centroid3[1] - centroid1[1])
-            angle_rad = -math.atan2(dy, dx)
-            self.rotation_angle = math.degrees(angle_rad)
-            self.last_status = f"Calibrated rotation angle: {self.rotation_angle:.1f} degrees"
-            print(self.last_status)
-            self.write_track_log(self.last_status)
-            
             if with_backlash:
-                dx = float(centroid4[0] - centroid3[0])
-                dy = float(centroid4[1] - centroid3[1])
-                dx_rot, dy_rot = self.rotate_vector(dx, dy)
-                ra_arcsec = round(dx_rot * self.pixel_scale, 0)
-                telescope.send_backlash_comp_ra(abs(ra_arcsec))
-                print(f"#################backlash ra {ra_arcsec} arcsec")
+
+                # move north a bit
+                centroid5 = self.move_and_detect(telescope, 'n', 20, centroid4)
+                print(f"#################5")
+
+                centroid6 = self.move_and_detect(telescope, 'n', 15, centroid5)
+                print(f"#################6")
+
+                centroid7 = self.move_and_detect(telescope, 's', 15, centroid6)
+                print(f"#################7")
+
+                #return scope
+                telescope.send_correction('s',20)
+
+            telescope.send_correction('w',20)
+            print(f"#################END")
+
+
+            if (not with_backlash and centroid1 and centroid2 and centroid3) or ( with_backlash and centroid1 and centroid2 and centroid3 and centroid4 and centroid5 and centroid6 and centroid7):
+                dx = float(centroid3[0] - centroid1[0])
+                dy = float(centroid3[1] - centroid1[1])
+                angle_rad = -math.atan2(dy, dx)
+                self.rotation_angle = math.degrees(angle_rad)
+                self.last_status = f"Calibrated rotation angle: {self.rotation_angle:.1f} degrees"
+                print(self.last_status)
+                self.write_track_log(self.last_status)
                 
-                dx = float(centroid7[0] - centroid6[0])
-                dy = float(centroid7[1] - centroid6[1])
-                dx_rot, dy_rot = self.rotate_vector(dx, dy)
-                dec_arcsec = round(dy_rot * self.pixel_scale, 0)
-                telescope.send_backlash_comp_dec(abs(dec_arcsec))
-                print(f"#################backlash dec {dec_arcsec} arcsec")
-            
+                if with_backlash:
+                    dx = float(centroid4[0] - centroid2[0])
+                    dy = float(centroid4[1] - centroid2[1])
+                    dx_rot, dy_rot = self.rotate_vector(dx, dy)
+                    ra_arcsec = round(dx_rot * self.pixel_scale, 0)
+                    telescope.send_backlash_comp_ra(abs(ra_arcsec))
+                    print(f"#################backlash ra {ra_arcsec} arcsec")
+                    
+                    dx = float(centroid7[0] - centroid5[0])
+                    dy = float(centroid7[1] - centroid5[1])
+                    dx_rot, dy_rot = self.rotate_vector(dx, dy)
+                    dec_arcsec = round(dy_rot * self.pixel_scale, 0)
+                    telescope.send_backlash_comp_dec(abs(dec_arcsec))
+                    print(f"#################backlash dec {dec_arcsec} arcsec")
+                
+        except ValueError as e:
+            print(f"Calibration failed {e}.")
+            result = False
+        finally:
             self.guiding = guiding
             telescope.set_quiet(quiet)
-            return True
-        else:
-            print("No star detected for calibration.")  # No star detected  for calibration
-            self.guiding = guiding
-            telescope.set_quiet(quiet)
-            return False
+            return result
 
     def enable_guiding(self, enable):
         if enable:
@@ -349,6 +353,7 @@ class Autoguider:
                 last_time = time.perf_counter()
                 frame = self.camera.frame
                 if frame is last_frame or frame is None:
+                    time.sleep(0.01)
                     continue
 
                 self.last_frame_time = round(self.camera.last_frame_time, 2)
@@ -388,7 +393,7 @@ class Autoguider:
                             self.write_track_log(self.last_status)
 
                 end_time = time.perf_counter()
-                self.last_loop_time = round(end_time - start_time, 2)
+                self.last_loop_time = round(end_time - last_time, 2)
                 self.data_ready = True
 
             time.sleep(0.01)  # Small sleep to prevent busy loop

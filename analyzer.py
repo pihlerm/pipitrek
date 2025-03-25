@@ -38,7 +38,7 @@ class Analyzer:
 
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
-            return None, None, thresh
+            return None, thresh, None, 0
 
         # Find the largest or nearest contour
         if search_near is not None:
@@ -53,13 +53,14 @@ class Analyzer:
             largest = max(contours, key=cv2.contourArea)
 
         # Check if contour is large enough
-        if cv2.contourArea(largest) <= star_size:
-            return None, None, thresh
+        size = cv2.contourArea(largest)
+        if size <= star_size:
+            return None, None, thresh, 0
 
         # Initial unweighted centroid and moments
         M = cv2.moments(largest)
         if M["m00"] == 0:
-            return None, None, thresh
+            return None, None, thresh, size
         cx = int(M["m10"] / M["m00"])
         cy = int(M["m01"] / M["m00"])
         initial_centroid = (cx, cy)
@@ -70,7 +71,7 @@ class Analyzer:
         y_spread = np.sqrt(M["mu02"] / M["m00"]) if M["m00"] > 0 else 0  # Std dev in y
         max_spread = max(area_diameter, x_spread, y_spread)
         crop_size = int(max_spread * 3)  # 3x spread for full star + buffer
-        crop_size = max(crop_size, 10)   # Minimum size (e.g., 10 pixels)
+        crop_size = max(crop_size, 20)   # Minimum size (e.g., 10 pixels)
         crop_size = min(crop_size, 50)   # Maximum size to avoid over-cropping
 
         # Ensure even crop_size for symmetry
@@ -92,17 +93,11 @@ class Analyzer:
         # Make a copy of star_region
         enhanced_star_region = star_region.copy()
 
-        # Apply gamma correction with gamma = 3.5
-        gamma = 3.5
-        inv_gamma = 1.0 / gamma
-        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
-        enhanced_star_region = cv2.LUT(enhanced_star_region, lut)
-
         # Weighted centroid
         M_weighted = cv2.moments(star_region)
         if M_weighted["m00"] == 0:
             print(f"Found rough centroid: {cx}, {cy}")
-            return initial_centroid, enhanced_star_region, thresh  # Fallback
+            return initial_centroid, enhanced_star_region, thresh, 0  # Fallback
         
         cx_weighted = M_weighted["m10"] / M_weighted["m00"]
         cy_weighted = M_weighted["m01"] / M_weighted["m00"]
@@ -111,5 +106,46 @@ class Analyzer:
         cx_full = round(cx_weighted + x0, 4)  # Round to 4 decimal places
         cy_full = round(cy_weighted + y0, 4)  # Round to 4 decimal places
 
+        # Calculate profile and focus metric
+        focus_metric = float(np.std(enhanced_star_region))  # Standard deviation as focus metric
+        enhanced_with_profile = self.calculate_profile(enhanced_star_region, cx_weighted, cy_weighted)
         #print(f"Found precise centroid: {cx_full}, {cy_full}")
-        return (cx_full, cy_full), enhanced_star_region, thresh
+
+        return (cx_full, cy_full), enhanced_with_profile, thresh, focus_metric
+
+
+    def calculate_profile(self, enhanced_star_region, cx_weighted, cy_weighted):
+        # Calculate horizontal intensity profile (left to right)
+        h, w = enhanced_star_region.shape
+        profile = np.zeros(w, dtype=np.float32)  # One value per column
+
+        # Average intensity across each column
+        for x in range(w):
+            column = enhanced_star_region[:, x]
+            profile[x] = np.mean(column) if column.size > 0 else 0
+
+        # Normalize profile to fit image height (0 to h-1)
+        profile_max = np.max(profile)
+        profile_min = np.min(profile)
+        if profile_max > profile_min:  # Avoid division by zero
+            profile_normalized = (profile - profile_min) / (profile_max - profile_min) * (h - 1)
+        else:
+            profile_normalized = np.zeros_like(profile)  # Flat line if no variation
+
+        # Convert to BGR for yellow plotting
+        # Apply gamma correction with gamma = 3.5
+        gamma = 3.5
+        inv_gamma = 1.0 / gamma
+        lut = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)]).astype("uint8")
+        enhanced_star_region = cv2.LUT(enhanced_star_region, lut)
+
+        enhanced_star_region_bgr = cv2.cvtColor(enhanced_star_region, cv2.COLOR_GRAY2BGR)
+        yellow = (0, 255, 255)  # BGR: Yellow
+
+        # Plot profile as a line graph from left to right
+        for x in range(w - 1):
+            y1 = int(h - 1 - profile_normalized[x])  # Invert y (0 at bottom)
+            y2 = int(h - 1 - profile_normalized[x + 1])
+            cv2.line(enhanced_star_region_bgr, (x, y1), (x + 1, y2), yellow, 1)
+
+        return enhanced_star_region_bgr
