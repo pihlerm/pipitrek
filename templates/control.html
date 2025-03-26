@@ -23,7 +23,7 @@
                         <button class="control-button" onclick="sendDirection('n')">↑</button>
                     </td>
                     <td>
-                        <button class="control-button" onclick="sendSpeed('S')">fast</button>
+                        <button class="control-button" onclick="sendSpeed('M')">med</button>
                     </td>
                 </tr>
                 <tr>
@@ -36,7 +36,9 @@
                     </td>
                 </tr>
                 <tr>
-                    <td></td>
+                    <td>
+                        <button class="control-button" onclick="sendSpeed('S')">fast</button>
+                    </td>
                     <td>
                         <button class="control-button" onclick="sendDirection('s')">↓</button>
                     </td>
@@ -51,7 +53,7 @@
             <div class = 'boxy'>
                 <div class = 'two_buttons'>
                     <button class="command-button" onclick="getInfo()">Get Info</button>
-                    <button class="command-button" onclick="showTerminal()">Terminal</button>
+                    <button class="command-button" onclick="resetArduino()">Reset</button>
                 </div>
                 <div class = 'two_buttons'>
                     <button class="command-button" onclick="receivePEC()">Receive PEC</button>
@@ -60,15 +62,10 @@
             </div>
             <div class = 'boxy'>
                 <div class = 'two_buttons'>
-                    <div>
-                        <button class="command-button" onclick="resetArduino()">Reset Arduino</button>
+                    <div style="width:120px;">
+                        <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
+                        <label for="tracking">Tracking</label>
                     </div>
-                    <div>
-                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" checked>
-                        <label for="quiet">Quiet mode</label>
-                    </div>
-                </div>
-                <div class = 'two_buttons'>
                     <div style="width:120px;">
                         <label>Pier:</label>
                         <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
@@ -76,41 +73,44 @@
                         <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
                         <label for="pier_e">E</label>
                     </div>
+                </div>
+                <div class = 'two_buttons'>
+                    <div style="width:120px;">
+                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" checked>
+                        <label for="quiet">Quiet mode</label>
+                    </div>
                     <div>
-                        <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
-                        <label for="tracking">Tracking</label>
                     </div>
                 </div>
             </div>
 
             <div class = 'boxy'>
                 <div class = 'two_buttons'>
-                    <button class="command-button" onclick="submitSetTo()">SET to</button>
-                    <button class="command-button" onclick="submitGoto()">GOTO</button>
-                </div>
-                <div class = 'two_buttons'>
                     <div>
                         <label for="ra-input">RA</label>
                         <input class="two_buttons_input" type="text" id="ra-input" placeholder="+HH:MM:SS#"  required>
                     </div>
+                    <button class="command-button" onclick="submitSetTo()">SET to</button>
+                </div>
+                <div class = 'two_buttons'>
                     <div>
                         <label for="dec-input">DE</label>
                         <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM'SS#"  required>
                     </div>
+                    <button class="command-button" onclick="submitGoto()">GOTO</button>
                 </div>
             </div>
             
             <div class = 'boxy'>
-                Camera
                 <div class = 'two_buttons'>
                     <div>
-                        <label for="shots-input">Shots</label>
+                        Camera :
                         <input class="num_input" type="text" id="shots-input" placeholder="0">
+                        <label for="shots-input">shots </label>
                     </div>
                     <div>
-                        <label for="exposure-input"> each </label>
                         <input class="num_input" type="text" id="exposure-input" placeholder="30">
-                        seconds
+                        <label for="exposure-input">sec</label>                        
                     </div>
                 </div>
                 <div class = 'two_buttons'>
@@ -132,13 +132,17 @@
                     </div>
                 </div>
             </div>
+            <div class="vspacer">
 
+            </div>
             <div id="upload-firmware" class="boxy">
-                Upload Firmware
                 <form id="uploadForm" enctype="multipart/form-data" style="width:100%;">
                     <input type="file" id="firmware" name="firmware" accept=".hex" style="width:100%;">
                 </form>
-                <button class="command-button red" type="button" onclick="uploadFirmware()">Upload</button>
+                <div class = 'two_buttons'>
+                    <span style="width:120px; margin-top:4px;font-size:16px;">Firmware</span>
+                    <button class="command-button red" type="button" onclick="uploadFirmware()">Upload</button>
+                </div>
             </div>
 
         </div>
@@ -151,7 +155,6 @@
         <div id="result-boxes" class = "flex1">
             <textarea id="result" placeholder="Result"></textarea>
         </div>
-        <iframe id="terminal_frame" src="{{ url_for('terminal') }}" width="720" height="480" class="hidden"></iframe>
     </div>
 
     </div>
@@ -159,12 +162,6 @@
 
     <script>
         PEC_wheel = make_wheel();
-
-        function showTerminal() {
-            document.getElementById('info-boxes').classList.toggle('hidden');
-            document.getElementById('result-boxes').classList.toggle('hidden');
-            document.getElementById('terminal_frame').classList.toggle('hidden');
-        }
 
         function appendToResult(message) {
             const resultTextarea = document.getElementById('result');

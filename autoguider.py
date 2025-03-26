@@ -347,13 +347,10 @@ class Autoguider:
         last_frame = None
 
         while self.running:
-            start_time = time.perf_counter()
-
             if time.perf_counter() - last_time >= self.guide_interval:  # Run once per period
-                last_time = time.perf_counter()
                 frame = self.camera.frame
                 if frame is last_frame or frame is None:
-                    time.sleep(0.01)
+                    time.sleep(0.01)    # frame not ready
                     continue
 
                 self.last_frame_time = round(self.camera.last_frame_time, 2)
@@ -395,5 +392,6 @@ class Autoguider:
                 end_time = time.perf_counter()
                 self.last_loop_time = round(end_time - last_time, 2)
                 self.data_ready = True
+                last_time = time.perf_counter()
 
             time.sleep(0.01)  # Small sleep to prevent busy loop

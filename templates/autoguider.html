@@ -6,8 +6,7 @@
     <script src="../static/chart.js"></script>
 </head>
 <body onload="Load()" class="night-mode">
-
-    <table style="width:100%; height:740px;">
+    <table class="main-table">
         <tr>
             <td>
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -28,6 +27,7 @@
             <td>
                 <button class="command-button" onclick="showControl()">Control</button>
                 <button class="command-button" onclick="showGuider()">Guider</button>            
+                <button class="command-button" onclick="showTerminal()">Terminal</button>
             </td>
         </tr>
         <tr>
@@ -36,10 +36,12 @@
                     <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720">
                     <img id="thresh_feed" src="{{ url_for('thresh_feed') }}" width="1280" height="720" class="hidden">
                     <canvas id="canvas" width="1280" height="720"></canvas>
+                    <canvas id="loupe" width="200" height="200" style="position: absolute; display: none; border: 1px solid #555;"></canvas>
                 </div>
             </td>
             <td >
-                <iframe id="control_frame" src="{{ url_for('control') }}" width="618" height="720" style="border: none;"></iframe>
+                <iframe id="control_frame" src="{{ url_for('control') }}" ></iframe>
+                <iframe id="terminal_frame" src="{{ url_for('terminal') }}" class="hidden"></iframe>
                 <table id="autoguider_panel" class="parameters-table hidden">                   
                     <tr>
                         <td>
@@ -59,12 +61,12 @@
 
                     <tr>
                         <td>
-                            <button class="command-button" onclick="acquire()">Acquire Star</button>
-                            <button class="command-button" onclick="saveFrame()">Save Frame</button>
+                            <button class="command-button" onclick="acquire()" title="Acquire a star for tracking">Acquire Star</button>
+                            <button class="command-button" onclick="saveFrame()" title="Save the current video frame to disk">Save Frame</button>
                         </td>
                         <td>
-                            <button class="command-button" onclick="calibrate(false)">Calib angle</button>
-                            <button class="command-button" onclick="calibrate(true)">Calib+backlash</button>
+                            <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>
+                            <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation. Best use on stationary target with tracking disabled.">Cal+backlash</button>
                         </td>
                     </tr>
                     <tr>
@@ -202,7 +204,7 @@
     </table>
     <canvas id="correctionsChart" width="1900px" height="200px"></canvas>
 </body>
-
+<script src="../static/loupe.js"></script>
 <script>
     let correctionsChart;
 
@@ -213,12 +215,12 @@
             data: {
                 labels: [],
                 datasets: [
-                    { label: 'RA', data: [], borderColor: 'yellow', fill: false },
-                    { label: 'DEC', data: [], borderColor: 'blue', fill: false },
-                    { label: 'DX', data: [], borderColor: 'green', fill: false },
-                    { label: 'DY', data: [], borderColor: 'orange', fill: false },
-                    { label: 'RA Arcsec', data: [], borderColor: 'purple', fill: false },
-                    { label: 'DEC Arcsec', data: [], borderColor: 'brown', fill: false },
+                { label: 'RA', data: [], borderColor: 'yellow', fill: false, pointRadius: 0 },
+                { label: 'DEC', data: [], borderColor: 'blue', fill: false, pointRadius: 0 },
+                { label: 'DX', data: [], borderColor: 'green', fill: false, pointRadius: 0 },
+                { label: 'DY', data: [], borderColor: 'orange', fill: false, pointRadius: 0 },
+                { label: 'RA Arcsec', data: [], borderColor: 'purple', fill: false, pointRadius: 0 },
+                { label: 'DEC Arcsec', data: [], borderColor: 'brown', fill: false, pointRadius: 0 },
                 ],
             },
             options: {
@@ -301,7 +303,7 @@
         document.getElementById('star_size').value = data.star_size;
         document.getElementById('star_size_value').textContent = data.star_size;
 
-        document.getElementById('rotation_angle').value = data.rotation_angle;
+        document.getElementById('rotation_angle').value = data.rotation_angle.toFixed(3);
         document.getElementById('rotation_angle_value').textContent = data.rotation_angle.toFixed(3);
 
         document.getElementById('pixel_scale').value = data.pixel_scale;
@@ -591,16 +593,23 @@
     }
 
 
-    function showControl() {
-        document.getElementById('control_frame').classList.remove('hidden');
+    function showPanel(panel) {
+        document.getElementById('control_frame').classList.add('hidden');
         document.getElementById('autoguider_panel').classList.add('hidden');
-
+        document.getElementById('terminal_frame').classList.add('hidden');
+        document.getElementById(panel).classList.remove('hidden');
+        
+    }
+    function showControl() {
+        showPanel('control_frame');
     }
     function showGuider() {
-        document.getElementById('control_frame').classList.add('hidden');
-        document.getElementById('autoguider_panel').classList.remove('hidden');
-
+        showPanel('autoguider_panel');
     }
+    function showTerminal() {
+        showPanel('terminal_frame');
+    }
+
 
     function saveFrame() {
         fetch('/save_frame', {

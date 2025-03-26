@@ -81,7 +81,7 @@ def gen_frames():
                     print("Frame encoding failed")
             #else:
                 #print("No frame")
-            time.sleep(min(video_interval - (time.time()-start),0))
+            time.sleep(max(video_interval - (time.time()-start),0.01))
     except GeneratorExit:
         print("GeneratorExit from video feed", flush=True)
     except Exception as e:
@@ -115,7 +115,7 @@ def gen_thresh_frames():
                     print("Threshold encoding failed")
             #else:
                 #print("No thresh")
-            time.sleep(min(video_interval - (time.time()-start),0))
+            time.sleep(max(video_interval - (time.time()-start),0.01))
     except GeneratorExit:
         print("GeneratorExit from gen_thresh_frames", flush=True)
         # Cleanup (e.g., stop camera)

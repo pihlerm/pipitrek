@@ -52,7 +52,7 @@ function make_wheel() {
         ctx.beginPath();
         ctx.moveTo(zeromarkX1, zeromarkY1);
         ctx.lineTo(zeromarkX2, zeromarkY2);
-        ctx.strokeStyle = 'black';
+        ctx.strokeStyle = 'blue';
         ctx.lineWidth = 3;
         ctx.stroke();
     }
