@@ -38,9 +38,9 @@ class Analyzer:
 
         
         # Pre-filter small contours with morphological opening
-        kernel_size = int(np.sqrt(star_size) / 2) * 2 + 1  # Rough estimate, ensure odd
-        kernel = np.ones((kernel_size, kernel_size), np.uint8)
-        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        #kernel_size = int(np.sqrt(star_size) / 2) * 2 + 1  # Rough estimate, ensure odd
+        #kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        #thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
         
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
@@ -49,21 +49,23 @@ class Analyzer:
 
         # Find the largest or nearest contour with size > star_size
         if search_near is not None:
-            contour_data = []
+            # Calculate all distances first
+            distance_data = []
+            search_near = np.array(search_near)
             for c in contours:
                 if len(c) > 0:
                     mean_pos = np.mean(c, axis=0)[0]
-                    distance = np.linalg.norm(mean_pos - np.array(search_near))
-                    area = cv2.contourArea(c)
-                    contour_data.append((distance, area, c))
+                    distance = np.linalg.norm(mean_pos - search_near)
+                    distance_data.append((distance, c))
             
-            if not contour_data:
-                largest = max(contours, key=cv2.contourArea)  # Fallback to largest
+            if not distance_data:
+                largest = max(contours, key=cv2.contourArea)
             else:
-                # Sort by distance ascending
-                contour_data.sort(key=lambda x: x[0])
-                # Find first contour with size > star_size
-                for distance, area, contour in contour_data:
+                # Sort by distance
+                distance_data.sort(key=lambda x: x[0])
+                # Check areas in order until we find one > star_size
+                for distance, contour in distance_data:
+                    area = cv2.contourArea(contour)
                     if area > star_size:
                         largest = contour
                         break
