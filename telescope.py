@@ -4,9 +4,11 @@ import serial
 import time
 import subprocess
 import json
+import queue
 from comm.virtual_port import VirtualSerialPort
 from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
+from telescope_commands import *
 
 class Telescope:
     _instance = None
@@ -19,14 +21,12 @@ class Telescope:
     def __init__(self):
         if not hasattr(self, '_initialized'):
             self._initialized = True
-#            self._virtual_port = VirtualSerialPort()
-#            self._virtual_port.open()
             self.open_serial()
             self.pause = False
             self.scope_info = None
             self.bt_serial = BTSerial()
-            self.tcp_serial = TCPSerial()
-            self.tcp_serial.open()  
+            #self.tcp_serial = TCPSerial()
+            #self.tcp_serial.open()  
             self.lock = RLock()  # Thread lock for serial operations
             self.scope_info = {}
             self.scope_info["pec"] = {}
@@ -84,17 +84,25 @@ class Telescope:
                         raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
-        print(f"scope send: {data}")
+        #print(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
-        print(f"scope read: {data}")
+        #print(f"scope read: {data}")
         return data
 
     def readline_scope(self, timeout=1):
+        prevto = self._serial_connection.timeout
+        self._serial_connection.timeout = timeout
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
-        print(f"scope readline: {data}")
+        self._serial_connection.timeout = prevto
+        #print(f"scope readline: {data}")
+        return data
+
+    def read_scope_byte(self):
+        data = self.try_on_scope(lambda: self._serial_connection.read(1))
+        #print(f"scope read: {data}")
         return data
 
     def start_bridge(self):
@@ -117,11 +125,12 @@ class Telescope:
     def run_serial_bridge(self):
         self.running = True
         
- #       virt = self._virtual_port
         bt = self.bt_serial
-        tcp = self.tcp_serial
+        #tcp = self.tcp_serial
 
         self._serial_connection.timeout = 0  # Non-blocking mode
+        # last ra/dec call time
+        last_position_time = 0
         # last PEC call time
         last_pec_position_time = 0
         # last info call time
@@ -133,11 +142,15 @@ class Telescope:
                 current_time = time.time()
                 
                 if not self.quiet:  # in quiet mode, do not disturb traffic
+                    # get ra/dec position every 4 seconds
+                    if current_time - last_position_time >= 4:
+                        self.get_current_position()
+                        last_position_time = current_time
                     # get PEC position every 10 seconds
                     if current_time - last_pec_position_time >= 10:
                         self.get_PEC_position()
+                        self.get_current_position()
                         last_pec_position_time = current_time
-
                     # get info every 33 seconds
                     if current_time - last_info_time >= 33:
                         self.get_info()
@@ -151,26 +164,21 @@ class Telescope:
                     if data:                         
                         self.write_scope(data)  # Write it to scope
 
- #               if virt.in_waiting_tx() > 0:  # Check if there’s any data waiting
- #                   data = virt.read_tx(virt.in_waiting_tx())  # Read all available bytes
- #                   if data:
- #                       self.write_scope(data)  # Write it to the other port
 
-                if tcp.in_waiting() > 0:  # Check if there’s any data waiting
-                    data = tcp.read(tcp.in_waiting())  # Read all available bytes
-                    if data:
-                        self.write_scope(data)  # Write it to the other port
+#                if tcp.in_waiting() > 0:  # Check if there’s any data waiting
+#                    data = tcp.read(tcp.in_waiting())  # Read all available bytes
+#                    if data:
+#                        self.write_scope(data)  # Write it to the other port
 
                 with self.lock:
                     if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
                         data = self.read_scope()  # Read all available bytes
                         if data:  # Ensure data was read                        
                             bt.write(data)       # will write if open
-                            tcp.write(data)  # will write if open
-#                           virt.write_rx(data)  # will write if open
+#                           tcp.write(data)  # will write if open
                 
                 # Brief sleep to avoid high CPU usage
-                time.sleep(0.01)  # 10ms delay
+                time.sleep(0.05)  # 50ms delay
 
         print("Stopping serial bridge...")
 
@@ -180,7 +188,7 @@ class Telescope:
             self._serial_connection.dtr = False  # Disable DTR to prevent reset
             self._serial_connection.close()
             print("Telescope serial connection closed")
-        self.tcp_serial.close()
+        #self.tcp_serial.close()
 
     def reset_arduino(self):
         with self.lock:
@@ -219,246 +227,183 @@ class Telescope:
             print(f"Unexpected error: {e}")
             return False
 
-
-#    def send_command(self, command):
-#        self._virtual_port.write_tx(command.encode())
-
-#    def read_response(self, timeout=10):
-#        return self._virtual_port.readline_rx(timeout = timeout).decode().strip()
-
-#    def read_until_timeout(self, timeout=1):       
-#        return self._virtual_port.readline_rx(timeout = timeout).decode().strip()
-
     def set_quiet(self, quiet):
         self.scope_info["quiet"] = quiet
         self.quiet= quiet
 
-    def send_direct_command(self, command):
-        with self.lock:
-            self.write_scope(command.encode())
-
-    def read_direct_response(self):
-        with self.lock:
-            self._serial_connection.timeout = 1
-            data =  self.readline_scope().decode().strip()
-            self._serial_connection.timeout = 0
-            return data
-
-    def read_direct_byte(self):
-        with self.lock:
-            self._serial_connection.timeout = 1
-            data =  self.read_scope()
-            self._serial_connection.timeout = 0
-            return data
-
-    def clear_direct_inbuffer(self):
-        with self.lock:
-            self._serial_connection.timeout = 1
-            while self._serial_connection.in_waiting:
-                self._serial_connection.read(1)             
-            self._serial_connection.timeout = 0
-
     def send_move(self, direction):
-        self.send_direct_command(f":M{direction}#")
+        LXMove(direction).execute(self)
 
     def send_stop(self, direction=""):
-        self.send_direct_command(f":Q{direction}#")
+        LXStop(direction).execute(self)
 
     def send_speed(self, speed):
-        # speed = S - slew speed
-        # speed = G - guide speed
-        self.send_direct_command(f":R{speed}#")
+        LXSpeed(speed).execute(self)
 
     def send_start_movement_speed(self, ra, dec):
-        # Ensure ra and dec are integers
-        ra = int(ra)
-        dec = int(dec)
-        rasign = '+' if ra>=0 else '-'
-        decsign = '+' if dec>=0 else '-'
-        str = f"!S{rasign}{abs(ra):02d}{decsign}{abs(dec):02d}#"
-        # Format and send the command
-        self.send_direct_command(str)
+        PTCStartMove(ra,dec).execute(self)
 
     def send_set_to(self, ra, dec):
-        with self.lock:
-            str = f":Sr{ra}#"
-            self.send_direct_command(str)
-            self.read_direct_byte()
-
-            str = f":Sd{dec}#"
-            self.send_direct_command(str)
-            self.read_direct_byte()
-
-            str = f":CM#"
-            self.send_direct_command(str)
-            self.read_direct_byte()
+        LXSetRa(ra).execute(self)
+        LXSetDec(dec).execute(self)
+        LXSetTO().execute(self)
 
     def send_go_to(self, ra, dec):
-        with self.lock:
-            str = f":Sr{ra}#"
-            self.send_direct_command(str)
-            self.read_direct_byte()
-
-            str = f":Sd{dec}#"
-            self.send_direct_command(str)
-            self.read_direct_byte()
-
-            str = f":MS#"
-            self.send_direct_command(str)
-            self.read_direct_byte()
+        LXSetRa(ra).execute(self)
+        LXSetDec(dec).execute(self)
+        LXSlew().execute(self)
+        
+    def get_current_position(self):
+        ra = LXGetRa().execute(self).decode().rstrip('#')
+        dec = LXGetDec().execute(self).decode().rstrip('#')
+        self.scope_info["coordinates"] = {"ra": ra, "dec": dec}
 
     def send_PEC_position(self, position=0):
-        if position<0 or position>99:
-            print(f"PEC position must be 0-99 but is {position}")
-            return False
-        with self.lock:
-            self.send_direct_command(f"!PS{int(position):02d}#")
-            resp = self.read_direct_response()
+        try:
+            cmd = PTCSetPECPos(position)
+            cmd.execute(self)
+        except ValueError as ve:
+            print(ve)
 
     def get_PEC_position(self):
-        with self.lock:
-            self.send_direct_command(f"!PG#")
-            resp = self.read_direct_response().rstrip('#')
         try:
-            pos = int(resp)
+            cmd = PTCGetPECPos()
+            cmd.execute(self)
+            pos = cmd.response.decode().rstrip("!\n")
         except ValueError:
             pos = 0
         self.scope_info["pec"]["progress"] = pos
 
     def send_tracking(self, tracking=True):
-        with self.lock:
-            if tracking:
-                self.send_direct_command("!TE#")
-            else:
-                self.send_direct_command("!TD#")
-            resp = self.read_direct_response()
+        try:
+            PTCSetTracking(tracking).execute(self)
+        except ValueError as ve:
+            print(ve)
 
     def send_pier(self, pier):
-        if pier not in ['W', 'E']:
-            return False
-        with self.lock:
-            self.send_direct_command(f"!M{pier}#")
-            resp = self.read_direct_response()
-        return True
+        try:
+            PTCSetPier(pier).execute(self)
+        except ValueError as ve:
+            print(ve)
 
     def send_correction(self, direction, t=0.5):
-        self.send_direct_command(f":M{direction}#")
+        LXMove(direction).execute(self)
         time.sleep(t)
-        self.send_direct_command(f":Q{direction}#")
+        LXStop(direction).execute(self)
 
     def send_backlash_comp_ra(self, comp):
-        self.send_direct_command(f"!PA{int(abs(comp)):03d}#")
+        PTCSetBacklashRA(comp).execute(self)
+
     def send_backlash_comp_dec(self, comp):
-        self.send_direct_command(f"!PB{int(abs(comp)):03d}#")
+        PTCSetBacklashDEC(comp).execute(self)
 
     def send_camera(self, shots, exposure):
-        with self.lock:
-            try:
-                self.send_direct_command(f"!CN{int(shots):03d}#")
-                resp = self.read_direct_response()
-                self.send_direct_command(f"!CE{int(exposure):03d}#")
-                resp = self.read_direct_response()
-                return True
-            except ValueError:
-                print(f"Error: shots({shots})/exposure({exposure}) must be a valid integer.")    
-                return False
-
-    def start_camera(self):
-        with self.lock:
-            self.send_direct_command(f"!CO#")
-            resp = self.read_direct_response()
-            return True
-
-    def stop_camera(self):
-        with self.lock:
-            self.send_direct_command(f"!CX#")
-            resp = self.read_direct_response()
-            return True
+        try:
+            PTCCameraSetExp(exposure).execute(self)
+            PTCCameraSetShots(shots).execute(self)
+        except ValueError as ve:
+            print(f"{ve}")
+            return False
 
     def get_info(self):
-        with self.lock:
-            self.clear_direct_inbuffer()
-            self.send_direct_command(f"!IN#")
-            info = ""
-            resp ="X"
-            while resp != "":
-                resp = self.read_direct_response()
-                info += resp + "\n"
-            try:
-                lines = info.strip().split('\n')
-                data = {}
-                # Line 1: Software and version
-                software_parts = lines[0].split()
-                data["software"] = {
-                    "name": software_parts[0],
-                    "version": software_parts[1]
-                }
-                # Line 2: Memory
-                data["memory"] = int(lines[1].split()[1])
-                # Line 3: Uptime
-                data["uptime"] = int(lines[2].split()[1])
-                # Line 4: RA
-                ra = lines[3].split()[1].rstrip('#')
-                data["coordinates"] = {"ra": ra}
-                # Line 5: DEC
-                dec = lines[4].split()[1].rstrip('#').replace('*', ':')
-                data["coordinates"]["dec"] = dec
-                # Line 6: Pier side
-                data["pier"] = lines[5].split()[1]
-                # Line 7: PEC
-                pec_parts = lines[6].split()
-                if pec_parts[1]=='disabled':
-                    data["pec"] = {
-                        "progress": pec_parts[1],
-                        "value": 0
-                    }
-                else:
-                    data["pec"] = {
-                        "progress": pec_parts[1].lstrip('@').rstrip('%'),
-                        "value": int(pec_parts[2])
-                    }
+        cmd = PTCInfo()
+        cmd.execute(self)
+        info = cmd.response.decode()
+        try:
+            lines = info.strip().split('\n')
+            line = 0
+            data = {}
+            # Software and version
+            software_parts = lines[line].split()
+            data["software"] = {
+                "name": software_parts[0],
+                "version": software_parts[1]
+            }
+            line+=1
 
-                # Line 8: Camera
-                camera_parts = lines[7].split()
-                data["camera"] = {
-                    "exposure": int(camera_parts[2]),
-                    "shots": int(camera_parts[4].rstrip(':')),
-                    "state": camera_parts[5]
-                }
-                # Line 9: Tracking
-                data["tracking"] = lines[8].split()[1]
-                self.scope_info = data
-            except:
-                print("get info failed to parse")
+            # Memory
+            data["memory"] = int(lines[line].split()[1])
+            line+=1
 
-            self.scope_info["text"]=info
-            return info
+            # Uptime
+            data["uptime"] = int(lines[line].split()[1])
+            line+=1
+
+            # Looptime
+            data["looptime"] = int(lines[line].split()[1])
+            line+=1
+
+            # tracktime
+            data["tracktime"] = int(lines[line].split()[1])
+            line+=1
+
+            # RA
+            ra = lines[line].split()[1].rstrip('#')
+            data["coordinates"] = {"ra": ra}
+            line+=1
+
+            # DEC
+            dec = lines[line].split()[1].rstrip('#')
+            data["coordinates"]["dec"] = dec
+            line+=1
+
+            # Pier side
+            data["pier"] = lines[line].split()[1]
+            line+=1
+
+            # PEC
+            pec_parts = lines[line].split()
+            if pec_parts[1]=='disabled':
+                data["pec"] = {
+                    "progress": pec_parts[1],
+                    "value": 0
+                }
+            else:
+                data["pec"] = {
+                    "progress": pec_parts[1][2:].rstrip('%'),
+                    "value": int(pec_parts[2])
+                }
+            line+=1
+
+            # BC
+            bc_parts = lines[line].split()
+            if bc_parts[0]=='BC':
+                data["bc"] = { "ra": bc_parts[2], "dec": bc_parts[4] }
+                line+=1
+            else:
+                data["bc"] = { "ra": 0, "dec": 0 }
+
+            # Camera
+            camera_parts = lines[line].split()
+            data["camera"] = {
+                "exposure": int(camera_parts[2]),
+                "shots": int(camera_parts[4].rstrip(':')),
+                "state": camera_parts[5]
+            }
+            line+=1
+
+            # Tracking
+            data["tracking"] = lines[line].split()[1]
+            line+=1
+
+            self.scope_info = data
+        except:
+            print("get info failed to parse")
+
+        self.scope_info["text"]=info
+        return info
 
     def send_pec_table(self, pec_table):
-
-        with self.lock:
-            self.clear_direct_inbuffer() # clear in buffer
-            self.send_direct_command(f"!PI#")
-
-            num_points = len(pec_table) // 2
-            self.send_direct_command(f"PEC {num_points} ")
-            
-            data_str = ",".join(map(str, pec_table)) + "\n"
-            self.send_direct_command(data_str)
-            
-            print("PEC table sent.")
-            data = self.read_direct_response()
-            return data
+        cmd = PTCSetPEC(pec_table)
+        cmd.execute(self)
+        return cmd.response.decode()
 
     def receive_pec_table(self):
 
-        with self.lock:
-            self.clear_direct_inbuffer() # clear in buffer
-            self.send_direct_command("!PO#")  # Request PEC table from Arduino
-
-            # Read first response line, expecting "PEC num_points 1,2,3,...,4"
-            response = self.read_direct_response()
-
+        cmd =  PTCGetPEC()
+        cmd.execute(self)
+        response = cmd.response.decode().rstrip("!\n")
+        
         print(f"{response}")
 
         if not response.startswith("PEC "):
@@ -476,8 +421,8 @@ class Telescope:
 
         try:
             pec_table = list(map(int, data_str.split(',')))  # Convert to integer list
-        except ValueError:
-            print("Error: Non-integer values found in PEC table.")
+        except ValueError as ve:
+            print(f"Error: Non-integer values found in PEC table. {ve}")
             return []
 
         if len(pec_table) != num_points * 2:
@@ -505,4 +450,4 @@ class Telescope:
             
     def __del__(self):
         self.close_connection()
-        self.tcp_serial.close()
+        #self.tcp_serial.close()

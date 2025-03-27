@@ -88,14 +88,14 @@
                 <div class = 'two_buttons'>
                     <div>
                         <label for="ra-input">RA</label>
-                        <input class="two_buttons_input" type="text" id="ra-input" placeholder="+HH:MM:SS#"  required>
+                        <input class="two_buttons_input" type="text" id="ra-input" placeholder="+HH:MM:SS"  required>
                     </div>
                     <button class="command-button" onclick="submitSetTo()">SET to</button>
                 </div>
                 <div class = 'two_buttons'>
                     <div>
                         <label for="dec-input">DE</label>
-                        <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM'SS#"  required>
+                        <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM'SS"  required>
                     </div>
                     <button class="command-button" onclick="submitGoto()">GOTO</button>
                 </div>
@@ -179,6 +179,30 @@
             resultTextarea.value = message;
         }
         
+
+        const ws = new WebSocket('ws://' + window.location.hostname + '/telescope_socket');
+    
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            appendToResult(event.data);
+            if (data.function === "slew_request") {
+                const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
+                if (confirm(message)) {
+                    // If the user confirms, send the slew command
+                    //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
+                    document.getElementById('ra-input').value = data.ra;
+                    document.getElementById('dec-input').value = data.dec;
+                    appendToResult('Slew request applied.');
+                } else {
+                    appendToResult('Slew request declined.');
+                }
+            }
+        };
+
+        ws.onclose = function() {
+            appendToResult("Websocket closed.")
+        };
+
 
         function sendDirection(direction) {
             submit('/control_move',
@@ -360,19 +384,19 @@
         }
 
         function validateRA(ra) {
-            const raPattern = /^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]#$/;
+            const raPattern = /^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$/;
             return raPattern.test(ra);
         }
 
         function validateDEC(dec) {
-            const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]'[0-5][0-9]#$/;
+            const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]'[0-5][0-9]$/;
             return decPattern.test(dec);
         }
 
         // Apply input mask for RA
         Inputmask({
-            mask: "23:59:59#",
-            placeholder: "HH:MM:SS#",
+            mask: "23:59:59",
+            placeholder: "HH:MM:SS",
             definitions: {
                 '2': { validator: "[0-2]" }, 
                 '3': { validator: "[0-9]" }, 
@@ -383,8 +407,8 @@
 
         // Apply input mask for DEC
         Inputmask({
-            mask: "[+|-]99\\*59'59#",
-            placeholder: "+DD*MM'SS#",
+            mask: "[+|-]99\\*59'59",
+            placeholder: "+DD*MM'SS",
             definitions: {
                 '5': { validator: "[0-5]" },
                 '9': { validator: "[0-9]" },

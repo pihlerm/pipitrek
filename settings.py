@@ -21,6 +21,9 @@ class Settings:
         self.settings["guide_interval"] = autoguider.guide_interval
         self.settings["guide_pulse"] = autoguider.guide_pulse
         self.settings["dec_guiding"] = autoguider.dec_guiding
+        self.settings["pid"] =  { "ra" : {},"dec": {}}
+        self.settings["pid"]["ra"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
+        self.settings["pid"]["dec"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
         
 
     def update_camera_settings(self, camera: Camera):
@@ -48,6 +51,15 @@ class Settings:
             autoguider.max_drift = float(self.settings.get("max_drift", 5.0))
             autoguider.guide_interval = float(self.settings.get("guide_interval", 1.0))
             autoguider.dec_guiding = bool(self.settings.get("dec_guiding", False))
+
+            pid_settings = self.settings.get("pid")
+            if pid_settings is not None:
+                autoguider.ra_pid.Kp = float(pid_settings.get("ra", {}).get("p", 0.0))
+                autoguider.ra_pid.Ki = float(pid_settings.get("ra", {}).get("i", 0.0))
+                autoguider.ra_pid.Kd = float(pid_settings.get("ra", {}).get("d", 0.0))
+                autoguider.dec_pid.Kp = float(pid_settings.get("dec", {}).get("p", 0.0))
+                autoguider.dec_pid.Ki = float(pid_settings.get("dec", {}).get("i", 0.0))
+                autoguider.dec_pid.Kd = float(pid_settings.get("dec", {}).get("d", 0.0))
 
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")

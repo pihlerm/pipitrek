@@ -57,6 +57,7 @@ class Autoguider:
 
         self.dec_guiding = False            # Declination guiding. Make sure that DEC does not disturb RA!!
         self.guiding = False                # Guiding status on/off
+        self.calibrating = False
         self.threshold = None               # Last threshold image
         self.last_frame_time = 0            # Last frame capture  time
         self.last_loop_time = 0             # Last loop time
@@ -84,6 +85,10 @@ class Autoguider:
         self.lock = Lock()  # Thread lock for frame and threshold
 
         self.data_ready = False     # set to true when new processing data available for monitoring
+
+        # Initialize PID controllers (persistent across calls)
+        self.ra_pid = PIDController(Kp=0.5, Ki=0.05, Kd=0.1, dt=1.0)  # Tune these!
+        self.dec_pid = PIDController(Kp=0.5, Ki=0.05, Kd=0.1, dt=1.0)
 
     def write_track_log(self, log_entry):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -184,11 +189,6 @@ class Autoguider:
         telescope.send_start_movement_speed(ra_speed, dec_speed)
 
     def guide_scope_pid(self, ra_arcsec_error, dec_arcsec_error):
-        # Initialize PID controllers (persistent across calls)
-        if not hasattr(self, 'ra_pid'):
-            self.ra_pid = PIDController(Kp=0.5, Ki=0.05, Kd=0.1, dt=1.0)  # Tune these!
-        if not hasattr(self, 'dec_pid'):
-            self.dec_pid = PIDController(Kp=0.5, Ki=0.05, Kd=0.1, dt=1.0)
 
         # Compute speeds with PID
         ra_speed = self.ra_pid.compute(-ra_arcsec_error)  # Negative to correct RA
@@ -248,6 +248,7 @@ class Autoguider:
         telescope.set_quiet(True)
         telescope.send_speed('G')
         result = True
+        self.calibrating = True
         
         try:
             if self.tracked_centroid is None:
@@ -319,6 +320,7 @@ class Autoguider:
             result = False
         finally:
             self.guiding = guiding
+            self.calibrating = False
             telescope.set_quiet(quiet)
             return result
 
@@ -349,8 +351,8 @@ class Autoguider:
         while self.running:
             if time.perf_counter() - last_time >= self.guide_interval:  # Run once per period
                 frame = self.camera.frame
-                if frame is last_frame or frame is None:
-                    time.sleep(0.01)    # frame not ready
+                if frame is last_frame or frame is None or self.calibrating:
+                    time.sleep(0.01)    # frame not ready or calibrating
                     continue
 
                 self.last_frame_time = round(self.camera.last_frame_time, 2)

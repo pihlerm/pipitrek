@@ -1,10 +1,11 @@
 from flask import Flask, request, redirect, url_for, render_template, Response, jsonify, send_file
 from autoguider import Autoguider
 from camera import Camera
+from comm.telescopeserver import TelescopeServer
 from threading import Thread, Event
 import time
 import numpy as np
-from telescope import Telescope
+from telescope import *
 import logging
 import cv2
 import os
@@ -39,7 +40,7 @@ autoguider_thread = None
 all_settings = None
 telescope = None
 camera = None
-
+telescopeserver = None
 
 video_interval = 0.5 # interval for generating video frames
 
@@ -192,6 +193,9 @@ def form_properties():
         "r_channel": camera.r_channel,
         "g_channel": camera.g_channel,
         "b_channel": camera.b_channel,
+        "pid_p": autoguider.ra_pid.Kp,
+        "pid_i": autoguider.ra_pid.Ki,
+        "pid_d": autoguider.ra_pid.Kd,
     }
     # Encode the centroid_image as Base64
     if autoguider.centroid_image is not None:
@@ -223,12 +227,44 @@ def autoguider_socket(ws):
 def scope_info():
     return jsonify(telescope.scope_info)
 
+@sock.route('/telescope_socket')
+def telescope_socket(ws):
+    while True:
+        try:
+            if telescopeserver.slew_request is not None:
+                ra, dec = telescopeserver.slew_request
+                telescopeserver.slew_request = None
+                properties = {
+                    "function": "slew_request",
+                    "ra": ra,
+                    "dec": dec
+                }
+                ws.send(json.dumps(properties))
+            time.sleep(0.1)
+        except Exception as e:  # Catches WebSocketConnectionClosedException
+            break
+    print("telescope_socket disconnected")
+
+
 @app.route('/set_channels', methods=['POST'])
 def set_channels():
     data = request.json
     camera.r_channel = float(data.get('r_channel', camera.r_channel))
     camera.g_channel = float(data.get('g_channel', camera.g_channel))
     camera.b_channel = float(data.get('b_channel', camera.b_channel))
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_pid', methods=['POST'])
+def set_pid():
+    data = request.json
+    autoguider.ra_pid.Kp = float(data.get('pid_p', camera.r_channel))
+    autoguider.dec_pid.Kp = float(data.get('pid_p', camera.r_channel))
+
+    autoguider.ra_pid.Ki = float(data.get('pid_i', camera.g_channel))
+    autoguider.dec_pid.Ki = float(data.get('pid_i', camera.g_channel))
+    
+    autoguider.ra_pid.Kd = float(data.get('pid_d', camera.b_channel))
+    autoguider.dec_pid.Kd = float(data.get('pid_d', camera.b_channel))
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_threshold', methods=['POST'])
@@ -377,11 +413,11 @@ def command_camera():
     data = request.json
     action = data.get('action')
     if action=='START':
-       telescope.start_camera()
+       PTCCameraStart(True).execute(telescope)
        print(f"camera START")
        return jsonify({'status': 'success', 'message': f'Camera START'})
     elif  action=='STOP':
-       telescope.stop_camera()
+       PTCCameraStart(False).execute(telescope)
        print(f"camera STOP")
        return jsonify({'status': 'success', 'message': f'Camera STOP'})
     else:
@@ -651,6 +687,9 @@ def cleanup():
     # Perform cleanup
     try:
         
+        print("Stopping TCP telescope server..")
+        telescopeserver.stop()
+    
         print("Stopping autoguider..")
         all_settings.update_autoguider_settings(autoguider)
         autoguider.running = False
@@ -732,6 +771,11 @@ if __name__ == '__main__':
     autoguider_thread = Thread(target=autoguider.run_autoguider)
     autoguider_thread.start()
     print("autoguider set up.")
+
+    # TCP telescope server
+    telescopeserver = TelescopeServer()
+    telescopeserver.start()
+    
 
     server = ServerThread(app)
     server.start()

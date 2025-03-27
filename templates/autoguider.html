@@ -165,6 +165,27 @@
                         </td>
                     </tr>
                     <tr>
+                        <td><label for="pid_p">PID p:</label></td>
+                        <td>
+                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="5.0" step="0.01" value="0" oninput="submitPID()">
+                            <span id="pid_p_value">0</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="pid_i">PID i:</label></td>
+                        <td>
+                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="5.0" step="0.01" value="0" oninput="submitPID()">
+                            <span id="pid_i_value">0</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><label for="pid_d">PID d:</label></td>
+                        <td>
+                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="5.0" step="0.01" value="0" oninput="submitPID()">
+                            <span id="pid_d_value">0</span>
+                        </td>
+                    </tr>
+                    <tr>
                         <td>
                         </td>
                         <td>
@@ -332,6 +353,15 @@
         document.getElementById('guide_pulse_value').textContent = data.guide_pulse;
         document.getElementById('guide_interval').value = data.guide_interval;
         document.getElementById('guide_interval_value').textContent = data.guide_interval;
+
+        document.getElementById('pid_p').value = data.pid_p;
+        document.getElementById('pid_p_value').textContent = data.pid_p;
+        document.getElementById('pid_i').value = data.pid_i;
+        document.getElementById('pid_i_value').textContent = data.pid_i;
+        document.getElementById('pid_d').value = data.pid_d;
+        document.getElementById('pid_d_value').textContent = data.pid_d;
+
+
 
         // Update the star lock state
         const starLockState = document.getElementById('star-lock-state');
@@ -536,6 +566,22 @@
         const integrate_frames = document.getElementById('integrate_frames').value;
         document.getElementById('integrate_frames_value').textContent = integrate_frames;
         submitSetting("integrate_frames", integrate_frames);
+    }
+
+    function submitPID() {
+        const pid_p = document.getElementById('pid_p').value;
+        const pid_i = document.getElementById('pid_i').value;
+        const pid_d = document.getElementById('pid_d').value;
+        document.getElementById('pid_p_value').textContent = pid_p;
+        document.getElementById('pid_i_value').textContent = pid_i;
+        document.getElementById('pid_d_value').textContent = pid_d;
+        fetch('/set_pid', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ pid_p,pid_i, pid_d }),
+        })
     }
 
     function setGuiding(isGuiding) {

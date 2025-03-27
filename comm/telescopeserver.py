@@ -3,10 +3,7 @@ import struct
 import time
 import threading
 import math
-
-# TCP server settings
-TCP_HOST = '0.0.0.0'
-TCP_PORT = 10000
+from telescope import Telescope
 
 # RA/Dec conversion helpers
 def deg_to_stellarium_ra(deg):
@@ -39,6 +36,22 @@ def deg_to_lx200_dec(deg):
     s = int(((deg_abs - d) * 60 - m) * 60)
     return f"{sign}{d:02d}*{m:02d}:{s:02d}"
 
+def lx200_to_ra_deg(ra_str):
+    """Convert LX200 RA string (HH:MM:SS) to degrees."""
+    try:
+        h, m, s = map(int, ra_str.split(':'))
+        return h * 15 + m * 15 / 60 + s * 15 / 3600
+    except ValueError:
+        raise ValueError(f"Invalid RA format: {ra_str}")
+
+def lx200_to_dec_deg(dec_str):
+    """Convert LX200 DEC string (+DD*MM:SS or -DD*MM:SS) to degrees."""
+    try:
+        sign = 1 if dec_str[0] == '+' else -1
+        d, m, s = map(int, dec_str[1:].replace('*', ':').split(':'))
+        return sign * (d + m / 60 + s / 3600)
+    except ValueError:
+        raise ValueError(f"Invalid DEC format: {dec_str}")
 
 class ExponentialBuffer:
     def __init__(self, data: bytes):
@@ -57,49 +70,40 @@ class ExponentialBuffer:
     def get_bytes(self) -> bytes:
         return bytes(self.buffer)
 
-class TelescopeSimulator:
+class TelescopeServer:
     def __init__(self):
-        self.ra_deg = 0.0  # Degrees
-        self.dec_deg = 0.0
-        self.running = False
-        self.sock = None
+        self._running = False
         self.slewing = False
-        self.target_ra = None
-        self.target_dec = None
-        self.sidereal_rate = 15.041 / 3600  # Degrees per second
         self.conn_active = threading.Event()
+        self.is_open = False
+        self._server_socket = None  # Listening socket
+        self._client_socket = None  # Connected client socket
+        self._send_thread = None
+        self._listen_thread = None
 
-    def get_position(self):
-        if not self.slewing:
-            self.ra_deg = (self.ra_deg + self.sidereal_rate * 0.5) % 360
-        elif self.target_ra is not None and self.target_dec is not None:
-            slew_speed = 1.0
-            ra_diff = (self.target_ra - self.ra_deg + 180) % 360 - 180
-            dec_diff = self.target_dec - self.dec_deg
-            if abs(ra_diff) > slew_speed:
-                self.ra_deg += slew_speed * (1 if ra_diff > 0 else -1)
-            else:
-                self.ra_deg = self.target_ra
-            if abs(dec_diff) > slew_speed:
-                self.dec_deg += slew_speed * (1 if dec_diff > 0 else -1)
-            else:
-                self.dec_deg = self.target_dec
-            if self.ra_deg == self.target_ra and self.dec_deg == self.target_dec:
-                self.slewing = False
-        return self.ra_deg, self.dec_deg
+        # TCP configuration
+        self.host = '0.0.0.0'  # Listen on all interfaces
+        self.port = 10000      # Port to listen on
+
+        self.slew_request = None
+
 
     def send_position(self, conn):
         self.conn_active.set()
-        while self.running and self.conn_active.is_set():
-            ra_deg, dec_deg = self.get_position()
+        telescope = Telescope()
+        while self._running and self.conn_active.is_set():
+            ra = telescope.scope_info["coordinates"]["ra"]
+            dec = telescope.scope_info["coordinates"]["dec"]
+            ra_deg = lx200_to_ra_deg(ra)
+            dec_deg = lx200_to_dec_deg(dec)
             ra_int = deg_to_stellarium_ra(ra_deg)
             dec_int = deg_to_stellarium_dec(dec_deg)
-            
+
             # Type 0 message: 24 bytes 
             msg = self.pack(ra_int, dec_int, time.time())
             try:
                 conn.sendall(msg)
-                #print(f"Sent position: RA={deg_to_lx200_ra(self.ra_deg)}, Dec={deg_to_lx200_dec(self.dec_deg)}, Slewing={self.slewing}")
+                # print(f"Sent position: RA={deg_to_lx200_ra(ra_deg)}, Dec={deg_to_lx200_dec(dec_deg)}")
             except (ConnectionError, OSError) as e:
                 print(f"Send error: {e}")
                 break
@@ -137,22 +141,17 @@ class TelescopeSimulator:
     def handle_goto(self, data):
         size, msg_type, ra_int, dec_int = self.unpack(data)
         if msg_type == 0:
-            print(f"size: {size}, msg_type: {msg_type}, ra_int: {ra_int}, dec_int: {dec_int}")
+            #print(f"size: {size}, msg_type: {msg_type}, ra_int: {ra_int}, dec_int: {dec_int}")
             ra_deg = stellarium_to_deg(ra_int, is_ra=True)
             dec_deg = stellarium_to_deg(dec_int, is_ra=False)
-            self.target_ra = ra_deg
-            self.target_dec = dec_deg
-            self.slewing = True
             print(f"Goto command received: RA={deg_to_lx200_ra(ra_deg)}, Dec={deg_to_lx200_dec(dec_deg)}")
+            self.slew_request = (deg_to_lx200_ra(ra_deg),deg_to_lx200_dec(dec_deg))
 
     def handle_sync(self, data):
         size, msg_type, ra_int, dec_int = self.unpack(data)
         if msg_type == 2 and size == 16:
-            self.ra_deg = stellarium_to_deg(ra_int, is_ra=True)
-            self.dec_deg = stellarium_to_deg(dec_int, is_ra=False)
-            self.slewing = False
-            self.target_ra = None
-            self.target_dec = None
+            ra_deg = stellarium_to_deg(ra_int, is_ra=True)
+            dec_deg = stellarium_to_deg(dec_int, is_ra=False)
             print(f"Sync command received: RA={deg_to_lx200_ra(self.ra_deg)}, Dec={deg_to_lx200_dec(self.dec_deg)}")
 
     def handle_client_message(self, data):
@@ -170,39 +169,78 @@ class TelescopeSimulator:
         else:
             print(f"Unknown message type: {msg_type}")
 
-    def start(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((TCP_HOST, TCP_PORT))
-        self.sock.listen(1)
-        print(f"Listening on {TCP_HOST}:{TCP_PORT}")
-        self.running = True
+    def _listen_loop(self):
+        """Background thread to listen for and manage TCP connections."""
+        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.bind((self.host, self.port))
+        self._server_socket.listen(1)
+        self._server_socket.settimeout(1)  # Set a timeout for the accept() call
+        print(f"TCP server listening on {self.host}:{self.port}")
 
-        while True:
-            conn, addr = self.sock.accept()
-            print(f"Connected by {addr}")
-            self.conn_active.set()
-            send_thread = threading.Thread(target=self.send_position, args=(conn,), daemon=True)
-            send_thread.start()
+        while self._running:
             try:
-                while self.running:
-                    data = conn.recv(20)
-                    if not data:
-                        break
-                    self.handle_client_message(data)
-            except ConnectionError:
-                print(f"Disconnected from {addr}")
-            finally:
-                self.conn_active.clear()
-                conn.close()
+                conn, addr = self._server_socket.accept()
+                print(f"Connected by {addr}")
+                conn.settimeout(1)  # Set a timeout for the recv() call
+
+                if self._client_socket is not None:
+                    self._client_socket.close()  # Close any existing connection
+
+                self.conn_active.set()
+                self._client_socket = conn
+                self._send_thread = threading.Thread(target=self.send_position, args=(self._client_socket,), daemon=True)
+                self._send_thread.start()
+
+                try:
+                    while self._running:
+                        try:
+                            data = self._client_socket.recv(20)
+                            if not data:
+                                break
+                            self.handle_client_message(data)
+                        except socket.timeout:
+                            continue  # Timeout reached, check self._running
+                except ConnectionError:
+                    print(f"Disconnected from {addr}")
+                finally:
+                    self.conn_active.clear()
+                    if self._client_socket is not None:
+                        self._client_socket.close()
+            except socket.timeout:
+                continue  # Timeout reached, check self._running
+            except OSError as e:
+                print(f"Socket error: {e}")
+                break
+            time.sleep(0.1)  # Brief delay to avoid tight loop on errors
+
+
+    def start(self):
+        """Start or ensure the TCP listener is running."""
+        if not self._running:
+            self._running = True
+            self._listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
+            self._listen_thread.start()
+        # No immediate action needed; listener thread handles connection
 
     def stop(self):
-        self.running = False
-        self.sock.close()
+        """Close the TCP connection and stop the listener."""
+        self._running = False
+        if self._server_socket is not None:
+            self._server_socket.close()
+            self._server_socket = None
+        self.conn_active.clear()
+        
+        # Wait for the listener thread to stop
+        if self._listen_thread is not None:
+            self._listen_thread.join(timeout=10)
+            if self._listen_thread.is_alive():
+                print("Warning: _listen_thread did not stop in time")
 
-if __name__ == "__main__":
-    sim = TelescopeSimulator()
-    try:
-        sim.start()
-    except KeyboardInterrupt:
-        sim.stop()
+        # Wait for the send thread to stop
+        if self._send_thread is not None:
+            self._send_thread.join(timeout=10)
+            if self._send_thread.is_alive():
+                print("Warning: _send_thread did not stop in time")
+
+        print("TelescopeServer and connection closed")

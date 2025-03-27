@@ -36,25 +36,46 @@ class Analyzer:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
         _, thresh = cv2.threshold(gray, gray_threshold, 255, cv2.THRESH_BINARY)
 
+        
+        # Pre-filter small contours with morphological opening
+        kernel_size = int(np.sqrt(star_size) / 2) * 2 + 1  # Rough estimate, ensure odd
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
+            print("No contours")
             return None, thresh, None, 0
 
-        # Find the largest or nearest contour
+        # Find the largest or nearest contour with size > star_size
         if search_near is not None:
-            distances = [np.linalg.norm(np.array(c.mean(axis=0)[0]) - np.array(search_near)) 
-                        for c in contours if len(c) > 0]
-            if distances:
-                closest_idx = np.argmin(distances)
-                largest = contours[closest_idx]
+            contour_data = []
+            for c in contours:
+                if len(c) > 0:
+                    mean_pos = np.mean(c, axis=0)[0]
+                    distance = np.linalg.norm(mean_pos - np.array(search_near))
+                    area = cv2.contourArea(c)
+                    contour_data.append((distance, area, c))
+            
+            if not contour_data:
+                largest = max(contours, key=cv2.contourArea)  # Fallback to largest
             else:
-                largest = max(contours, key=cv2.contourArea)
+                # Sort by distance ascending
+                contour_data.sort(key=lambda x: x[0])
+                # Find first contour with size > star_size
+                for distance, area, contour in contour_data:
+                    if area > star_size:
+                        largest = contour
+                        break
+                else:
+                    largest = max(contours, key=cv2.contourArea)  # Fallback if none big enough
         else:
             largest = max(contours, key=cv2.contourArea)
 
         # Check if contour is large enough
         size = cv2.contourArea(largest)
         if size <= star_size:
+            print(f"Size too small {size}, elements={len(contours)}")
             return None, None, thresh, 0
 
         # Initial unweighted centroid and moments
