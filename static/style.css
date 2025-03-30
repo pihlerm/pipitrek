@@ -1,7 +1,7 @@
-/*
-td, th, tr {
+/*td, th, tr {
     border: 1px solid black; 
 }*/
+
 @font-face {
     font-family: 'Unbounded';
     src: url('../static/fonts/static/Unbounded-Light.ttf') format('truetype');
@@ -103,7 +103,7 @@ iframe {
 .control-button {
     width: 50px;
     height: 50px;
-    margin: 5px;
+    margin: 1px;
     font-size: 14px;
     text-align: center;
     vertical-align: middle;
@@ -200,23 +200,28 @@ iframe {
 }
 
 .parameters-table td {
-    padding: 1px;
+    padding: 0px;
     align-items: center;
+    vertical-align: middle;
 }
 
 .parameters-table td:first-child {
-    text-align: right;
+    width: 240px;
+    text-align: left;
     align-items: center;
     font-weight: normal;
+    vertical-align: middle;
 }
 
 .parameters-table td:nth-child(2) {
-    display: flex;
     align-items: center;
-    height: auto; /* Ensure the height adjusts dynamically */
     gap: 5px; /* Space between input and span */
+    vertical-align: middle;
 }
 
+.controller-row {
+    height : 24px;
+}
 
 
   /* Green text for "LOCK" */

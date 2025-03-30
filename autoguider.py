@@ -233,7 +233,7 @@ class Autoguider:
         telescope.send_correction(move_direction,move_time)  # Move scope west for 10s
         print("settling ... ")
         time.sleep(2)   # settling scope
-        frame = self.camera.get_frame()
+        frame = self.camera.frame
         centroid = self.detect_star(frame, search_near=search_near)  # Detect star
         if not centroid:
            raise ValueError("Failed to detect centroid")
@@ -254,10 +254,11 @@ class Autoguider:
             if self.tracked_centroid is None:
                 raise ValueError("No tracked star, required for calibration.")
             
-            telescope.send_backlash_comp_dec(0)
-            telescope.send_backlash_comp_ra(0)
-
-            frame = self.camera.get_frame()
+            if with_backlash:
+                telescope.send_backlash_comp_dec(0)
+                telescope.send_backlash_comp_ra(0)
+        
+            frame = self.camera.frame
             centroid1 = self.detect_star(frame, search_near=self.tracked_centroid)  # Detect star
             print(f"#################1")
             if not centroid1:
@@ -314,10 +315,12 @@ class Autoguider:
                     dec_arcsec = round(dy_rot * self.pixel_scale, 0)
                     telescope.send_backlash_comp_dec(abs(dec_arcsec))
                     print(f"#################backlash dec {dec_arcsec} arcsec")
-                
         except ValueError as e:
             print(f"Calibration failed {e}.")
             result = False
+        except Exception as e:
+            print(f"Calibration failed {e}.")
+            result = False                
         finally:
             self.guiding = guiding
             self.calibrating = False

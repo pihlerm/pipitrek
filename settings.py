@@ -27,13 +27,15 @@ class Settings:
         
 
     def update_camera_settings(self, camera: Camera):
-        self.settings["exposure"] = camera.exposure
-        self.settings["gain"] = camera.gain
         self.settings["integrate_frames"] = camera.integrate_frames
         self.settings["r_channel"] = camera.r_channel
         self.settings["g_channel"] = camera.g_channel
         self.settings["b_channel"] = camera.b_channel
         self.settings["cam_fps"] = camera.cam_fps
+        self.settings["width"] = camera.width
+        self.settings["height"] = camera.height
+        self.settings["cam_mode"] = camera.cam_mode
+        self.settings["camera_controls"] = camera.get_direct_control_values()
 
     def update_telescope_settings(self, telescope:Telescope):        
         self.settings["scope_info"] = telescope.scope_info        
@@ -77,9 +79,10 @@ class Settings:
             camera.integrate_frames = int(self.settings.get("integrate_frames", 10))  # Default to 10
 
             # Method calls for exposure, gain, and fps with default values
-            camera.set_exposure(float(self.settings.get("exposure", 0.5)))  # Default to 0.5
-            camera.set_gain(float(self.settings.get("gain", 1.0)))  # Default to 1.0
+            camera.set_mode(self.settings.get("cam_mode", "MJPG"))
+            camera.set_frame_size(int(self.settings.get("width", 1280)), int(self.settings.get("height", 720)))
             camera.setfps(float(self.settings.get("cam_fps", 30.0)))  # Default to 30.0
+            camera.set_direct_controls(self.settings.get("camera_controls", []))
 
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")

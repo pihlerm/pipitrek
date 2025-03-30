@@ -121,6 +121,29 @@
 
             <div class = 'boxy'>
                 <div class = 'two_buttons'>
+                    <div>
+                        <div>
+                            Backlash comp
+                        </div>
+                        <div>
+                            <button class="command-button" onclick="submitBacklash()">SET</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div>
+                            <label for="bc_ra-input">RA</label>
+                            <input class="two_buttons_input" type="text" id="bc_ra-input" >
+                        </div>
+                        <div>
+                            <label for="bc_dec-input">DE</label>
+                            <input class="two_buttons_input" type="text" id="bc_dec-input" >
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class = 'boxy'>
+                <div class = 'two_buttons'>
                     <div style="width:120px;">
                         <canvas id="pec-wheel" width="80" height="80"></canvas>
                     </div>
@@ -131,9 +154,6 @@
                         <button class="mini-button" onclick="setPECPosition()">SET</button>
                     </div>
                 </div>
-            </div>
-            <div class="vspacer">
-
             </div>
             <div id="upload-firmware" class="boxy">
                 <form id="uploadForm" enctype="multipart/form-data" style="width:100%;">
@@ -304,13 +324,15 @@
             fetch('/scope_info')
                 .then(response => response.json())
                 .then(data => {
+                    if(data.text) setInfo(data["text"])
                     if(data.pier) {
-                        setInfo(data["text"])
                         document.getElementById('pier_w').checked = (data.pier === 'W');
                         document.getElementById('pier_e').checked = (data.pier === 'E');
-                        document.getElementById('tracking').checked = (data.tracking === 'enabled');
-                        document.getElementById('quiet').checked = (data.quiet);
-                        btnCamStart = document.getElementById('camera-shooting');
+                    }
+                    if(data.tracking) document.getElementById('tracking').checked = (data.tracking === 'enabled');
+                    if(data.quiet) document.getElementById('quiet').checked = (data.quiet);
+                    btnCamStart = document.getElementById('camera-shooting');
+                    if(data.camera) {
                         if(data.camera.state === 'shooting') {
                             btnCamStart.innerText = 'STOP';
                             btnCamStart.style.backgroundColor = 'lightcoral'; // Change to light red
@@ -318,7 +340,12 @@
                             btnCamStart.innerText = 'START';
                             btnCamStart.style.backgroundColor = ''; // Reset to default
                         }
-                        PEC_wheel.setPECPositon(data.pec.progress);
+                    }
+                    if(data.pec) PEC_wheel.setPECPositon(data.pec.progress);
+                    
+                    if(data.bc) {
+                        document.getElementById('bc_ra-input').textContent = data.bc.ra;
+                        document.getElementById('bc_dec-input').textContent = data.bc.dec;
                     }
                 })  
             .catch(error => appendToResult('Error:', error));
@@ -354,6 +381,14 @@
             btnCamStart = document.getElementById('camera-shooting');
             submitJSON('/command_camera',
                 {action: btnCamStart.innerText}
+            );
+        }
+
+        function submitBacklash() {
+            const ra = document.getElementById('bc_ra-input').value.trim();
+            const dec = document.getElementById('bc_dec-input').value.trim();
+            submitJSON('/set_backlash', 
+                { ra: ra, dec: dec }
             );
         }
 

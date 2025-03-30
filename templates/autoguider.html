@@ -27,6 +27,7 @@
             <td>
                 <button class="command-button" onclick="showControl()">Control</button>
                 <button class="command-button" onclick="showGuider()">Guider</button>            
+                <button class="command-button" onclick="showCamera()">Camera</button>            
                 <button class="command-button" onclick="showTerminal()">Terminal</button>
             </td>
         </tr>
@@ -46,160 +47,106 @@
                     <tr>
                         <td>
                             <span id="star-lock-state" class="no-lock">NO LOCK</span><br>
-                            <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input>
+                            <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input><br>
                             <input type="checkbox" id="dec_guiding" onchange="setDecGuiding(this.checked)">DEC guiding</input><br>
                             loop:<span id="last_loop_time">0</span> s<br>
                             frame:<span id="last_frame_time">0</span> s
                         </td>
                         <td>
-                            <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
-                            <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span><br> focus:<span id="focus_metric">0</span></div>
-                            <div>dRA:<span id="ra_arcsec">0.0</span>(<span id="ra">0</span>) <br> dDE:<span id="dec_arcsec">0.0</span>(<span id="dec">0</span>)</div>
+                            <div class="two_buttons">
+                                <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
+                                <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span><br> focus:<span id="focus_metric">0</span></div>
+                                <div>dRA:<span id="ra_arcsec">0.0</span><br> dDE:<span id="dec_arcsec">0.0</span></div>    
+                            </div>
                         </td>
                         
                     </tr>
 
-                    <tr>
+                    <tr class = "controller-row">
                         <td>
                             <button class="command-button" onclick="acquire()" title="Acquire a star for tracking">Acquire Star</button>
-                            <button class="command-button" onclick="saveFrame()" title="Save the current video frame to disk">Save Frame</button>
                         </td>
                         <td>
                             <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>
                             <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation. Best use on stationary target with tracking disabled.">Cal+backlash</button>
                         </td>
                     </tr>
-                    <tr>
-                    </tr>
-
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="guide_interval">Guide interval:</label></td>
                         <td>
                             <input type="range" id="guide_interval" name="guide_interval" min="0" max="10" step="0.1" value="{{ guide_interval }}" oninput="submitGuideInterval()">
                             <span id="guide_interval_value">{{ guide_interval }}</span>
                         </td>
                     </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="guide_pulse">Guide pulse:</label></td>
                         <td>
                             <input type="range" id="guide_pulse" name="guide_pulse" min="0" max="2" step="0.1" value="{{ guide_pulse }}" oninput="submitGuidePulse()">
                             <span id="guide_pulse_value">{{ guide_pulse }}</span>
                         </td>
                     </tr>
-
-                    <tr>
-                        <td><label for="threshold">Threshold:</label></td>
-                        <td>
-                            <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
-                            <span id="threshold_value">{{ threshold }}</span>
-                        </td>
-                    </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="max_drift">Max Drift:</label></td>
                         <td>
                             <input type="range" id="max_drift" name="max_drift" min="0" max="10" step = "0.1" value="{{ max_drift }}" oninput="submitMaxDrift()">
                             <span id="max_drift_value">{{ max_drift }}</span>
                         </td>
                     </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="star_size">Star Size:</label></td>
                         <td>
                             <input type="range" id="star_size" name="star_size" min="1" max="20" value="{{ star_size }}" oninput="submitStarSize()">
                             <span id="star_size_value">{{ star_size }}</span>
                         </td>
                     </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="rotation_angle">Rotation Angle (deg):</label></td>
                         <td>
                             <input type="range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="{{ rotation_angle }}" step="1" oninput="submitRotationAngle()">
                             <span id="rotation_angle_value">{{ rotation_angle }}</span>
                         </td>
                     </tr>
-                    <tr>
-                        <td><label for="pixel_scale">Pixel Scale (arcsec/pixel):</label></td>
+                    <tr class = "controller-row">
+                        <td><label for="threshold">Threshold:</label></td>
                         <td>
-                            <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" oninput="submitPixelScale()">
-                            <span id="pixel_scale_value">{{ pixel_scale }}</span>
+                            <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
+                            <span id="threshold_value">{{ threshold }}</span>
                         </td>
                     </tr>
-                    <tr>
-                        <td><label for="exposure">Exposure (0.0 - 1.0):</label></td>
-                        <td>
-                            <input type="range" id="exposure" name="exposure" min="0.0" max="1.0" step="0.01" value="{{ exposure }}" oninput="submitExposure()">
-                            <span id="exposure_value">{{ exposure }}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><label for="gain">Gain (0.0 - 1.0):</label></td>
-                        <td>
-                            <input type="range" id="gain" name="gain" min="0.0" max="1.0" step="0.01" value="{{ gain }}" oninput="submitGain()">
-                            <span id="gain_value">{{ gain }}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><label for="integrate_frames">Integrate Frames (1 - 20):</label></td>
-                        <td>
-                            <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" oninput="submitIntegrate_frames()">
-                            <span id="integrate_frames_value">{{ integrate_frames }}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><label for="r_channel">R Channel:</label></td>
-                        <td>
-                            <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
-                            <span id="r_channel_value">{{ r_channel }}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><label for="g_channel">G Channel:</label></td>
-                        <td>
-                            <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" oninput="submitChannels()">
-                            <span id="g_channel_value">{{ g_channel }}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><label for="b_channel">B Channel:</label></td>
-                        <td>
-                            <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" oninput="submitChannels()">
-                            <span id="b_channel_value">{{ b_channel }}</span>
-                        </td>
-                    </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="pid_p">PID p:</label></td>
                         <td>
-                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="5.0" step="0.01" value="0" oninput="submitPID()">
+                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="2.0" step="0.01" value="0" oninput="submitPID()">
                             <span id="pid_p_value">0</span>
                         </td>
                     </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="pid_i">PID i:</label></td>
                         <td>
-                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="5.0" step="0.01" value="0" oninput="submitPID()">
+                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="2.0" step="0.01" value="0" oninput="submitPID()">
                             <span id="pid_i_value">0</span>
                         </td>
                     </tr>
-                    <tr>
+                    <tr class = "controller-row">
                         <td><label for="pid_d">PID d:</label></td>
                         <td>
-                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="5.0" step="0.01" value="0" oninput="submitPID()">
+                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="2.0" step="0.01" value="0" oninput="submitPID()">
                             <span id="pid_d_value">0</span>
                         </td>
                     </tr>
                     <tr>
                         <td>
-                        </td>
-                        <td>
                             <div >
-                                <table>
+                                <table style="padding:0px;">
                                     <tr>
-                                        <td></td>
+                                        <td style="width:50px;"></td>
                                         <td>
                                             <button class="control-button" onclick="sendCorrection('n')">↑</button>
                                         </td>
                                         <td></td>
                                     </tr>
                                     <tr>
-                                        <td>
+                                        <td style="width:50px;">
                                             <button class="control-button" onclick="sendCorrection('e')">←</button>
                                         </td>
                                         <td></td>
@@ -208,18 +155,107 @@
                                         </td>
                                     </tr>
                                     <tr>
-                                        <td></td>
+                                        <td style="width:50px;"></td>
                                         <td>
                                             <button class="control-button" onclick="sendCorrection('s')">↓</button>
                                         </td>
                                         <td></td>
                                     </tr>
-                                </table>
-                                
+                                </table>                               
                             </div>
+                        </td>
+                        <td>
                         </td>
                     </tr>
                 </table>
+
+                <table id="camera_panel" class="parameters-table hidden">                   
+
+                    <tr class = "controller-row">
+                        <td>
+                            <button class="command-button" onclick="saveFrame()" title="Save the current video frame to disk">Save Frame</button>
+                        </td>
+                        <td>
+                            <span id="camera_info">Cmera running at: 10 FPS 1280x720 MJPG frame time 0.97s </span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="pixel_scale">Pixel Scale (arcsec/pixel):</label></td>
+                        <td>
+                            <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" oninput="submitPixelScale()">
+                            <span id="pixel_scale_value">{{ pixel_scale }}</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="integrate_frames">Int Frames (1 - 20):</label></td>
+                        <td>
+                            <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" oninput="submitIntegrate_frames()">
+                            <span id="integrate_frames_value">{{ integrate_frames }}</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="r_channel">R Channel:</label></td>
+                        <td>
+                            <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
+                            <span id="r_channel_value">{{ r_channel }}</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="g_channel">G Channel:</label></td>
+                        <td>
+                            <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" oninput="submitChannels()">
+                            <span id="g_channel_value">{{ g_channel }}</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="b_channel">B Channel:</label></td>
+                        <td>
+                            <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" oninput="submitChannels()">
+                            <span id="b_channel_value">{{ b_channel }}</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label >Resolution:</label></td>
+                        <td>
+                            <div>
+                                <input type="radio" id="res1080" name="resolution" value="1920x1080" onchange="submitResolution(this.value)">
+                                <label for="res1080">1920x1080</label>
+                                <input type="radio" id="res1280" name="resolution" value="1280x720" onchange="submitResolution(this.value)" checked>
+                                <label for="res1280">1280x720</label>
+                                <input type="radio" id="res800" name="resolution" value="800x600" onchange="submitResolution(this.value)">
+                                <label for="res800">800x600</label>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label >Video mode:</label></td>
+                        <td>
+                            <div>
+                                <input type="radio" id="MJPG" name="video-mode" value="MJPG" onchange="submitVideoMode(this.value)" checked>
+                                <label for="MJPG">MJPG</label>
+                                <input type="radio" id="YUYV" name="video-mode" value="YUYV" onchange="submitVideoMode(this.value)">
+                                <label for="YUYV">YUYV</label>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label >Camera FPS:</label></td>
+                        <td>
+                            <div>
+                                <input type="radio" id="FPS20" name="camera-fps" value="20" onchange="submitCameraFPS(this.value)" checked>
+                                <label for="FPS20">20</label>
+                                <input type="radio" id="FPS10" name="camera-fps" value="10" onchange="submitCameraFPS(this.value)">
+                                <label for="FPS10">10</label>
+                                <input type="radio" id="FPS5" name="camera-fps" value="5" onchange="submitCameraFPS(this.value)">
+                                <label for="FPS5">5</label>
+                            </div>
+                        </td>
+                    </tr>
+
+
+                </table>
+
+
             </td>
         </tr>
     </table>
@@ -273,7 +309,7 @@
         // Call this function once when the page loads
         initializeChart();
         updateCorrections();
-
+        loadCameraProperties(); 
     }
     
     const ws = new WebSocket('ws://' + window.location.hostname + '/autoguider_socket');
@@ -308,8 +344,6 @@
         document.getElementById('last_loop_time').textContent = data.last_loop_time;
         document.getElementById('last_frame_time').textContent = data.last_frame_time;
 
-        document.getElementById('ra').textContent = data.last_correction.ra.toFixed(2);
-        document.getElementById('dec').textContent = data.last_correction.dec.toFixed(2);
         document.getElementById('dx').textContent = data.last_correction.dx.toFixed(2);
         document.getElementById('dy').textContent = data.last_correction.dy.toFixed(2);
         document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
@@ -329,12 +363,6 @@
 
         document.getElementById('pixel_scale').value = data.pixel_scale;
         document.getElementById('pixel_scale_value').textContent = data.pixel_scale;
-
-        document.getElementById('exposure').value = data.exposure;
-        document.getElementById('exposure_value').textContent = data.exposure;
-
-        document.getElementById('gain').value = data.gain;
-        document.getElementById('gain_value').textContent = data.gain;
 
         document.getElementById('integrate_frames').value = data.integrate_frames;
         document.getElementById('integrate_frames_value').textContent = data.integrate_frames;
@@ -361,6 +389,29 @@
         document.getElementById('pid_d').value = data.pid_d;
         document.getElementById('pid_d_value').textContent = data.pid_d;
 
+        // Set the camera FPS radio button
+        const fpsRadio = document.querySelector(`input[name="camera-fps"][value="${data.camera_fps}"]`);
+        if (fpsRadio) {
+            fpsRadio.checked = true;
+        }
+
+        // Set the resolution radio button
+        const resolutionRadio = document.querySelector(`input[name="resolution"][value="${data.resolution.width}x${data.resolution.height}"]`);
+        if (resolutionRadio) {
+            resolutionRadio.checked = true;
+        }
+
+        // Set the video mode radio button
+        const videoModeRadio = document.querySelector(`input[name="video-mode"][value="${data.video_mode}"]`);
+        if (videoModeRadio) {
+            videoModeRadio.checked = true;
+        }
+
+        // Update the camera_info element
+        const cameraInfo = document.getElementById('camera_info');
+        if (cameraInfo) {
+            cameraInfo.textContent = `FPS:${data.camera_fps} ${data.video_mode} ${data.resolution.width}x${data.resolution.height} exposure:${data.exposure_ms}ms frame time:${data.last_frame_time.toFixed(2)}s`;
+        }
 
 
         // Update the star lock state
@@ -393,14 +444,14 @@
         if (data.tracked_centroid) {
             ctx.strokeStyle = 'green';
             ctx.beginPath();
-            ctx.arc(data.tracked_centroid[0], data.tracked_centroid[1], 10, 0, 2 * Math.PI);
+            ctx.arc(data.tracked_centroid[0]*canvas.width, data.tracked_centroid[1]*canvas.height, 10, 0, 2 * Math.PI);
             ctx.stroke();
         }
 
         if (data.current_centroid) {
             ctx.strokeStyle = 'red';
             ctx.beginPath();
-            ctx.arc(data.current_centroid[0], data.current_centroid[1], 10, 0, 2 * Math.PI);
+            ctx.arc(data.current_centroid[0]*canvas.width, data.current_centroid[1]*canvas.height, 10, 0, 2 * Math.PI);
             ctx.stroke();
         }
         
@@ -537,18 +588,6 @@
         submitSetting("pixel_scale", pixel_scale);
     }
 
-    function submitExposure() {
-        const exposure = document.getElementById('exposure').value;
-        document.getElementById('exposure_value').textContent = exposure;
-        submitSetting("exposure", exposure);
-    }
-
-    function submitGain() {
-        const gain = document.getElementById('gain').value;
-        document.getElementById('gain_value').textContent = gain;
-        submitSetting("gain", gain);
-    }
-    
     function submitGuideInterval() {
         const guide_interval = document.getElementById('guide_interval').value;
         document.getElementById('guide_interval_value').textContent = guide_interval;
@@ -565,9 +604,33 @@
     function submitIntegrate_frames() {
         const integrate_frames = document.getElementById('integrate_frames').value;
         document.getElementById('integrate_frames_value').textContent = integrate_frames;
-        submitSetting("integrate_frames", integrate_frames);
+        submitCameraProperties(JSON.stringify({ "integrate_frames":integrate_frames }));
     }
 
+    function submitCameraFPS(value) {
+        submitCameraProperties(JSON.stringify({ "camera_fps":value }));
+    }
+    function submitVideoMode(value) {
+        submitCameraProperties(JSON.stringify({ "video_mode":value }));
+    }
+    function submitResolution(value) {
+        const [width, height] = value.split('x').map(Number); // Split and convert to numbers
+        submitCameraProperties(JSON.stringify({ width, height }));
+    }
+
+
+    function submitCameraProperties(properties) {
+        fetch('/set_camera_properties', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: properties,
+        })
+    }
+
+
+    
     function submitPID() {
         const pid_p = document.getElementById('pid_p').value;
         const pid_i = document.getElementById('pid_i').value;
@@ -610,8 +673,8 @@
 
     document.getElementById("canvas").addEventListener('click', function(event) {
         const rect = this.getBoundingClientRect();
-        const x = event.clientX - rect.left; // X relative to image
-        const y = event.clientY - rect.top;  // Y relative to image
+        const x = (event.clientX - rect.left)/rect.width; // X relative to image
+        const y = (event.clientY - rect.top)/rect.height;  // Y relative to image
         fetch('/acquire', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -642,6 +705,7 @@
     function showPanel(panel) {
         document.getElementById('control_frame').classList.add('hidden');
         document.getElementById('autoguider_panel').classList.add('hidden');
+        document.getElementById('camera_panel').classList.add('hidden');
         document.getElementById('terminal_frame').classList.add('hidden');
         document.getElementById(panel).classList.remove('hidden');
         
@@ -651,6 +715,9 @@
     }
     function showGuider() {
         showPanel('autoguider_panel');
+    }
+    function showCamera() {
+        showPanel('camera_panel');
     }
     function showTerminal() {
         showPanel('terminal_frame');
@@ -727,6 +794,86 @@
         const body = document.body;
         body.classList.toggle('night-mode'); // Toggle the 'night-mode' class
     }
+
+
+
+    function loadCameraProperties() {
+        fetch('/get_camera_properties')
+        .then(response => response.json())
+        .then(data => {
+            const cameraPanel = document.getElementById('camera_panel');
+
+            for (const [property, details] of Object.entries(data)) {
+                const row = document.createElement('tr');
+                row.className = 'controller-row';
+
+                const labelCell = document.createElement('td');
+                labelCell.innerHTML = `<label for="${property}">${property.replace(/_/g, ' ')}:</label>`;
+                row.appendChild(labelCell);
+
+                const controlCell = document.createElement('td');
+
+                if (details.type === 'int') {
+                    // Create a slider for integer properties
+                    controlCell.innerHTML = `
+                        <input type="range" id="${property}" name="${property}" 
+                            min="${details.min}" max="${details.max}" step="${details.step}" 
+                            value="${details.value}" 
+                            oninput="updateLabel('${property}', this.value); submitProperty('${property}', this.value)">
+                        <span id="${property}_value">${details.value}</span>
+                    `;
+                } else if (details.type === 'bool') {
+                    // Create a checkbox for boolean properties
+                    controlCell.innerHTML = `
+                        <input type="checkbox" id="${property}" name="${property}" 
+                            ${details.value ? 'checked' : ''} 
+                            onchange="submitProperty('${property}', this.checked ? 1 : 0)">
+                    `;
+                } else if (details.type === 'menu') {
+                    // Create radio buttons for menu properties
+                    const options = Object.entries(details.options)
+                        .map(([key, label]) => `
+                            <input type="radio" id="${property}_${key}" name="${property}" value="${key}" 
+                                ${details.value == key ? 'checked' : ''} 
+                                onchange="submitProperty('${property}', ${key})">
+                            <label for="${property}_${key}">${label}</label>
+                        `).join('<br>');
+                    controlCell.innerHTML = options;
+                }
+
+                row.appendChild(controlCell);
+                cameraPanel.appendChild(row);
+            }
+
+            // blank row
+            const row = document.createElement('tr');
+            row.innerHTML="<td></td><td></td>"
+            cameraPanel.appendChild(row);
+
+
+        })
+        .catch(error => console.error('Error fetching camera properties:', error));
+    }
+
+    function updateLabel(property, value) {
+        const label = document.getElementById(`${property}_value`);
+        if (label) {
+            label.textContent = value;
+        }
+    }
+
+    function submitProperty(name, value) {
+        fetch('/set_direct_camera_property', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ "name" : name, "value" : value }),
+        })
+        .then(response => console.log(`Property ${name} set to ${value}`))
+        .catch(error => console.error(`Error setting property ${name}:`, error));
+    }
+
 
 
 </script>

@@ -170,8 +170,14 @@ def save_frame():
 
 def form_properties():
     properties = {
-        "tracked_centroid": autoguider.tracked_centroid,
-        "current_centroid": autoguider.current_centroid,
+        "tracked_centroid": (
+            autoguider.tracked_centroid[0] / camera.width,
+            autoguider.tracked_centroid[1] / camera.height
+        ) if autoguider.tracked_centroid else None,
+        "current_centroid": (
+            autoguider.current_centroid[0] / camera.width,
+            autoguider.current_centroid[1] / camera.height
+        ) if autoguider.current_centroid else None,
         "max_drift": autoguider.max_drift,
         "star_size": autoguider.star_size,
         "gray_threshold": autoguider.gray_threshold,
@@ -179,23 +185,26 @@ def form_properties():
         "pixel_scale": autoguider.pixel_scale,
         "guiding": autoguider.guiding,
         "dec_guiding": autoguider.dec_guiding,
-        "guide_interval" : autoguider.guide_interval,
-        "guide_pulse" : autoguider.guide_pulse,
+        "guide_interval": autoguider.guide_interval,
+        "guide_pulse": autoguider.guide_pulse,
         "last_correction": autoguider.last_correction,
         "star_locked": autoguider.star_locked,
-        "focus_metric": autoguider.focus_metric,            
+        "focus_metric": autoguider.focus_metric,
         "last_loop_time": autoguider.last_loop_time,
         "last_frame_time": autoguider.last_frame_time,
-        "last_status" : autoguider.last_status,
-        "exposure": camera.exposure,
-        "gain": camera.gain,
+        "last_status": autoguider.last_status,
+        "exposure": camera.get_exposure(),
+        "exposure_ms": camera.get_exposure()/10,
         "integrate_frames": camera.integrate_frames,
         "r_channel": camera.r_channel,
         "g_channel": camera.g_channel,
         "b_channel": camera.b_channel,
+        "camera_fps": camera.actual_fps,
+        "resolution": { "width":camera.width, "height":camera.height },
+        "video_mode": camera.cam_mode,
         "pid_p": autoguider.ra_pid.Kp,
         "pid_i": autoguider.ra_pid.Ki,
-        "pid_d": autoguider.ra_pid.Kd,
+        "pid_d": autoguider.ra_pid.Kd
     }
     # Encode the centroid_image as Base64
     if autoguider.centroid_image is not None:
@@ -245,26 +254,17 @@ def telescope_socket(ws):
             break
     print("telescope_socket disconnected")
 
-
-@app.route('/set_channels', methods=['POST'])
-def set_channels():
-    data = request.json
-    camera.r_channel = float(data.get('r_channel', camera.r_channel))
-    camera.g_channel = float(data.get('g_channel', camera.g_channel))
-    camera.b_channel = float(data.get('b_channel', camera.b_channel))
-    return jsonify({"status": "success"}), 200
-
 @app.route('/set_pid', methods=['POST'])
 def set_pid():
     data = request.json
-    autoguider.ra_pid.Kp = float(data.get('pid_p', camera.r_channel))
-    autoguider.dec_pid.Kp = float(data.get('pid_p', camera.r_channel))
+    autoguider.ra_pid.Kp = float(data.get('pid_p', 0.5))
+    autoguider.dec_pid.Kp = float(data.get('pid_p', 0.5))
 
-    autoguider.ra_pid.Ki = float(data.get('pid_i', camera.g_channel))
-    autoguider.dec_pid.Ki = float(data.get('pid_i', camera.g_channel))
+    autoguider.ra_pid.Ki = float(data.get('pid_i', 0.1))
+    autoguider.dec_pid.Ki = float(data.get('pid_i', 0.1))
     
-    autoguider.ra_pid.Kd = float(data.get('pid_d', camera.b_channel))
-    autoguider.dec_pid.Kd = float(data.get('pid_d', camera.b_channel))
+    autoguider.ra_pid.Kd = float(data.get('pid_d', 0.2))
+    autoguider.dec_pid.Kd = float(data.get('pid_d', 0.2))
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_threshold', methods=['POST'])
@@ -317,25 +317,51 @@ def set_pixel_scale():
             autoguider.pixel_scale = new_scale
         return jsonify({"status": "success"}), 200
 
-@app.route('/set_exposure', methods=['POST'])
-def set_exposure():
-    exp = request.form.get('exposure', type=float, default=0.5)  # Default to 0.5 (mid-range)
-    if 0.0 <= exp <= 1.0:
-        camera.set_exposure(exp)
-    return jsonify({"status": "success"}), 200
+@app.route('/get_camera_properties', methods=['GET'])
+def get_camera_properties():
+    return jsonify(camera.controls)
 
-@app.route('/set_gain', methods=['POST'])
-def set_gain():
-    gain = request.form.get('gain', type=float, default=0.5)  # Default to 0.5 (mid-range)
-    if 0.0 <= gain <= 1.0:
-        camera.set_gain(gain)
-    return jsonify({"status": "success"}), 200
 
-@app.route('/set_integrate_frames', methods=['POST'])
-def set_integrate_frames():
-    integrate_frames = request.form.get('integrate_frames', type=int, default=10)  # Default to 10 (mid-range)
-    if 1 <= integrate_frames <= 20:
-        camera.integrate_frames = integrate_frames
+@app.route('/set_direct_camera_property', methods=['POST'])
+def set_direct_camera_property():
+    name = request.json.get('name')
+    value = request.json.get('value')    
+    if camera.set_direct_control(name, value):
+        return jsonify({"status": "success"}), 200
+    else:
+        return jsonify({"status": "error", 'message': 'Failed setting '+name+' to '+value}), 200
+
+@app.route('/set_camera_properties', methods=['POST'])
+def set_camera_properties():
+    width = request.json.get('width')
+    height = request.json.get('height')
+    if height is not None and width is not None:
+        camera.set_frame_size(int(width), int(height))
+
+    video_mode = request.json.get('video_mode')
+    if video_mode is not None:
+        camera.set_mode(video_mode)
+
+    camera_fps = request.json.get('camera_fps')
+    if camera_fps is not None:
+        camera.setfps(float(camera_fps))
+
+    r_channel = request.json.get('r_channel')
+    if r_channel is not None:
+        camera.r_channel = float(r_channel)
+
+    g_channel = request.json.get('g_channel')
+    if g_channel is not None:
+        camera.g_channel = float(g_channel)
+
+    b_channel = request.json.get('b_channel')
+    if b_channel is not None:
+        camera.b_channel = float(b_channel)
+
+    integrate_frames = request.json.get('integrate_frames')
+    if integrate_frames is not None:
+        camera.integrate_frames = int(integrate_frames)
+
     return jsonify({"status": "success"}), 200
 
 
@@ -408,6 +434,16 @@ def set_camera():
     else:
         return jsonify({'status': 'error', 'message': 'Invalid numbers'}), 400
 
+@app.route('/set_backlash', methods=['POST'])
+def set_backlash():
+    data = request.json
+    ra = data.get('ra')
+    dec = data.get('dec')
+    telescope.send_backlash_comp_ra(int(ra))
+    telescope.send_backlash_comp_dec(int(dec))
+    return jsonify({'status': 'success', 'message': f'Backlash set'})
+
+
 @app.route('/command_camera', methods=['POST'])
 def command_camera():
     data = request.json
@@ -433,8 +469,8 @@ def acquire():
         y = request.form.get('y', type=float)
         print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
         if x is not None and y is not None:
-            autoguider.acquire_star(centroid=(x, y))
-            print(f"Acquisition triggered at ({x}, {y})")
+            autoguider.acquire_star(centroid=(x*camera.width, y*camera.height))
+            print(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
             return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"})
         else:
             print("Failed to parse x or y from request")
