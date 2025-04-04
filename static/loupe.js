@@ -1,11 +1,20 @@
 
 const videoFeed = document.getElementById('video_feed');
+const threshFeed = document.getElementById('thresh_feed');
 const mainCanvas = document.getElementById('canvas');
 const loupe = document.getElementById('loupe');
 const loupeCtx = loupe.getContext('2d');
 
+function isVideoFeedHidden() {
+    const style = window.getComputedStyle(videoFeed);
+    return style.display === 'none' || style.visibility === 'hidden';
+}
+
 mainCanvas.addEventListener('mousemove', function (event) {
-    const rect = videoFeed.getBoundingClientRect();
+    
+    const srcEl = isVideoFeedHidden() ? threshFeed : videoFeed;
+    
+    const rect = srcEl.getBoundingClientRect();
     const x = event.clientX - rect.left; // X relative to the video feed
     const y = event.clientY - rect.top;  // Y relative to the video feed
 
@@ -16,15 +25,15 @@ mainCanvas.addEventListener('mousemove', function (event) {
 
     // Create an offscreen canvas to draw the video feed
     const offscreenCanvas = document.createElement('canvas');
-    offscreenCanvas.width = videoFeed.width;
-    offscreenCanvas.height = videoFeed.height;
+    offscreenCanvas.width = srcEl.width;
+    offscreenCanvas.height = srcEl.height;
     const offscreenCtx = offscreenCanvas.getContext('2d');
 
     // Draw the video feed onto the offscreen canvas
     const img = new Image();
-    img.src = videoFeed.src;
+    img.src = srcEl.src;
     img.onload = function () {
-        offscreenCtx.drawImage(img, 0, 0, videoFeed.width, videoFeed.height);
+        offscreenCtx.drawImage(img, 0, 0, srcEl.width, srcEl.height);
 
         // Extract a 50x50 pixel area around the cursor
         const zoomSize = 50;

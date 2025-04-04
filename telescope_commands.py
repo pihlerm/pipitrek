@@ -20,16 +20,19 @@ class TelescopeCommand:
     def execute(self, telescope:Telescope):
         with telescope.lock:
             prevto = telescope._serial_connection.timeout
-            telescope._serial_connection.timeout = 1
+            telescope._serial_connection.timeout = self.timeout
+            print(f"sending {self.command}")
             telescope.write_scope(self.command.encode())
             if self.requireResponse:
                 if self.responseLambda is None:
                     self.response = telescope.readline_scope(timeout=self.timeout)
+                    print(f"rcv {self.response}")
                 else:
                     self.response = b''
                     start = time.time()
                     while not self.responseLambda(self.response) and time.time()-start<self.timeout:
                         self.response += telescope.read_scope_byte()
+                    print(f"rcv {self.response}")
             telescope._serial_connection.timeout = prevto
             return self.response
 

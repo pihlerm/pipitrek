@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 null_correction = { "ra": 0 , "dec": 0, "dx": 0, "dy": 0, "ra_arcsec": 0, "dec_arcsec": 0 }
 
 
-
 class PIDController:
     def __init__(self, Kp, Ki, Kd, alpha=0.9, dt=1.0):
         self.Kp = Kp        # Proportional gain
@@ -47,6 +46,7 @@ class PIDController:
         self.prev_error = 0.0
 
 class Autoguider:
+
     def __init__(self):
         self.executor = ThreadPoolExecutor(max_workers=4)  # Create a thread pool with 4 workers
         self.pending_tasks = 0  # Counter for pending tasks
@@ -57,6 +57,12 @@ class Autoguider:
 
         self.dec_guiding = False            # Declination guiding. Make sure that DEC does not disturb RA!!
         self.guiding = False                # Guiding status on/off
+        self.guide_methods = {
+            "PID": self.guide_scope_pid,
+            "REL": self.guide_scope_rel,
+            "ABS": self.guide_scope_abs,
+        }
+        self.guide_method = "PID"                 # guide method
         self.calibrating = False
         self.threshold = None               # Last threshold image
         self.last_frame_time = 0            # Last frame capture  time
@@ -78,6 +84,7 @@ class Autoguider:
         self.guide_interval = 1.0           # Time period for tracking in seconds
         self.guide_pulse = 0.4              # Correction length: time between move start and move end (seconds)
         
+        self.save_frames = False            # Save each frame to disk
         self.output_dir = "/root/astro/images"
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -135,6 +142,14 @@ class Autoguider:
         
 
     def guide_scope_abs(self, ra_arcsec_error, dec_arcsec_error):
+        
+        raerr = self.last_correction['ra_arcsec']
+        decerr = self.last_correction['dec_arcsec']
+
+        self.last_correction['ra'] = -1 if raerr > self.max_drift else 1 if raerr < -self.max_drift else 0
+        if self.dec_guiding:
+            self.last_correction['dec']= -1 if decerr > self.max_drift else 1 if decerr < -self.max_drift else 0
+
         trackmsg =  f"move({self.last_correction['ra']}, {self.last_correction['dec']})"
         self.write_track_log(trackmsg)
         print(trackmsg)
@@ -158,7 +173,7 @@ class Autoguider:
 
         # RA corrections
         if self.last_correction["ra"] != 0:
-            dir = 'w' if self.last_correction["ra"] == 1 else 'e'
+            dir = 'w' if self.last_correction["ra"] == -1 else 'e'
             with self.task_lock:
                 self.pending_tasks += 1
             future = self.executor.submit(telescope.send_correction, dir, self.guide_pulse)
@@ -166,7 +181,7 @@ class Autoguider:
 
         # DEC corrections
         if self.last_correction["dec"] != 0:
-            dir = 's' if self.last_correction["dec"] == 1 else 'n'
+            dir = 's' if self.last_correction["dec"] == -1 else 'n'
             with self.task_lock:
                 self.pending_tasks += 1
             future = self.executor.submit(telescope.send_correction, dir, self.guide_pulse)
@@ -179,8 +194,12 @@ class Autoguider:
         ra_speed = max(-15, min(ra_speed, 15))
         dec_speed = int(-1*dec_arcsec_error)
         dec_speed = max(-15, min(dec_speed, 15))
+        if not self.dec_guiding:
+            dec_speed = 0
         trackmsg =  f"move_speed({ra_speed}, {dec_speed})"
-        self.write_track_log(trackmsg)
+        self.last_correction['ra_speed']=ra_speed
+        self.last_correction['dec_speed']=dec_speed
+        #self.write_track_log(trackmsg)
         print(trackmsg)
         telescope = Telescope()
         if not self.dec_guiding:
@@ -202,31 +221,57 @@ class Autoguider:
 
         # Log and send command
         trackmsg = f"move_speed({ra_speed:.2f}, {dec_speed:.2f})"
-        self.write_track_log(trackmsg)
+        self.last_correction['ra_speed']=ra_speed
+        self.last_correction['dec_speed']=dec_speed
+        #self.write_track_log(trackmsg)
         print(trackmsg)
 
         telescope = Telescope()
         telescope.send_start_movement_speed(ra_speed, dec_speed)
 
     def guide_scope(self, ra_arcsec_error, dec_arcsec_error):
-        self.guide_scope_pid(ra_arcsec_error, dec_arcsec_error)
+        # Call the appropriate method based on self.method
+        guide_methodf = self.guide_methods.get(self.guide_method)
+        if guide_methodf:
+            guide_methodf(ra_arcsec_error, dec_arcsec_error)
+        else:
+            raise ValueError(f"Unknown guiding method: {self.guide_method}")
 
     def calculate_drift(self, centroid):
         if centroid and self.tracked_centroid:
             dx = round(float(centroid[0] - self.tracked_centroid[0]), 4)
             dy = round(float(centroid[1] - self.tracked_centroid[1]), 4)
             dx_rot, dy_rot = self.rotate_vector(dx, dy)
-            ra_arcsec = round(dx_rot * self.pixel_scale, 4)
-            dec_arcsec = round(dy_rot * self.pixel_scale, 4)
+            telescope = Telescope()
+            ra_arcsec, dec_arcsec =self.pixels_to_arcseconds(dx_rot, dy_rot, self.pixel_scale, telescope.dec_deg)
             self.last_correction = {
-                "ra": 1 if ra_arcsec > self.max_drift else -1 if ra_arcsec < -self.max_drift else 0,
-                "dec": 1 if dec_arcsec > self.max_drift and self.dec_guiding else -1 if dec_arcsec < -self.max_drift and self.dec_guiding else 0,
-                "dx": dx, "dy": dy,
-                "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec
+                "dx": dx_rot, "dy": dy_rot,
+                "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec,
+                "ra": 0, "dec": 0,
+                "ra_speed": 0, "dec_speed": 0
+
             }
-            self.last_status = f"TRACKING: Star at {centroid}, dx={dx}, dy={dy}"
+            pec = telescope.scope_info["pec"]["progress"]
+            self.last_status = f"TRACKING: Star at:{centroid}, PEC:{pec}, ra px:{dx_rot:.1f}, dec px:{dy_rot:.1f}, ra arcsec:{ra_arcsec:.1f}, dec arcsec:{dec_arcsec:.1f}"
             #print(self.last_status)
             self.write_track_log(self.last_status)
+
+    def pixels_to_arcseconds(self, dx, dy, pixel_scale, declination):
+            """
+            Convert pixel offsets to arcseconds, adjusting RA for declination.
+            Args:
+                dx (float): Pixel offset in x (RA direction).
+                dy (float): Pixel offset in y (Dec direction).
+                pixel_scale (float): Arcseconds per pixel at equator.
+                declination (float): Telescope declination in degrees.
+            Returns:
+                tuple: (ra_arcsec, dec_arcsec) in arcseconds.
+            """
+            dec_rad = math.radians(declination)
+            ra_scale = pixel_scale * math.cos(dec_rad)  # RA scale shrinks near poles
+            ra_arcsec = dx * ra_scale
+            dec_arcsec = dy * pixel_scale  # Dec scale is constant
+            return round(ra_arcsec, 4), round(dec_arcsec, 4)
 
     def move_and_detect(self, telescope, move_direction, move_time, search_near ):
         print(f" >> moving {move_direction} for {move_time} seconds...")
@@ -329,6 +374,9 @@ class Autoguider:
 
     def enable_guiding(self, enable):
         if enable:
+            # reset PIDs!
+            self.ra_pid.reset()
+            self.dec_pid.reset()
             self.guiding = True
         else:
             self.guiding=False
@@ -337,6 +385,16 @@ class Autoguider:
 
     def enable_dec_guiding(self, enable):
         self.dec_guiding = enable
+
+
+    def save_frame(self, frame):
+        if frame is not None:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = os.path.join(self.output_dir, f"frame_{timestamp}.jpg")
+            cv2.imwrite(filename, frame)
+            print(f"Saved frame to {filename}")
+        else:
+            print("No frame to save.")
 
     def run_autoguider(self):
         
@@ -353,6 +411,8 @@ class Autoguider:
 
         while self.running:
             if time.perf_counter() - last_time >= self.guide_interval:  # Run once per period
+                self.last_loop_time = round(time.perf_counter() - last_time, 2)
+                last_time = time.perf_counter()
                 frame = self.camera.frame
                 if frame is last_frame or frame is None or self.calibrating:
                     time.sleep(0.01)    # frame not ready or calibrating
@@ -376,10 +436,6 @@ class Autoguider:
                         # Send correction to telescope
                         if self.guiding:
                             self.guide_scope( self.last_correction['ra_arcsec'], self.last_correction['dec_arcsec'])
-                        # Log to tracking.log file
-                        trackmsg =  f"pixel error({self.last_correction['dx']}, {self.last_correction['dy']}), RaDec error({self.last_correction['ra_arcsec']:.1f}, {self.last_correction['dec_arcsec']:.1f})"
-                        self.write_track_log(trackmsg)
-                        #print(trackmsg)
                     else:
                         self.star_locked = False
                         self.last_correction = null_correction
@@ -394,9 +450,8 @@ class Autoguider:
                             #print(self.last_status)
                             self.write_track_log(self.last_status)
 
-                end_time = time.perf_counter()
-                self.last_loop_time = round(end_time - last_time, 2)
                 self.data_ready = True
-                last_time = time.perf_counter()
-
+                if self.save_frames:
+                    self.save_frame(frame)
             time.sleep(0.01)  # Small sleep to prevent busy loop
+

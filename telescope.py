@@ -9,6 +9,7 @@ from comm.virtual_port import VirtualSerialPort
 from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
 from telescope_commands import *
+from conversions import *
 
 class Telescope:
     _instance = None
@@ -35,6 +36,9 @@ class Telescope:
             self.scope_info["quiet"] = False
             self.scope_info["tracking"] = "disabled"
             self.scope_info["text"] = ""
+
+            self.ra_deg = 0     # telescope ra in degrees
+            self.dec_deg = 0    # telescope declination in degrees
 
             self.quiet = False
             self._thread = None
@@ -146,10 +150,9 @@ class Telescope:
                     if current_time - last_position_time >= 4:
                         self.get_current_position()
                         last_position_time = current_time
-                    # get PEC position every 10 seconds
-                    if current_time - last_pec_position_time >= 10:
+                    # get PEC position every 5 seconds
+                    if current_time - last_pec_position_time >= 5:
                         self.get_PEC_position()
-                        self.get_current_position()
                         last_pec_position_time = current_time
                     # get info every 33 seconds
                     if current_time - last_info_time >= 33:
@@ -256,7 +259,16 @@ class Telescope:
     def get_current_position(self):
         ra = LXGetRa().execute(self).decode().rstrip('#')
         dec = LXGetDec().execute(self).decode().rstrip('#')
-        self.scope_info["coordinates"] = {"ra": ra, "dec": dec}
+        print(f"received coordinates {ra} {dec}")
+        try:
+            ra_deg =  lx200_to_ra_deg(ra)
+            dec_deg = lx200_to_dec_deg(dec)            
+            self.scope_info["coordinates"] = {"ra": ra, "dec": dec}
+            self.ra_deg = ra_deg
+            self.dec_deg = dec_deg
+        except:
+            print(f"Invalid coordinates")
+
 
     def send_PEC_position(self, position=0):
         try:
@@ -301,6 +313,7 @@ class Telescope:
         try:
             PTCCameraSetExp(exposure).execute(self)
             PTCCameraSetShots(shots).execute(self)
+            return True
         except ValueError as ve:
             print(f"{ve}")
             return False
@@ -390,7 +403,10 @@ class Telescope:
         except:
             print("get info failed to parse")
 
-        self.scope_info["text"]=info
+        self.scope_info["text"] = info
+        self.scope_info["quiet"] = self.quiet
+        self.ra_deg = lx200_to_ra_deg(self.scope_info["coordinates"]["ra"])
+        self.dec_deg = lx200_to_dec_deg(self.scope_info["coordinates"]["dec"])
         return info
 
     def send_pec_table(self, pec_table):

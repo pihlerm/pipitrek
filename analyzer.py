@@ -44,8 +44,7 @@ class Analyzer:
         
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
-            print("No contours")
-            return None, thresh, None, 0
+            return None, None, thresh, 0
 
         # Find the largest or nearest contour with size > star_size
         if search_near is not None:

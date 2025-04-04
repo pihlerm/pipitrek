@@ -217,11 +217,16 @@ class Camera:
 
     def set_direct_control(self, name, value):
         return set_v4l2_control(name, value)
+    
+    def get_direct_controls(self):
+        self.controls = get_v4l2_controls()
+        return self.controls
 
     def set_direct_controls(self, controls):
         return set_v4l2_controls(controls)
 
     def get_direct_control_values(self):
+        self.get_direct_controls()
         return extract_v4l2_control_values(self.controls)
 
     def release_camera(self):

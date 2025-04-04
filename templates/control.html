@@ -76,10 +76,21 @@
                 </div>
                 <div class = 'two_buttons'>
                     <div style="width:120px;">
-                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" checked>
+                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)">
                         <label for="quiet">Quiet mode</label>
                     </div>
                     <div>
+                    </div>
+                </div>
+            </div>
+
+            <div class = 'boxy'>
+                <div class = 'two_buttons'>
+                    <div style="width:120px;">
+                        RA<span id="ra_current">00:00:00</span>
+                    </div>
+                    <div style="width:120px;">
+                        DEC<span id="dec_current">+00*00:00</span>
                     </div>
                 </div>
             </div>
@@ -95,7 +106,7 @@
                 <div class = 'two_buttons'>
                     <div>
                         <label for="dec-input">DE</label>
-                        <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM'SS"  required>
+                        <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM:SS"  required>
                     </div>
                     <button class="command-button" onclick="submitGoto()">GOTO</button>
                 </div>
@@ -330,7 +341,7 @@
                         document.getElementById('pier_e').checked = (data.pier === 'E');
                     }
                     if(data.tracking) document.getElementById('tracking').checked = (data.tracking === 'enabled');
-                    if(data.quiet) document.getElementById('quiet').checked = (data.quiet);
+                    document.getElementById('quiet').checked = (data.quiet);
                     btnCamStart = document.getElementById('camera-shooting');
                     if(data.camera) {
                         if(data.camera.state === 'shooting') {
@@ -342,7 +353,11 @@
                         }
                     }
                     if(data.pec) PEC_wheel.setPECPositon(data.pec.progress);
-                    
+                    if(data.coordinates) {
+                        document.getElementById('ra_current').textContent = data.coordinates.ra;
+                        document.getElementById('dec_current').textContent = data.coordinates.dec;                        
+                    }                    
+
                     if(data.bc) {
                         document.getElementById('bc_ra-input').textContent = data.bc.ra;
                         document.getElementById('bc_dec-input').textContent = data.bc.dec;
@@ -424,7 +439,7 @@
         }
 
         function validateDEC(dec) {
-            const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]'[0-5][0-9]$/;
+            const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]:[0-5][0-9]$/;
             return decPattern.test(dec);
         }
 
@@ -442,8 +457,8 @@
 
         // Apply input mask for DEC
         Inputmask({
-            mask: "[+|-]99\\*59'59",
-            placeholder: "+DD*MM'SS",
+            mask: "[+|-]99\\*59:59",
+            placeholder: "+DD*MM:SS",
             definitions: {
                 '5': { validator: "[0-5]" },
                 '9': { validator: "[0-9]" },

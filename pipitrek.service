@@ -11,6 +11,9 @@ RestartSec=5
 User=root
 StandardOutput=append:/root/astro/pipitrek/pipitrek.log
 StandardError=append:/root/astro/pipitrek/pipitrek.log
+# Ensure SIGTERM is sent and give time for cleanup
+KillSignal=SIGTERM
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

@@ -56,7 +56,7 @@
                             <div class="two_buttons">
                                 <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
                                 <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span><br> focus:<span id="focus_metric">0</span></div>
-                                <div>dRA:<span id="ra_arcsec">0.0</span><br> dDE:<span id="dec_arcsec">0.0</span></div>    
+                                <div>RA RMS (arcsec):<span id="ra_arcsec">0.0</span><br> DEC RMS (arcsec):<span id="dec_arcsec">0.0</span></div>
                             </div>
                         </td>
                         
@@ -71,6 +71,28 @@
                             <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation. Best use on stationary target with tracking disabled.">Cal+backlash</button>
                         </td>
                     </tr>
+                    <tr class = "controller-row">
+                        <td><label>Guide method:</label></td>
+                        <td>
+                            <div>
+                                <input type="radio" id="methodABS" name="guide_method" value="ABS" onchange="submitGuideMethod(this.value)">
+                                <label for="methodABS">ABS</label>
+                                <input type="radio" id="methodREL" name="guide_method" value="REL" onchange="submitGuideMethod(this.value)">
+                                <label for="methodREL">REL</label>
+                                <input type="radio" id="methodPID" name="guide_method" value="PID" onchange="submitGuideMethod(this.value)" checked>
+                                <label for="methodPID">PID</label>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label>Save frames:</label></td>
+                        <td>
+                            <div>
+                                <input type="checkbox" id="save_frames" onchange="submitSaveFrames(this.checked)">Save</input>
+                            </div>
+                        </td>
+                    </tr>
+
                     <tr class = "controller-row">
                         <td><label for="guide_interval">Guide interval:</label></td>
                         <td>
@@ -109,28 +131,28 @@
                     <tr class = "controller-row">
                         <td><label for="threshold">Threshold:</label></td>
                         <td>
-                            <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" oninput="submitThreshold()">
+                            <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" onchange="submitThreshold()">
                             <span id="threshold_value">{{ threshold }}</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="pid_p">PID p:</label></td>
                         <td>
-                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="2.0" step="0.01" value="0" oninput="submitPID()">
+                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="2.0" step="0.01" value="0" onchange="submitPID()">
                             <span id="pid_p_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="pid_i">PID i:</label></td>
                         <td>
-                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="2.0" step="0.01" value="0" oninput="submitPID()">
+                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="2.0" step="0.01" value="0" onchange="submitPID()">
                             <span id="pid_i_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="pid_d">PID d:</label></td>
                         <td>
-                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="2.0" step="0.01" value="0" oninput="submitPID()">
+                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="2.0" step="0.01" value="0" onchange="submitPID()">
                             <span id="pid_d_value">0</span>
                         </td>
                     </tr>
@@ -182,36 +204,55 @@
                     <tr class = "controller-row">
                         <td><label for="pixel_scale">Pixel Scale (arcsec/pixel):</label></td>
                         <td>
-                            <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" oninput="submitPixelScale()">
+                            <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="{{ pixel_scale }}" step="0.1" onchange="submitPixelScale()">
                             <span id="pixel_scale_value">{{ pixel_scale }}</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="integrate_frames">Int Frames (1 - 20):</label></td>
                         <td>
-                            <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" oninput="submitIntegrate_frames()">
+                            <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="{{ integrate_frames }}" onchange="submitIntegrate_frames()">
                             <span id="integrate_frames_value">{{ integrate_frames }}</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="r_channel">R Channel:</label></td>
                         <td>
-                            <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" oninput="submitChannels()">
+                            <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="{{ r_channel }}" onchange="submitChannels()">
                             <span id="r_channel_value">{{ r_channel }}</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="g_channel">G Channel:</label></td>
                         <td>
-                            <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" oninput="submitChannels()">
+                            <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="{{ g_channel }}" onchange="submitChannels()">
                             <span id="g_channel_value">{{ g_channel }}</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="b_channel">B Channel:</label></td>
                         <td>
-                            <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" oninput="submitChannels()">
+                            <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" onchange="submitChannels()">
                             <span id="b_channel_value">{{ b_channel }}</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label >Sensor size/scope FL:</label></td>
+                        <td>
+                            <div>
+                                <input class="num_input" type="text" id="sensor_width-input" placeholder="0">
+                                <label for="sensor_width-input">mm X</label>
+                                <input class="num_input" type="text" id="sensor_height-input" placeholder="0">
+                                <label for="sensor_height-input">mm FL</label>
+                                <input class="num_input" type="text" id="sensor_focal-input" placeholder="0">
+                                <label for="sensor_focal-input">mm </label>
+                                <button class="command-button" title="calculate pixel scale" onclick="calculatePixelScale()">Calculate</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -252,14 +293,19 @@
                         </td>
                     </tr>
 
-
                 </table>
 
 
             </td>
         </tr>
     </table>
+    <div style="display: flex; justify-content: center; margin-bottom: 10px;">
+        <button class="command-button" onclick="showCorrectionsChart()">Corrections Chart</button>
+        <button class="command-button" onclick="showPECChart()">PEC Chart</button>
+    </div>
+    
     <canvas id="correctionsChart" width="1900px" height="200px"></canvas>
+    <canvas id="pecChart" width="1900px" height="200px" style="display: none;"></canvas>
 </body>
 <script src="../static/loupe.js"></script>
 <script>
@@ -272,12 +318,12 @@
             data: {
                 labels: [],
                 datasets: [
-                { label: 'RA', data: [], borderColor: 'yellow', fill: false, pointRadius: 0 },
-                { label: 'DEC', data: [], borderColor: 'blue', fill: false, pointRadius: 0 },
-                { label: 'DX', data: [], borderColor: 'green', fill: false, pointRadius: 0 },
-                { label: 'DY', data: [], borderColor: 'orange', fill: false, pointRadius: 0 },
-                { label: 'RA Arcsec', data: [], borderColor: 'purple', fill: false, pointRadius: 0 },
-                { label: 'DEC Arcsec', data: [], borderColor: 'brown', fill: false, pointRadius: 0 },
+                { label: 'RA correction(abs)', data: [], borderColor: 'yellow', fill: false, pointRadius: 0 },
+                { label: 'DEC correction(abs)', data: [], borderColor: 'blue', fill: false, pointRadius: 0 },
+                { label: 'RA correction(speed)', data: [], borderColor: 'green', fill: false, pointRadius: 0 },
+                { label: 'DEC correction(speed)', data: [], borderColor: 'orange', fill: false, pointRadius: 0 },
+                { label: 'RA error (arcsec)', data: [], borderColor: 'purple', fill: false, pointRadius: 0 },
+                { label: 'DEC error (arcsec)', data: [], borderColor: 'brown', fill: false, pointRadius: 0 },
                 ],
             },
             options: {
@@ -304,10 +350,49 @@
             },
         });
     }
+
+    let pecChart;
+
+    function initializePECChart() {
+        const ctx = document.getElementById('pecChart').getContext('2d');
+        pecChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: 'RA Error (arcsec)',
+                        data: [], // Points will be added dynamically
+                        borderColor: 'purple',
+                        backgroundColor: 'purple',
+                        pointRadius: 3,
+                    },
+                ],
+            },
+            options: {
+                responsive: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: { display: true, text: 'PEC Progress (%)' },
+                        min: 0,
+                        max: 99, // Static grid for x-axis
+                        grid: { color: '#919191' },
+                        ticks: { stepSize: 10 },
+                    },
+                    y: {
+                        title: { display: true, text: 'RA Error (arcsec)' },
+                        grid: { color: '#919191' },
+                    },
+                },
+            },
+        });
+    }
     function Load() {
 
         // Call this function once when the page loads
         initializeChart();
+        initializePECChart(); 
         updateCorrections();
         loadCameraProperties(); 
     }
@@ -348,8 +433,8 @@
         document.getElementById('dy').textContent = data.last_correction.dy.toFixed(2);
         document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
         
-        document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
-        document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
+        //document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
+        //document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
         document.getElementById('threshold').value = data.gray_threshold;
         document.getElementById('threshold_value').textContent = data.gray_threshold;
         document.getElementById('max_drift').value = data.max_drift;
@@ -376,6 +461,7 @@
 
         document.getElementById('guiding').checked = data.guiding;
         document.getElementById('dec_guiding').checked = data.dec_guiding;
+        document.getElementById('save_frames').checked = data.save_frames;
         
         document.getElementById('guide_pulse').value = data.guide_pulse;
         document.getElementById('guide_pulse_value').textContent = data.guide_pulse;
@@ -389,6 +475,11 @@
         document.getElementById('pid_d').value = data.pid_d;
         document.getElementById('pid_d_value').textContent = data.pid_d;
 
+        const methodRadio = document.querySelector(`input[name="guide_method"][value="${data.guide_method}"]`);
+        if (methodRadio) {
+            methodRadio.checked = true;
+        }
+        
         // Set the camera FPS radio button
         const fpsRadio = document.querySelector(`input[name="camera-fps"][value="${data.camera_fps}"]`);
         if (fpsRadio) {
@@ -466,8 +557,8 @@
         if (data.star_locked) {
             correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
             correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
-            correctionsChart.data.datasets[2].data.push(data.last_correction.dx);
-            correctionsChart.data.datasets[3].data.push(data.last_correction.dy);
+            correctionsChart.data.datasets[2].data.push(data.last_correction.ra_speed);
+            correctionsChart.data.datasets[3].data.push(data.last_correction.dec_speed);
             correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
             correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
         } else {
@@ -489,8 +580,55 @@
 
         // Update the chart
         correctionsChart.update();
+
+
+        // Update the PEC chart
+        if (data.pec_position && data.last_correction.ra_arcsec !== undefined) {
+            pecChart.data.datasets[0].data.push({
+                x: data.pec_position, // PEC progress (x-axis)
+                y: data.last_correction.ra_arcsec, // RA error (y-axis)
+            });
+
+            // Limit the number of points to avoid overcrowding
+            /*if (pecChart.data.datasets[0].data.length > 100) {
+                pecChart.data.datasets[0].data.shift();
+            }*/
+
+            pecChart.update();
+        }
+
+        calculateRMS();
     }
 
+    function showCorrectionsChart() {
+        document.getElementById('correctionsChart').style.display = 'block';
+        document.getElementById('pecChart').style.display = 'none';
+    }
+
+    function showPECChart() {
+        document.getElementById('correctionsChart').style.display = 'none';
+        document.getElementById('pecChart').style.display = 'block';
+    }
+
+    function calculateRMS() {
+        // Get the RA and DEC datasets from the chart
+        const raArcsecData = correctionsChart.data.datasets[4].data; // RA Arcsec dataset
+        const decArcsecData = correctionsChart.data.datasets[5].data; // DEC Arcsec dataset
+
+        // Filter out null values (in case of missing data points)
+        const validRaData = raArcsecData.filter(value => value !== null);
+        const validDecData = decArcsecData.filter(value => value !== null);
+
+        // Calculate RMS for RA
+        const raRMS = Math.sqrt(validRaData.reduce((sum, value) => sum + value ** 2, 0) / validRaData.length);
+
+        // Calculate RMS for DEC
+        const decRMS = Math.sqrt(validDecData.reduce((sum, value) => sum + value ** 2, 0) / validDecData.length);
+
+        // Update the RA and DEC elements with the RMS values
+        document.getElementById('ra_arcsec').textContent = raRMS.toFixed(2);
+        document.getElementById('dec_arcsec').textContent = decRMS.toFixed(2);
+    }
 
     function drawAxes(rotation_angle) {
         const canvas = document.getElementById('canvas');
@@ -557,6 +695,9 @@
         });        
     }
 
+    function submitSaveFrames(value) {
+        submitSetting("save_frames", value);
+    }
 
     function submitThreshold() {
         const threshold = document.getElementById('threshold').value;
@@ -599,8 +740,11 @@
         document.getElementById('guide_pulse_value').textContent = guide_pulse;
         submitSetting("guide_pulse", guide_pulse);
     }
-    
 
+    function submitGuideMethod(value) {
+        submitSetting("guide_method", value);
+    }
+    
     function submitIntegrate_frames() {
         const integrate_frames = document.getElementById('integrate_frames').value;
         document.getElementById('integrate_frames_value').textContent = integrate_frames;
@@ -812,16 +956,30 @@
                 row.appendChild(labelCell);
 
                 const controlCell = document.createElement('td');
+                
 
                 if (details.type === 'int') {
                     // Create a slider for integer properties
-                    controlCell.innerHTML = `
+                    if(property === "exposure_time_absolute") {
+                        input_min = 0;
+                        input_max = Math.log(details.max)/Math.log(Math.sqrt(2))+0.1;
+                        value = Math.log(details.value)/Math.log(Math.sqrt(2));
+                        controlCell.innerHTML = `
+                        <input type="range" id="${property}" name="${property}" 
+                            min="${input_min}" max="${input_max}" step="0.1"
+                            value="${value}" 
+                            oninput="updateExposure('${property}', this.value, ${details.max})"
+                            onchange="submitProperty( '${property}', document.getElementById('exposure_time_absolute_value').textContent)">
+                        <span id="${property}_value">${details.value}</span>`;
+                    } else {
+                        controlCell.innerHTML = `
                         <input type="range" id="${property}" name="${property}" 
                             min="${details.min}" max="${details.max}" step="${details.step}" 
                             value="${details.value}" 
-                            oninput="updateLabel('${property}', this.value); submitProperty('${property}', this.value)">
-                        <span id="${property}_value">${details.value}</span>
-                    `;
+                            oninput="updateLabel('${property}', this.value)"
+                            onchange="submitProperty('${property}', this.value)">
+                        <span id="${property}_value">${details.value}</span>`;
+                    }
                 } else if (details.type === 'bool') {
                     // Create a checkbox for boolean properties
                     controlCell.innerHTML = `
@@ -837,7 +995,7 @@
                                 ${details.value == key ? 'checked' : ''} 
                                 onchange="submitProperty('${property}', ${key})">
                             <label for="${property}_${key}">${label}</label>
-                        `).join('<br>');
+                        `);//.join('<br>');
                     controlCell.innerHTML = options;
                 }
 
@@ -853,6 +1011,15 @@
 
         })
         .catch(error => console.error('Error fetching camera properties:', error));
+    }
+
+    function updateExposure(property, value, max_value) {
+        const exposure = Math.min(Math.pow(Math.sqrt(2), value), max_value);
+        const label = document.getElementById(`${property}_value`);
+
+        if (label) {
+            label.textContent = exposure.toFixed(0); // Update label
+        }
     }
 
     function updateLabel(property, value) {
@@ -873,7 +1040,21 @@
         .then(response => console.log(`Property ${name} set to ${value}`))
         .catch(error => console.error(`Error setting property ${name}:`, error));
     }
+ 
+    function calculatePixelScale() {
+        const sensorWidth = parseFloat(document.getElementById('sensor_width-input').value);
+        const resolutionWidth = parseFloat(document.querySelector('input[name="resolution"]:checked').value.split('x')[0]);
+        const focalLength = parseFloat(document.getElementById('sensor_focal-input').value);
 
+        if (isNaN(sensorWidth) || isNaN(resolutionWidth) || isNaN(focalLength) || focalLength === 0) {
+            alert('Please enter valid values for sensor width, resolution, and focal length.');
+            return;
+        }
+
+        const pixelScale = (sensorWidth*1000 / resolutionWidth) * (206.265 / focalLength);
+        document.getElementById('pixel_scale_value').textContent = pixelScale.toFixed(2);
+        alert(`Pixel Scale: ${pixelScale.toFixed(2)} arcsec/pixel`);
+    }
 
 
 </script>

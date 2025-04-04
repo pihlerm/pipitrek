@@ -41,6 +41,7 @@ all_settings = None
 telescope = None
 camera = None
 telescopeserver = None
+global_server = None
 
 video_interval = 0.5 # interval for generating video frames
 
@@ -169,6 +170,7 @@ def save_frame():
 
 
 def form_properties():
+    telescope = Telescope()
     properties = {
         "tracked_centroid": (
             autoguider.tracked_centroid[0] / camera.width,
@@ -178,11 +180,14 @@ def form_properties():
             autoguider.current_centroid[0] / camera.width,
             autoguider.current_centroid[1] / camera.height
         ) if autoguider.current_centroid else None,
+        "pec_position": telescope.scope_info["pec"]["progress"],
+        "save_frames" : autoguider.save_frames,
         "max_drift": autoguider.max_drift,
         "star_size": autoguider.star_size,
         "gray_threshold": autoguider.gray_threshold,
         "rotation_angle": autoguider.rotation_angle,
         "pixel_scale": autoguider.pixel_scale,
+        "guide_method": autoguider.guide_method,
         "guiding": autoguider.guiding,
         "dec_guiding": autoguider.dec_guiding,
         "guide_interval": autoguider.guide_interval,
@@ -318,8 +323,8 @@ def set_pixel_scale():
         return jsonify({"status": "success"}), 200
 
 @app.route('/get_camera_properties', methods=['GET'])
-def get_camera_properties():
-    return jsonify(camera.controls)
+def get_camera_properties():    
+    return jsonify(camera.get_direct_controls())
 
 
 @app.route('/set_direct_camera_property', methods=['POST'])
@@ -369,6 +374,19 @@ def set_camera_properties():
 def set_guide_interval():
     guide_interval = request.form.get('guide_interval', type=float, default=1)
     autoguider.guide_interval = guide_interval
+    print(f"set guide interval to {guide_interval} and is {autoguider.guide_interval}")
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_save_frames', methods=['POST'])
+def set_save_frames():
+    save_frames = request.form.get('save_frames', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    autoguider.save_frames = save_frames
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_guide_method', methods=['POST'])
+def set_guide_method():
+    guide_method = request.form.get('guide_method', type=str, default='PID')
+    autoguider.guide_method = guide_method
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_guide_pulse', methods=['POST'])
@@ -380,21 +398,15 @@ def set_guide_pulse():
 
 @app.route('/set_guiding', methods=['POST'])
 def set_guiding():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        guiding = request.form.get('guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-        autoguider.enable_guiding(guiding)
-        return jsonify({"status": "success"}), 200
+    guiding = request.form.get('guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    autoguider.enable_guiding(guiding)
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_dec_guiding', methods=['POST'])
 def set_dec_guiding():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        dec_guiding = request.form.get('dec_guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-        autoguider.enable_dec_guiding(dec_guiding)
-        return jsonify({"status": "success"}), 200
+    dec_guiding = request.form.get('dec_guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    autoguider.enable_dec_guiding(dec_guiding)
+    return jsonify({"status": "success"}), 200
 
 
 @app.route('/set_tracking', methods=['POST'])
@@ -461,33 +473,27 @@ def command_camera():
 
 @app.route('/acquire', methods=['POST'])
 def acquire():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    print(f"Request body: {request.get_data().decode('utf-8')}")
+    x = request.form.get('x', type=float)
+    y = request.form.get('y', type=float)
+    print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
+    if x is not None and y is not None:
+        autoguider.acquire_star(centroid=(x*camera.width, y*camera.height))
+        print(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
+        return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"})
     else:
-        print(f"Request body: {request.get_data().decode('utf-8')}")
-        x = request.form.get('x', type=float)
-        y = request.form.get('y', type=float)
-        print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
-        if x is not None and y is not None:
-            autoguider.acquire_star(centroid=(x*camera.width, y*camera.height))
-            print(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
-            return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"})
-        else:
-            print("Failed to parse x or y from request")
-            return jsonify({'status': 'error', 'message': "Failed to parse x or y from request"}), 400
+        print("Failed to parse x or y from request")
+        return jsonify({'status': 'error', 'message': "Failed to parse x or y from request"}), 400
 
 @app.route('/calibrate', methods=['POST'])
 def calibrate():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    with_backlash = request.form.get('with_backlash', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    if autoguider.calibrate_angle(with_backlash):
+        print(f"Calibration successful")
+        return jsonify({'status': 'success', 'message': 'Calibration successful'})
     else:
-        with_backlash = request.form.get('with_backlash', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-        if autoguider.calibrate_angle(with_backlash):
-            print(f"Calibration successful")
-            return jsonify({'status': 'success', 'message': 'Calibration successful'})
-        else:
-            print("Failed to calibrate")
-            return jsonify({'status': 'error', 'message': "Failed to calibrate"}), 400
+        print("Failed to calibrate")
+        return jsonify({'status': 'error', 'message': "Failed to calibrate"}), 400
 
 
 @app.route('/control_move', methods=['POST'])
@@ -720,9 +726,7 @@ def command_terminal(ws):
 
 
 def cleanup():
-    # Perform cleanup
-    try:
-        
+    try:        
         print("Stopping TCP telescope server..")
         telescopeserver.stop()
     
@@ -735,21 +739,22 @@ def cleanup():
         else:
             print("Autoguider thread stopped")
         print("autoguider stopped.")
-        # Stop telescope
 
+        # Stop telescope
         print("Saving telescope state and cosing connection..")
         telescope.get_PEC_position()
+        telescope.get_current_position()
         telescope.send_tracking(False)    #disable tracking to not spoil PEC position
         all_settings.update_telescope_settings(telescope)
         telescope.stop_bridge()
         telescope.close_connection()
-        print("telescope closed.")
+        print("Telescope closed.")
 
         print("Stopping autoguider camera..")
         camera.stop_capture()
         camera.release_camera()
         all_settings.update_camera_settings(camera)
-        print("camera stopped.")
+        print("Camera stopped.")
 
         cv2.destroyAllWindows()
         all_settings.save_settings()
@@ -774,6 +779,13 @@ class ServerThread(Thread):
         print("Shutting down Flask server")
         self.server.shutdown()
 
+
+def signal_handler(sig, frame):
+    print(f"Received signal {sig}, initiating shutdown", flush=True)
+    if global_server:
+        cleanup()
+        global_server.shutdown()
+    sys.exit(0)
 
 if __name__ == '__main__':
     
@@ -811,21 +823,21 @@ if __name__ == '__main__':
     # TCP telescope server
     telescopeserver = TelescopeServer()
     telescopeserver.start()
-    
 
-    server = ServerThread(app)
-    server.start()
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)    
+
+    global_server = ServerThread(app)
+    global_server.start()
     try:
-        while server.is_alive():
+        while global_server.is_alive():
             time.sleep(1)
     except KeyboardInterrupt:
         print("KeyboardInterrupt received")
-        shutdown_event.set()
-
-        cleanup()
-
-        server.shutdown()
-        server.join(timeout=10)
-
+        signal_handler(signal.SIGINT, None)
+    finally:
+        global_server.join(timeout=10)
+        if global_server.is_alive():
+            print("Warning: Server thread did not stop in time")
         print("Application shut down gracefully")
-        sys.exit(0)
