@@ -13,7 +13,7 @@
             <div id="control-buttons">
             <table>
                 <tr>
-                    <img src="../static/PIPITREK.webp" style="width: 100%; max-width: 196px; margin-top: 0px; ">
+                    <img src="../static/PIPITREK.webp" id="pipitrekImage" style="width: 100%; max-width: 196px; margin-top: 0px; ">
                 </tr>
                 <tr>
                     <td>
@@ -210,6 +210,15 @@
             resultTextarea.value = message;
         }
         
+        function handleSlewingEffect(slewing) {
+            const image = document.getElementById('pipitrekImage');
+
+            if (slewing) {
+                image.classList.add('psychedelic'); // Add the effect
+            } else {
+                image.classList.remove('psychedelic'); // Remove the effect
+            }
+        }
 
         const ws = new WebSocket('ws://' + window.location.hostname + '/telescope_socket');
     
@@ -361,6 +370,10 @@
                     if(data.bc) {
                         document.getElementById('bc_ra-input').textContent = data.bc.ra;
                         document.getElementById('bc_dec-input').textContent = data.bc.dec;
+                    }
+
+                    if (data.slewing !== undefined) {
+                        handleSlewingEffect(data.slewing);
                     }
                 })  
             .catch(error => appendToResult('Error:', error));

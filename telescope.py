@@ -24,11 +24,11 @@ class Telescope:
             self._initialized = True
             self.open_serial()
             self.pause = False
-            self.scope_info = None
             self.bt_serial = BTSerial()
             #self.tcp_serial = TCPSerial()
             #self.tcp_serial.open()  
             self.lock = RLock()  # Thread lock for serial operations
+
             self.scope_info = {}
             self.scope_info["pec"] = {}
             self.scope_info["pec"]["progress"] = 0
@@ -36,6 +36,7 @@ class Telescope:
             self.scope_info["quiet"] = False
             self.scope_info["tracking"] = "disabled"
             self.scope_info["text"] = ""
+            self.scope_info["slewing"] = False
 
             self.ra_deg = 0     # telescope ra in degrees
             self.dec_deg = 0    # telescope declination in degrees
@@ -149,6 +150,8 @@ class Telescope:
                     # get ra/dec position every 4 seconds
                     if current_time - last_position_time >= 4:
                         self.get_current_position()
+                        if self.scope_info["slewing"]:
+                            self.getSlewDistance()
                         last_position_time = current_time
                     # get PEC position every 5 seconds
                     if current_time - last_pec_position_time >= 5:
@@ -255,11 +258,12 @@ class Telescope:
         LXSetRa(ra).execute(self)
         LXSetDec(dec).execute(self)
         LXSlew().execute(self)
+        self.scope_info["slewing"] = True
         
     def get_current_position(self):
         ra = LXGetRa().execute(self).decode().rstrip('#')
         dec = LXGetDec().execute(self).decode().rstrip('#')
-        print(f"received coordinates {ra} {dec}")
+        #print(f"received coordinates {ra} {dec}")
         try:
             ra_deg =  lx200_to_ra_deg(ra)
             dec_deg = lx200_to_dec_deg(dec)            
@@ -285,6 +289,11 @@ class Telescope:
         except ValueError:
             pos = 0
         self.scope_info["pec"]["progress"] = pos
+
+    def getSlewDistance(self):
+        resp = LXDistance().execute(self).decode().rstrip('#')
+        self.scope_info["slewing"] = (resp== "1")
+        return resp
 
     def send_tracking(self, tracking=True):
         try:
@@ -321,7 +330,9 @@ class Telescope:
     def get_info(self):
         cmd = PTCInfo()
         cmd.execute(self)
-        info = cmd.response.decode()
+        info = cmd.response.decode().rstrip("!\n")
+        slewing = self.scope_info["slewing"]
+
         try:
             lines = info.strip().split('\n')
             line = 0
@@ -405,6 +416,7 @@ class Telescope:
 
         self.scope_info["text"] = info
         self.scope_info["quiet"] = self.quiet
+        self.scope_info["slewing"] = slewing
         self.ra_deg = lx200_to_ra_deg(self.scope_info["coordinates"]["ra"])
         self.dec_deg = lx200_to_dec_deg(self.scope_info["coordinates"]["dec"])
         return info

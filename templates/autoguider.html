@@ -12,9 +12,11 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                     <!-- Left-aligned buttons -->
                     <div>
-                        <button class="command-button" onclick="showVideoFeed()">Video</button>
-                        <button class="command-button" onclick="showThreshFeed()">Threshold</button>
+                        <button class="command-button active" id="video_button" onclick="showVideoFeed()">Video</button>
+                        <button class="command-button" id="thresh_button" onclick="showThreshFeed()">Threshold</button>
                         <button class="command-button" onclick="toggleNightMode()">Night Mode</button>
+                        <button class="command-button active" id="errors_button" onclick="showCorrectionsChart()">Errors</button>
+                        <button class="command-button" id="pec_button" onclick="showPECChart()">PEC</button>
                     </div>
         
                     <!-- Right-aligned button and text -->
@@ -25,10 +27,10 @@
                 </div>
             </td>
             <td>
-                <button class="command-button" onclick="showControl()">Control</button>
-                <button class="command-button" onclick="showGuider()">Guider</button>            
-                <button class="command-button" onclick="showCamera()">Camera</button>            
-                <button class="command-button" onclick="showTerminal()">Terminal</button>
+                <button class="command-button active" id="control_frame_button" onclick="showControl()">Control</button>
+                <button class="command-button" id="autoguider_panel_button" onclick="showGuider()">Guider</button>            
+                <button class="command-button" id="camera_panel_button" onclick="showCamera()">Camera</button>            
+                <button class="command-button" id="terminal_frame_button" onclick="showTerminal()">Terminal</button>
             </td>
         </tr>
         <tr>
@@ -299,11 +301,7 @@
             </td>
         </tr>
     </table>
-    <div style="display: flex; justify-content: center; margin-bottom: 10px;">
-        <button class="command-button" onclick="showCorrectionsChart()">Corrections Chart</button>
-        <button class="command-button" onclick="showPECChart()">PEC Chart</button>
-    </div>
-    
+   
     <canvas id="correctionsChart" width="1900px" height="200px"></canvas>
     <canvas id="pecChart" width="1900px" height="200px" style="display: none;"></canvas>
 </body>
@@ -603,11 +601,18 @@
     function showCorrectionsChart() {
         document.getElementById('correctionsChart').style.display = 'block';
         document.getElementById('pecChart').style.display = 'none';
+
+        document.getElementById('errors_button').classList.add('active');
+        document.getElementById('pec_button').classList.remove('active');
+
     }
 
     function showPECChart() {
         document.getElementById('correctionsChart').style.display = 'none';
         document.getElementById('pecChart').style.display = 'block';
+
+        document.getElementById('errors_button').classList.remove('active');
+        document.getElementById('pec_button').classList.add('active');
     }
 
     function calculateRMS() {
@@ -835,6 +840,9 @@
         document.getElementById('video_feed').classList.remove('hidden');
         document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.add('hidden');
+
+        document.getElementById('video_button').classList.add('active');
+        document.getElementById('thresh_button').classList.remove('active');
     }
 
     function showThreshFeed() {
@@ -843,6 +851,9 @@
         document.getElementById('video_feed').classList.add('hidden');
         document.getElementById('canvas').classList.remove('hidden');
         document.getElementById('thresh_feed').classList.remove('hidden');
+
+        document.getElementById('video_button').classList.remove('active');
+        document.getElementById('thresh_button').classList.add('active');
     }
 
 
@@ -852,7 +863,12 @@
         document.getElementById('camera_panel').classList.add('hidden');
         document.getElementById('terminal_frame').classList.add('hidden');
         document.getElementById(panel).classList.remove('hidden');
-        
+
+        document.getElementById('control_frame_button').classList.remove('active');
+        document.getElementById('autoguider_panel_button').classList.remove('active');
+        document.getElementById('camera_panel_button').classList.remove('active');
+        document.getElementById('terminal_frame_button').classList.remove('active');
+        document.getElementById(panel + '_button').classList.add('active');        
     }
     function showControl() {
         showPanel('control_frame');

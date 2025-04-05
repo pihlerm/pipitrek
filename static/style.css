@@ -126,8 +126,15 @@ iframe {
     text-align: center;
     vertical-align: middle;
 }
-
-
+.command-button:active {
+    background-color: rgb(94, 18, 18);
+    color: white; /* Optional: Change text color for better contrast */
+}
+.command-button.active {
+    background-color: rgb(8, 100, 8); /* Active state background color */
+    color: white; /* Active state text color */
+    font-weight: bold; /* Optional: Make the text bold */
+}
 #command-buttons {
     display: flex;
     flex-direction: column;
@@ -257,17 +264,51 @@ iframe {
 
 #result {
     width: 620px;
-    height: 250px;
+    height: 230px;
     margin-top: 0px;
 }
 
 #telescope-info {
     width: 165px;
-    height: 200px;
+    height: 220px;
     margin-top: 0px;
 }
 #pec_table {
     width: 165px;
     height: 233px;
     margin-top: 0px;
+}
+
+@keyframes psychedelicEffect {
+    0% {
+        filter: hue-rotate(0deg) brightness(1) contrast(1);
+    }
+    12% {
+        filter: hue-rotate(45deg) brightness(0.9) contrast(1.2);
+    }
+    25% {
+        filter: hue-rotate(90deg) brightness(0.7) contrast(1.2);
+    }
+    37% {
+        filter: hue-rotate(120deg) brightness(0.55) contrast(1.2);
+    }
+    50% {
+        filter: hue-rotate(180deg) brightness(0.4) contrast(1.5);
+    }
+    62% {
+        filter: hue-rotate(210deg) brightness(0.85) contrast(1.5);
+    }
+    75% {
+        filter: hue-rotate(270deg) brightness(1.1) contrast(1.2);
+    }
+    87% {
+        filter: hue-rotate(310deg) brightness(1.5) contrast(1.2);
+    }
+    100% {
+        filter: hue-rotate(360deg) brightness(1) contrast(1);
+    }
+}
+
+.psychedelic {
+    animation: psychedelicEffect 1s infinite;
 }
