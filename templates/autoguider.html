@@ -140,21 +140,21 @@
                     <tr class = "controller-row">
                         <td><label for="pid_p">PID p:</label></td>
                         <td>
-                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="2.0" step="0.01" value="0" onchange="submitPID()">
+                            <input type="range" id="pid_p" name="pid_p" min="0.0" max="10.0" step="0.01" value="0" onchange="submitPID()">
                             <span id="pid_p_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="pid_i">PID i:</label></td>
                         <td>
-                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="2.0" step="0.01" value="0" onchange="submitPID()">
+                            <input type="range" id="pid_i" name="pid_i" min="0.0" max="5.0" step="0.01" value="0" onchange="submitPID()">
                             <span id="pid_i_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="pid_d">PID d:</label></td>
                         <td>
-                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="2.0" step="0.01" value="0" onchange="submitPID()">
+                            <input type="range" id="pid_d" name="pid_d" min="0.0" max="5.0" step="0.01" value="0" onchange="submitPID()">
                             <span id="pid_d_value">0</span>
                         </td>
                     </tr>
@@ -253,6 +253,15 @@
                         </td>
                     </tr>
                     <tr class = "controller-row">
+                        <td><label>Hot pixel mask:</label></td>
+                        <td>
+                            <div>
+                                <button class="command-button" title="Capture hot pixel mask" onclick="captureHotPixelMask()">Capture</button>
+                                <button class="command-button" title="Clear hot pixel mask" onclick="clearHotPixelMask()">Clear</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
                         <td colspan="2">
                             <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
@@ -291,6 +300,17 @@
                                 <label for="FPS10">10</label>
                                 <input type="radio" id="FPS5" name="camera-fps" value="5" onchange="submitCameraFPS(this.value)">
                                 <label for="FPS5">5</label>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label >Camera color:</label></td>
+                        <td>
+                            <div>
+                                <input type="radio" id="camera_color_true" name="camera_color" value="true" onchange="submitCameraColor(true)" checked>
+                                <label for="camera_color_true">color</label>
+                                <input type="radio" id="camera_color_false" name="camera_color" value="false" onchange="submitCameraColor(false)">
+                                <label for="camera_color_true">grayscale</label>
                             </div>
                         </td>
                     </tr>
@@ -496,6 +516,13 @@
             videoModeRadio.checked = true;
         }
 
+        // Set the camera color radio button
+        const colorRadioButton = document.querySelector(`input[name="camera_color"][value="${data.camera_color}"]`);
+        if (colorRadioButton) {
+            colorRadioButton.checked = true;
+        }
+
+
         // Update the camera_info element
         const cameraInfo = document.getElementById('camera_info');
         if (cameraInfo) {
@@ -555,8 +582,8 @@
         if (data.star_locked) {
             correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
             correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
-            correctionsChart.data.datasets[2].data.push(data.last_correction.ra_speed);
-            correctionsChart.data.datasets[3].data.push(data.last_correction.dec_speed);
+            correctionsChart.data.datasets[2].data.push(data.last_correction.ra_speed/10.0);
+            correctionsChart.data.datasets[3].data.push(data.last_correction.dec_speed/10.0);
             correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
             correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
         } else {
@@ -765,6 +792,18 @@
     function submitResolution(value) {
         const [width, height] = value.split('x').map(Number); // Split and convert to numbers
         submitCameraProperties(JSON.stringify({ width, height }));
+    }
+
+    function submitCameraColor(value) {        
+        submitCameraProperties(JSON.stringify({ "camera_color" : value }));
+    }
+
+    function captureHotPixelMask() {
+        submitSetting("hot_pixel_mask", true);
+    }
+
+    function clearHotPixelMask() {
+        submitSetting("hot_pixel_mask", false);
     }
 
 

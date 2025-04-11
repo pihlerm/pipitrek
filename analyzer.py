@@ -76,7 +76,7 @@ class Analyzer:
         # Check if contour is large enough
         size = cv2.contourArea(largest)
         if size <= star_size:
-            print(f"Size too small {size}, elements={len(contours)}")
+            #print(f"Size too small {size}, elements={len(contours)}")
             return None, None, thresh, 0
 
         # Initial unweighted centroid and moments
@@ -118,7 +118,7 @@ class Analyzer:
         # Weighted centroid
         M_weighted = cv2.moments(star_region)
         if M_weighted["m00"] == 0:
-            print(f"Found rough centroid: {cx}, {cy}")
+            #print(f"Found rough centroid: {cx}, {cy}")
             return initial_centroid, enhanced_star_region, thresh, 0  # Fallback
         
         cx_weighted = M_weighted["m10"] / M_weighted["m00"]

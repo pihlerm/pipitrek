@@ -178,9 +178,10 @@ class Telescope:
 
                 with self.lock:
                     if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
-                        data = self.read_scope()  # Read all available bytes
+                        data = self.read_scope()  # Read all available bytes                        
                         if data:  # Ensure data was read                        
                             bt.write(data)       # will write if open
+                            print(f"telescope bridge: {data}")
 #                           tcp.write(data)  # will write if open
                 
                 # Brief sleep to avoid high CPU usage

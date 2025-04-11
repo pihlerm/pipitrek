@@ -65,7 +65,7 @@ def gen_frames():
     last_valid_frame = None
     last_yield = time.time()
     try:
-        while camera.running:
+        while camera is not None and camera.running:
             start = time.time()
             if start - last_yield > 10:
                 print("Timeout from gen_frames", flush=True)
@@ -140,7 +140,7 @@ def terminal():
     
 @app.route('/video_feed')
 def video_feed():
-    if camera.running:
+    if camera is not None and camera.running:
         return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
     else:
         return Response(b'', status=503)
@@ -155,7 +155,7 @@ def thresh_feed():
 
 @app.route('/save_frame', methods=['POST'])
 def save_frame():
-    if camera.running:
+    if camera is not None and camera.running:
         frame = camera.frame
         if frame is not None and frame.size > 0:
             # Save the frame as an image file
@@ -171,14 +171,37 @@ def save_frame():
 
 def form_properties():
     telescope = Telescope()
+    if camera is not None:
+        width = camera.width
+        height = camera.height
+        exposure = camera.get_exposure()
+        integrate_frames = camera.integrate_frames
+        r_channel = camera.r_channel
+        g_channel = camera.g_channel
+        b_channel = camera.b_channel
+        actual_fps = camera.cam_fps
+        cam_mode = camera.cam_mode
+        camera_color = camera.color
+    else:
+        width = 1
+        height = 1
+        exposure = 1
+        integrate_frames = 1
+        r_channel = 1
+        g_channel = 1
+        b_channel = 1
+        actual_fps = 5
+        cam_mode = "MJPEG"
+        camera_color = True
+
     properties = {
         "tracked_centroid": (
-            autoguider.tracked_centroid[0] / camera.width,
-            autoguider.tracked_centroid[1] / camera.height
+            autoguider.tracked_centroid[0] / width,
+            autoguider.tracked_centroid[1] / height
         ) if autoguider.tracked_centroid else None,
         "current_centroid": (
-            autoguider.current_centroid[0] / camera.width,
-            autoguider.current_centroid[1] / camera.height
+            autoguider.current_centroid[0] / width,
+            autoguider.current_centroid[1] / height
         ) if autoguider.current_centroid else None,
         "pec_position": telescope.scope_info["pec"]["progress"],
         "save_frames" : autoguider.save_frames,
@@ -198,15 +221,16 @@ def form_properties():
         "last_loop_time": autoguider.last_loop_time,
         "last_frame_time": autoguider.last_frame_time,
         "last_status": autoguider.last_status,
-        "exposure": camera.get_exposure(),
-        "exposure_ms": camera.get_exposure()/10,
-        "integrate_frames": camera.integrate_frames,
-        "r_channel": camera.r_channel,
-        "g_channel": camera.g_channel,
-        "b_channel": camera.b_channel,
-        "camera_fps": camera.actual_fps,
-        "resolution": { "width":camera.width, "height":camera.height },
-        "video_mode": camera.cam_mode,
+        "exposure": exposure,
+        "exposure_ms": exposure/10,
+        "integrate_frames": integrate_frames,
+        "r_channel": r_channel,
+        "g_channel": g_channel,
+        "b_channel": b_channel,
+        "camera_fps": actual_fps,
+        "resolution": { "width":width, "height":height },
+        "video_mode": cam_mode,
+        "camera_color": camera_color,
         "pid_p": autoguider.ra_pid.Kp,
         "pid_i": autoguider.ra_pid.Ki,
         "pid_d": autoguider.ra_pid.Kd
@@ -274,70 +298,70 @@ def set_pid():
 
 @app.route('/set_threshold', methods=['POST'])
 def set_threshold():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        new_threshold = request.form.get('threshold', type=int, default=autoguider.gray_threshold)
-        if 0 <= new_threshold <= 255:
-            autoguider.gray_threshold = new_threshold
-        return jsonify({"status": "success"}), 200
+    new_threshold = request.form.get('threshold', type=int, default=autoguider.gray_threshold)
+    if 0 <= new_threshold <= 255:
+        autoguider.gray_threshold = new_threshold
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_max_drift', methods=['POST'])
 def set_max_drift():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift)
-        if 0 <= new_max_drift <= 50:
-            autoguider.max_drift = new_max_drift
-        return jsonify({"status": "success"}), 200
+    new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift)
+    if 0 <= new_max_drift <= 50:
+        autoguider.max_drift = new_max_drift
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_star_size', methods=['POST'])
 def set_star_size():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        new_star_size = request.form.get('star_size', type=int, default=autoguider.star_size)
-        if 1 <= new_star_size <= 100:
-            autoguider.star_size = new_star_size
-        return jsonify({"status": "success"}), 200
+    new_star_size = request.form.get('star_size', type=int, default=autoguider.star_size)
+    if 1 <= new_star_size <= 100:
+        autoguider.star_size = new_star_size
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_rotation_angle', methods=['POST'])
 def set_rotation_angle():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
-    else:
-        new_angle = request.form.get('rotation_angle', type=float, default=autoguider.rotation_angle)
-        if -180 <= new_angle <= 180:
-            autoguider.rotation_angle = new_angle
-        return jsonify({"status": "success"}), 200
+    new_angle = request.form.get('rotation_angle', type=float, default=autoguider.rotation_angle)
+    if -180 <= new_angle <= 180:
+        autoguider.rotation_angle = new_angle
+    return jsonify({"status": "success"}), 200
 
 @app.route('/set_pixel_scale', methods=['POST'])
 def set_pixel_scale():
-    if  autoguider_thread is None:
-        return jsonify({'status': 'error', 'message': 'Autoguider not active'}), 200
+    new_scale = request.form.get('pixel_scale', type=float, default=autoguider.pixel_scale)
+    if 0.1 <= new_scale <= 10.0:
+        autoguider.pixel_scale = new_scale
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_hot_pixel_mask', methods=['POST'])
+def set_hot_pixel_mask():
+    reset = not request.form.get('hot_pixel_mask', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    if reset:
+        camera.clear_hot_pixel_mask()
     else:
-        new_scale = request.form.get('pixel_scale', type=float, default=autoguider.pixel_scale)
-        if 0.1 <= new_scale <= 10.0:
-            autoguider.pixel_scale = new_scale
-        return jsonify({"status": "success"}), 200
+        camera.capture_hot_pixel_mask()
+    return jsonify({"status": "success"}), 200
 
 @app.route('/get_camera_properties', methods=['GET'])
 def get_camera_properties():    
-    return jsonify(camera.get_direct_controls())
+    if camera is not None:
+        return jsonify(camera.get_direct_controls())
+    else:
+        return jsonify({"status": "error", "message": "Camera not available"}), 503
 
 
 @app.route('/set_direct_camera_property', methods=['POST'])
 def set_direct_camera_property():
     name = request.json.get('name')
     value = request.json.get('value')    
-    if camera.set_direct_control(name, value):
+    if camera is not None and camera.set_direct_control(name, value):
         return jsonify({"status": "success"}), 200
     else:
         return jsonify({"status": "error", 'message': 'Failed setting '+name+' to '+value}), 200
 
 @app.route('/set_camera_properties', methods=['POST'])
 def set_camera_properties():
+    if camera is None:
+        return jsonify({"status": "error", "message": "Camera not available"}), 503
+    
     width = request.json.get('width')
     height = request.json.get('height')
     if height is not None and width is not None:
@@ -366,6 +390,10 @@ def set_camera_properties():
     integrate_frames = request.json.get('integrate_frames')
     if integrate_frames is not None:
         camera.integrate_frames = int(integrate_frames)
+
+    camera_color = request.json.get('camera_color')
+    if camera_color is not None:
+        camera.set_color(camera_color)
 
     return jsonify({"status": "success"}), 200
 
@@ -473,10 +501,11 @@ def command_camera():
 
 @app.route('/acquire', methods=['POST'])
 def acquire():
-    print(f"Request body: {request.get_data().decode('utf-8')}")
+    if camera is None:
+        return jsonify({'status': 'error', 'message': 'Camera not available'}), 503
+
     x = request.form.get('x', type=float)
     y = request.form.get('y', type=float)
-    print(f"Parsed x: {x}, y: {y}")  # Debug parsed values
     if x is not None and y is not None:
         autoguider.acquire_star(centroid=(x*camera.width, y*camera.height))
         print(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
@@ -750,11 +779,12 @@ def cleanup():
         telescope.close_connection()
         print("Telescope closed.")
 
-        print("Stopping autoguider camera..")
-        camera.stop_capture()
-        camera.release_camera()
-        all_settings.update_camera_settings(camera)
-        print("Camera stopped.")
+        if camera is not None:
+            print("Stopping autoguider camera..")        
+            camera.stop_capture()
+            camera.release_camera()
+            all_settings.update_camera_settings(camera)
+            print("Camera stopped.")
 
         cv2.destroyAllWindows()
         all_settings.save_settings()
@@ -807,11 +837,16 @@ if __name__ == '__main__':
     print("telescope started.")
 
     print("Setting up autoguider camera..")
-    camera = Camera()
-    camera.init_camera()
-    all_settings.set_camera_settings(camera)
-    camera.start_capture()
-    print("camera set up.")
+    try:
+        camera = Camera()
+        camera.init_camera()
+        all_settings.set_camera_settings(camera)
+        camera.load_hot_pixel_mask() 
+        camera.start_capture()
+        print("camera set up.")
+    except Exception as e:
+        print(f"Error initializing camera: {e}")
+        camera = None
 
     print("Setting up autoguider..")
     autoguider = Autoguider()

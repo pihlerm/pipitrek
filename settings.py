@@ -10,7 +10,7 @@ SETTINGS_FILE = 'settings.json'
 class Settings:
 
     def __init__(self):
-        self.settings = []
+        self.settings = {}
 
     def update_autoguider_settings(self, autoguider: Autoguider):
         self.settings["max_drift"] = autoguider.max_drift
@@ -36,6 +36,7 @@ class Settings:
         self.settings["height"] = camera.height
         self.settings["cam_mode"] = camera.cam_mode
         self.settings["camera_controls"] = camera.get_direct_control_values()
+        self.settings["camera_color"] = camera.color
 
     def update_telescope_settings(self, telescope:Telescope):        
         self.settings["scope_info"] = telescope.scope_info        
@@ -53,6 +54,7 @@ class Settings:
             autoguider.max_drift = float(self.settings.get("max_drift", 5.0))
             autoguider.guide_interval = float(self.settings.get("guide_interval", 1.0))
             autoguider.dec_guiding = bool(self.settings.get("dec_guiding", False))
+            autoguider.output_dir = self.settings.get("output_dir")
 
             pid_settings = self.settings.get("pid")
             if pid_settings is not None:
@@ -83,6 +85,8 @@ class Settings:
             camera.set_frame_size(int(self.settings.get("width", 1280)), int(self.settings.get("height", 720)))
             camera.setfps(float(self.settings.get("cam_fps", 30.0)))  # Default to 30.0
             camera.set_direct_controls(self.settings.get("camera_controls", []))
+            camera.set_color(self.settings.get("camera_color", True))
+            camera.output_dir = self.settings.get("output_dir")
 
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")
@@ -107,6 +111,9 @@ class Settings:
             try:
                 with open(SETTINGS_FILE, 'r') as f:
                     self.settings = json.load(f)
+                    if "output_dir" not in self.settings:
+                        self.settings["output_dir"] = "/root/astro/images"
+                    os.makedirs(self.settings["output_dir"], exist_ok=True)
                 print(f"Loaded settings from {SETTINGS_FILE}")
             except json.JSONDecodeError as e:
                 print(f"Error decoding {SETTINGS_FILE}: {e}")
