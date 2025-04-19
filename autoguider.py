@@ -126,7 +126,6 @@ class Autoguider:
         new_dy = round(dx * math.sin(angle_rad) + dy * math.cos(angle_rad), 4)
         return new_dx, new_dy
     
-
     def acquire_star(self, frame=None, centroid=None):
         if frame is None:
             frame = self.camera.frame
@@ -424,6 +423,7 @@ class Autoguider:
                 else:
                     # Tracking mode
                     centroid = self.detect_star(frame, search_near=self.current_centroid)
+                    
                     #print(f"detect_star took {detect_time - frame_time:.2f} seconds")                    # Get current timestamp
                     if centroid and self.tracked_centroid:
                         self.star_locked = True

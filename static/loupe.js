@@ -1,57 +1,67 @@
 
-const videoFeed = document.getElementById('video_feed');
-const threshFeed = document.getElementById('thresh_feed');
 const mainCanvas = document.getElementById('canvas');
 const loupe = document.getElementById('loupe');
 const loupeCtx = loupe.getContext('2d');
+var loupeScale = 3; // Magnification factor
+var loupeX = 0;
+var loupeY = 0;
 
-function isVideoFeedHidden() {
-    const style = window.getComputedStyle(videoFeed);
-    return style.display === 'none' || style.visibility === 'hidden';
+
+function updateLoupe() {
+
+    // Clear the loupe canvas
+    loupeCtx.clearRect(0, 0, loupe.width, loupe.height);
+
+    // Draw a portion of the video feed onto the loupe
+    const loupeSizeW = loupe.width;
+    const loupeSizeH = loupe.height;
+    loupeCtx.imageSmoothingEnabled = false;
+    
+    const X = loupeX * full_feed_canvas.width / mainCanvas.width;
+    const Y = loupeY * full_feed_canvas.height / mainCanvas.height;
+
+    loupeCtx.drawImage(
+        full_feed_canvas,
+        X - loupeSizeW / (2 * loupeScale), // Source X
+        Y - loupeSizeH / (2 * loupeScale), // Source Y
+        loupeSizeW / loupeScale, // Source width
+        loupeSizeH / loupeScale, // Source height
+        0, // Destination X
+        0, // Destination Y
+        loupeSizeW, // Destination width
+        loupeSizeH // Destination height
+    );
 }
 
 mainCanvas.addEventListener('mousemove', function (event) {
     
-    const srcEl = isVideoFeedHidden() ? threshFeed : videoFeed;
-    
-    const rect = srcEl.getBoundingClientRect();
-    const x = event.clientX - rect.left; // X relative to the video feed
-    const y = event.clientY - rect.top;  // Y relative to the video feed
-
     // Position the loupe near the cursor
     loupe.style.left = `${event.clientX + 10}px`;
     loupe.style.top = `${event.clientY + 10}px`;
     loupe.style.display = 'block';
+    // Get the bounding rectangle of the canvas
+    const rect = mainCanvas.getBoundingClientRect();
 
-    // Create an offscreen canvas to draw the video feed
-    const offscreenCanvas = document.createElement('canvas');
-    offscreenCanvas.width = srcEl.width;
-    offscreenCanvas.height = srcEl.height;
-    const offscreenCtx = offscreenCanvas.getContext('2d');
+    // Calculate the mouse position relative to the canvas
+    loupeX = event.clientX - rect.left;
+    loupeY = event.clientY - rect.top;
+    updateLoupe();
 
-    // Draw the video feed onto the offscreen canvas
-    const img = new Image();
-    img.src = srcEl.src;
-    img.onload = function () {
-        offscreenCtx.drawImage(img, 0, 0, srcEl.width, srcEl.height);
-
-        // Extract a 50x50 pixel area around the cursor
-        const zoomSize = 50;
-        const startX = Math.max(0, x - zoomSize / 2);
-        const startY = Math.max(0, y - zoomSize / 2);
-
-        // Clear the loupe canvas
-        loupeCtx.clearRect(0, 0, loupe.width, loupe.height);
-
-        // Draw the zoomed area onto the loupe canvas
-        loupeCtx.drawImage(
-            offscreenCanvas,
-            startX, startY, zoomSize, zoomSize, // Source area
-            0, 0, loupe.width, loupe.height    // Destination area
-        );
-    };
 });
 
 mainCanvas.addEventListener('mouseleave', function () {
     loupe.style.display = 'none'; // Hide the loupe when the mouse leaves the video feed
+});
+
+mainCanvas.addEventListener('wheel', function (event) {
+    event.preventDefault(); // Prevent the page from scrolling
+
+    // Adjust the scale based on the wheel delta
+    if (event.deltaY < 0) {
+        loupeScale = Math.min(loupeScale*1.4, 20);
+    } else {
+        loupeScale = Math.max(loupeScale/1.4, 1);
+    }
+
+    updateLoupe(); // Update the loupe with the new magnification
 });

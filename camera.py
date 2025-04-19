@@ -3,7 +3,7 @@ import numpy as np
 import time
 import os
 import json
-from threading import Thread, Lock
+from threading import Thread, Lock, RLock
 from v412_ctl import get_v4l2_controls, set_v4l2_control, set_v4l2_controls, extract_v4l2_control_values
 import gc
 
@@ -19,6 +19,8 @@ class Camera:
         if not hasattr(self, '_initialized'):
             self._initialized = True
             self.running = False
+
+            self.camera_index = 0
 
             self.frame = None                   # Last captured frame
             self.last_frame_time = 0
@@ -43,11 +45,11 @@ class Camera:
             self.max_recovery_attempts = 3      # Max recovery attempts before we quit
 
             self.cap = None                     # cv2 object
-            self.controls = get_v4l2_controls() 
+            self.controls = get_v4l2_controls(self.camera_index) 
             if self.controls is None:
                 raise RuntimeError("Failed to fetch v4l2 controls. Ensure the camera is connected and v4l2-ctl is installed.")
 
-            self.lock = Lock()                  # Thread lock 
+            self.lock = RLock()                  # Thread lock 
             self._capture_t = None        
             self.realloc_lock = Lock()                  # Thread lock 
             self.alloc_buffers(self.color)
@@ -60,9 +62,9 @@ class Camera:
             # Placeholder Bayer mask (to be determined later)
             # Example: Simple bilinear interpolation weights, center = 1
             self.bayer_mask = np.array([
-                [0.15, 0.3, 0.15],
-                [0.3,  1.0, 0.3 ],
-                [0.15, 0.3, 0.15]
+                [0.1, 0.2, 0.1],
+                [0.2,  1.0, 0.2 ],
+                [0.1, 0.2, 0.1]
             ], dtype=np.float32)
 
     def alloc_buffers(self, color):
@@ -172,6 +174,7 @@ class Camera:
         # Convert to numpy array
         self.hot_pixels = np.array(true_hot_pixels, dtype=np.int32) if true_hot_pixels else np.empty((0, 2), dtype=np.int32)
 
+        filename = os.path.join(self.output_dir, self.hot_pixel_mask_path)
         with open(filename, 'w') as f:
             json.dump(self.hot_pixels.tolist(), f)
 
@@ -263,7 +266,7 @@ class Camera:
                     
                     gc.disable()
                     with self.realloc_lock:
-                        if frame is None:
+                        if frame is None or (self.color and len(frame.shape) != 3) or (not self.color and len(frame.shape) != 2):
                             break
                         if i == 0:
                             self.frame_accumulator[...] = frame  # Copy first frame
@@ -304,10 +307,11 @@ class Camera:
         return cv2.LUT(image, lut)
 
     def setfps(self, fps):
-        self.cap.set(cv2.CAP_PROP_FPS, fps)
-        self.actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-        print(f"Set FPS to {fps}, actual FPS: {self.actual_fps}")
-        self.cam_fps = self.actual_fps
+        with self.lock:
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
+            self.actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+            print(f"Set FPS to {fps}, actual FPS: {self.actual_fps}")
+            self.cam_fps = self.actual_fps
 
     def set_color(self, color):
         self.alloc_buffers(color)
@@ -333,38 +337,58 @@ class Camera:
             self.alloc_buffers(self.color)
 
     def init_camera(self):
-        self.cap = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Force V4L2 backend
+        print(f"Init camera")
+        self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)  # Force V4L2 backend
+        #self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 4)
+
         # Check if camera opened successfully
         if not self.cap.isOpened():
             return False            
-
         self.set_mode(self.cam_mode)
         self.set_frame_size(self.width, self.height)
         if self.cam_fps!=0:     # 0=auto
             self.setfps(self.cam_fps)
-
         return True
 
+    def release_camera(self):
+        print(f"Init camera")
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+
+    def select_camera(self, index):
+        with self.lock:
+            print(f"Selecting camera {index}")
+            self.release_camera()
+            self.camera_index = index
+            self.controls = get_v4l2_controls(self.camera_index)
+            self.init_camera()
+            self.alloc_buffers(self.color)
+
     def get_exposure(self):
-        return self.cap.get(cv2.CAP_PROP_EXPOSURE)
+        with self.lock:
+            return self.cap.get(cv2.CAP_PROP_EXPOSURE)
+    
+    def set_exposure(self, exposure):
+        with self.lock:
+            if(exposure==0):
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+            else:
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+                self.cap.set(cv2.CAP_PROP_EXPOSURE, int(exposure))
 
     def set_direct_control(self, name, value):
-        return set_v4l2_control(name, value)
+        return set_v4l2_control(name, value, self.camera_index)
     
     def get_direct_controls(self):
-        self.controls = get_v4l2_controls()
+        self.controls = get_v4l2_controls(self.camera_index)
         return self.controls
 
     def set_direct_controls(self, controls):
-        return set_v4l2_controls(controls)
+        return set_v4l2_controls(controls, self.camera_index)
 
     def get_direct_control_values(self):
         self.get_direct_controls()
         return extract_v4l2_control_values(self.controls)
-
-    def release_camera(self):
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
 
     def attempt_recovery(self):
         self.recovery_attempts += 1

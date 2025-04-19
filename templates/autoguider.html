@@ -17,6 +17,7 @@
                         <button class="command-button" onclick="toggleNightMode()">Night Mode</button>
                         <button class="command-button active" id="errors_button" onclick="showCorrectionsChart()">Errors</button>
                         <button class="command-button" id="pec_button" onclick="showPECChart()">PEC</button>
+                        <button class="command-button" id="reset_button" onclick="resetChart()">Reset</button>
                     </div>
         
                     <!-- Right-aligned button and text -->
@@ -30,16 +31,17 @@
                 <button class="command-button active" id="control_frame_button" onclick="showControl()">Control</button>
                 <button class="command-button" id="autoguider_panel_button" onclick="showGuider()">Guider</button>            
                 <button class="command-button" id="camera_panel_button" onclick="showCamera()">Camera</button>            
+                <button class="command-button" id="analysis_panel_button" onclick="showAnalysis()">Analysis</button>            
                 <button class="command-button" id="terminal_frame_button" onclick="showTerminal()">Terminal</button>
             </td>
         </tr>
         <tr>
             <td width="1280">
                 <div id="video_container" width="1280">
-                    <img id="video_feed" src="{{ url_for('video_feed') }}" width="1280" height="720">
-                    <img id="thresh_feed" src="{{ url_for('thresh_feed') }}" width="1280" height="720" class="hidden">
+                    <canvas id="video_feed_canvas" width="1280" height="720"></canvas>
+                    <canvas id="full_feed_canvas" style="display: none"></canvas>
                     <canvas id="canvas" width="1280" height="720"></canvas>
-                    <canvas id="loupe" width="200" height="200" style="position: absolute; display: none; border: 1px solid #555;"></canvas>
+                    <canvas id="loupe" width="400" height="300" style="position: absolute; display: none; border: 1px solid #555;"></canvas>
                 </div>
             </td>
             <td >
@@ -66,11 +68,11 @@
 
                     <tr class = "controller-row">
                         <td>
-                            <button class="command-button" onclick="acquire()" title="Acquire a star for tracking">Acquire Star</button>
+                            <button class="command-button" onclick="acquire()" title="Acquire a star for tracking">Acquire</button>
                         </td>
                         <td>
                             <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>
-                            <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation. Best use on stationary target with tracking disabled.">Cal+backlash</button>
+                            <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation. Best use on stationary target with tracking disabled.">Backlash c.</button>
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -194,6 +196,19 @@
                 </table>
 
                 <table id="camera_panel" class="parameters-table hidden">                   
+                    <tr class = "controller-row">
+                        <td>
+                            <label for="camera_list">Cameras:</label>
+                        </td>
+                        <td>
+                            <select id="camera_list" onchange="selectCamera(this.value)">
+                                <option value="" disabled selected>Select a camera</option>
+                                {% for camera in cameras %}
+                                    <option value="{{ camera.index }}">{{ camera.name }} (Index: {{ camera.index }})</option>
+                                {% endfor %}
+                            </select>                                                
+                        </td>
+                    </tr>
 
                     <tr class = "controller-row">
                         <td>
@@ -236,20 +251,6 @@
                         <td>
                             <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="{{ b_channel }}" onchange="submitChannels()">
                             <span id="b_channel_value">{{ b_channel }}</span>
-                        </td>
-                    </tr>
-                    <tr class = "controller-row">
-                        <td><label >Sensor size/scope FL:</label></td>
-                        <td>
-                            <div>
-                                <input class="num_input" type="text" id="sensor_width-input" placeholder="0">
-                                <label for="sensor_width-input">mm X</label>
-                                <input class="num_input" type="text" id="sensor_height-input" placeholder="0">
-                                <label for="sensor_height-input">mm FL</label>
-                                <input class="num_input" type="text" id="sensor_focal-input" placeholder="0">
-                                <label for="sensor_focal-input">mm </label>
-                                <button class="command-button" title="calculate pixel scale" onclick="calculatePixelScale()">Calculate</button>
-                            </div>
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -314,10 +315,88 @@
                             </div>
                         </td>
                     </tr>
+                    <tr class = "controller-row">
+                        <td><label for="camera_exposure">Exposure:</label></td>
+                        <td>
+                            <input type="range" id="camera_exposure" min="0" max="5000" step="1" value="0" onchange="submitExposure(this.value)">
+                            <span id="camera_exposure_value">0</span>
+                        </td>
+                    </tr>
 
                 </table>
 
+                <table id="analysis_panel" class="parameters-table hidden">
 
+                    <tr class = "controller-row">
+                        <td>
+                            <div class="two_buttons">
+                                <button class="command-button" onclick="analyze()" title="Star field SNR analysis">Analyze</button>
+                                <button class="command-button" onclick="clearAnalysis()" title="clear analysis">Clear</button>
+                            </div>
+                        </td>
+                        <td>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td>
+                            <span id="analysis_snr_label">SNR threshold:</span>
+                        </td>
+                        <td>
+                            <input type="range" id="analysis_snr" name="analysis_snr" min="0" max="10" step="0.1" value="1.5" oninput="document.getElementById('analysis_snr_value').textContent = this.value">
+                            <span id="analysis_snr_value">1.5</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td>
+                            <span id="analysis_std_label">STD threshold:</span>
+                        </td>
+                        <td>
+                            <input type="range" id="analysis_std" name="analysis_std" min="0" max="10" step="0.1" value="4" oninput="document.getElementById('analysis_std_value').textContent = this.value">
+                            <span id="analysis_std_value">4</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td>
+                            <span id="analysis_fwhm_label">FWHM:</span>
+                        </td>
+                        <td>
+                            <input type="range" id="analysis_fwhm" name="analysis_fwhm" min="0" max="10" step="0.1" value="3" oninput="document.getElementById('analysis_fwhm_value').textContent = this.value">
+                            <span id="analysis_fwhm_value">3</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label >Sensor size+FL -> pixel scale:</label></td>
+                        <td>
+                            <div>
+                                <input class="num_input" type="text" id="sensor_width-input" placeholder="0">
+                                <label for="sensor_width-input">mm X</label>
+                                <input class="num_input" type="text" id="sensor_height-input" placeholder="0">
+                                <label for="sensor_height-input">mm FL</label>
+                                <input class="num_input" type="text" id="sensor_focal-input" placeholder="0">
+                                <label for="sensor_focal-input">mm </label>
+                                <button class="command-button" title="calculate pixel scale" onclick="calculatePixelScale()">Calculate</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="2">
+                            <div id="result-boxes" class = "flex1">
+                                <textarea id="result" placeholder="Result"></textarea>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                </table>
             </td>
         </tr>
     </table>
@@ -327,6 +406,10 @@
 </body>
 <script src="../static/loupe.js"></script>
 <script>
+    const videoFeed = document.getElementById('video_feed_canvas');
+    const full_feed_canvas = document.getElementById('full_feed_canvas');
+    const resultTextarea = document.getElementById('result');
+
     let correctionsChart;
 
     function initializeChart() {
@@ -412,9 +495,19 @@
         initializeChart();
         initializePECChart(); 
         updateCorrections();
-        loadCameraProperties(); 
+        startVideoFeed();
+        loadCameraProperties();
     }
-    
+
+    function appendToResult(message) {
+        resultTextarea.value += message + '\n';
+        resultTextarea.scrollTop = resultTextarea.scrollHeight; // Auto-scroll to the bottom
+    }
+    function clearResult() {
+        resultTextarea.value = "";
+    }
+
+
     const ws = new WebSocket('ws://' + window.location.hostname + '/autoguider_socket');
     
     ws.onmessage = function(event) {
@@ -424,6 +517,56 @@
     ws.onclose = function() {
         console.error("Websocket closed.")
     };
+    
+
+
+    var video_feed_ws = null;
+    function _startVideoFeed(url) {
+        _stopVideoFeed();
+        video_feed_ws = new WebSocket(url);
+        const ctx = videoFeed.getContext('2d');
+        const full_ctx = full_feed_canvas.getContext('2d');
+
+        video_feed_ws.onmessage = function(event) {
+            const img = new Image();
+            img.onload = function() {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                full_feed_canvas.width = img.width;
+                full_feed_canvas.height = img.height;
+                full_ctx.drawImage(img, 0, 0, img.width, img.height);
+                updateLoupe();
+            };
+            img.src = 'data:image/jpeg;base64,' + event.data;
+        };
+
+        video_feed_ws.onclose = function() {
+            console.error('WebSocket connection closed');
+        };
+
+        video_feed_ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+    }
+    function _stopVideoFeed() {
+        if(video_feed_ws) {
+            video_feed_ws.close();
+            video_feed_ws = null;
+        }
+    }
+
+    function startVideoFeed() {
+        _startVideoFeed('ws://' + window.location.host + '/video_feed_ws');
+    }
+    function stopVideoFeed() {
+        _stopVideoFeed();
+    }
+    function startThreshFeed() {
+        _startVideoFeed('ws://' + window.location.host + '/thresh_feed_ws');
+    }
+    function stopThreshFeed() {
+        _stopVideoFeed();
+    }
+
 
 
     //setInterval(updateCorrections, 1000);
@@ -492,6 +635,15 @@
         document.getElementById('pid_i_value').textContent = data.pid_i;
         document.getElementById('pid_d').value = data.pid_d;
         document.getElementById('pid_d_value').textContent = data.pid_d;
+
+        document.getElementById('camera_exposure').value = data.exposure;
+        document.getElementById('camera_exposure_value').textContent = data.exposure;
+
+        const cameraList = document.getElementById('camera_list');
+        if (cameraList) {
+            cameraList.value = data.camera_index;
+        }
+
 
         const methodRadio = document.querySelector(`input[name="guide_method"][value="${data.guide_method}"]`);
         if (methodRadio) {
@@ -573,6 +725,7 @@
         
         
         drawAxes(data.rotation_angle);
+        drawAnalysisCircles();
 
         // Update the chart with new data
         const currentTime = new Date().toLocaleTimeString(); // Use current time as the label
@@ -623,6 +776,21 @@
         }
 
         calculateRMS();
+    }
+
+    function resetChart() {
+        // Clear data for correctionsChart
+        correctionsChart.data.labels = []; // Clear all labels
+        correctionsChart.data.datasets.forEach(dataset => {
+            dataset.data = []; // Clear all data points
+        });
+        correctionsChart.update(); // Update the chart to reflect changes
+
+        // Clear data for pecChart
+        pecChart.data.datasets[0].data = []; // Clear all data points
+        pecChart.update(); // Update the chart to reflect changes
+
+        console.log('Charts have been reset.');
     }
 
     function showCorrectionsChart() {
@@ -798,6 +966,17 @@
         submitCameraProperties(JSON.stringify({ "camera_color" : value }));
     }
 
+    function submitExposure(value) {        
+        document.getElementById('camera_exposure_value').textContent = value;
+        submitCameraProperties(JSON.stringify({ "camera_exposure" : value }));
+    }
+
+    function selectCamera(value) {        
+        submitCameraProperties(JSON.stringify({ "camera_index" : value })).then(() => {
+            loadCameraProperties();
+        });        
+    }
+
     function captureHotPixelMask() {
         submitSetting("hot_pixel_mask", true);
     }
@@ -808,13 +987,22 @@
 
 
     function submitCameraProperties(properties) {
-        fetch('/set_camera_properties', {
+        return fetch('/set_camera_properties', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: properties,
-        })
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        }).then(data => {
+            console.log('Camera properties updated:', data);
+        }).catch(error => {
+            console.error('Error updating camera properties:', error);
+        });
     }
 
 
@@ -873,24 +1061,19 @@
     });
 
     function showVideoFeed() {
-        document.getElementById('video_feed').src = "{{ url_for('video_feed') }}";
-        document.getElementById('thresh_feed').src = '';
-
-        document.getElementById('video_feed').classList.remove('hidden');
+        
         document.getElementById('canvas').classList.remove('hidden');
-        document.getElementById('thresh_feed').classList.add('hidden');
+        stopThreshFeed();
+        startVideoFeed();
 
         document.getElementById('video_button').classList.add('active');
         document.getElementById('thresh_button').classList.remove('active');
     }
 
     function showThreshFeed() {
-        document.getElementById('video_feed').src = '';
-        document.getElementById('thresh_feed').src = "{{ url_for('thresh_feed') }}";
-        document.getElementById('video_feed').classList.add('hidden');
         document.getElementById('canvas').classList.remove('hidden');
-        document.getElementById('thresh_feed').classList.remove('hidden');
-
+        stopVideoFeed();
+        startThreshFeed();
         document.getElementById('video_button').classList.remove('active');
         document.getElementById('thresh_button').classList.add('active');
     }
@@ -901,12 +1084,14 @@
         document.getElementById('autoguider_panel').classList.add('hidden');
         document.getElementById('camera_panel').classList.add('hidden');
         document.getElementById('terminal_frame').classList.add('hidden');
+        document.getElementById('analysis_panel').classList.add('hidden');
         document.getElementById(panel).classList.remove('hidden');
 
         document.getElementById('control_frame_button').classList.remove('active');
         document.getElementById('autoguider_panel_button').classList.remove('active');
         document.getElementById('camera_panel_button').classList.remove('active');
         document.getElementById('terminal_frame_button').classList.remove('active');
+        document.getElementById('analysis_panel_button').classList.remove('active');
         document.getElementById(panel + '_button').classList.add('active');        
     }
     function showControl() {
@@ -921,7 +1106,10 @@
     function showTerminal() {
         showPanel('terminal_frame');
     }
-
+    function showAnalysis() {
+        showPanel('analysis_panel');
+    }
+    
 
     function saveFrame() {
         fetch('/save_frame', {
@@ -989,6 +1177,66 @@
 
     }
 
+    currentAnalysis = null;
+    function analyze() {
+
+        analysis_snr = document.getElementById('analysis_snr').value;
+        analysis_std = document.getElementById('analysis_std').value;
+        analysis_fwhm = document.getElementById('analysis_fwhm').value;
+
+        fetch('/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ "analysis_snr" : analysis_snr, "analysis_std" : analysis_std, "analysis_fwhm" : analysis_fwhm }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            appendToResult(JSON.stringify(data, null, 2)); // Append the result to the textarea
+            currentAnalysis = data;
+            drawAnalysisCircles(); // Call the function to draw circles
+        })
+        .catch(error => console.error('Error:', error));
+    }
+    function clearAnalysis() {
+        currentAnalysis = null; 
+        document.getElementById('result').innerHTML='';
+        drawAxes(data.rotation_angle);
+        drawAnalysisCircles();
+    }
+
+    function drawAnalysisCircles() {
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if(!currentAnalysis) {
+            return; // No data to draw
+        }
+     
+        // Loop through each record in the data
+        currentAnalysis.forEach(record => {
+            const x = record.xrel * canvas.width; // Relative x position
+            const y = record.yrel * canvas.height; // Relative y position
+            const radius = 4; // Circle radius
+
+            // Draw the circle
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Display the data (signal, background, noise, snr)
+            ctx.font = '12px Arial';
+            ctx.fillStyle = 'white';
+            ctx.fillText(`Signal: ${record.signal.toFixed(2)}`, x + radius + 5, y - radius);
+            ctx.fillText(`Background: ${record.background.toFixed(2)}`, x + radius + 5, y - radius + 15);
+            ctx.fillText(`Noise: ${record.noise.toFixed(2)}`, x + radius + 5, y - radius + 30);
+            ctx.fillText(`SNR: ${record.snr.toFixed(2)}`, x + radius + 5, y - radius + 45);
+        });
+    }
+
     function toggleNightMode() {
         const body = document.body;
         body.classList.toggle('night-mode'); // Toggle the 'night-mode' class
@@ -1002,9 +1250,18 @@
         .then(data => {
             const cameraPanel = document.getElementById('camera_panel');
 
+            const rows = cameraPanel.querySelectorAll('tr'); // Get all rows in the camera panel
+
+            rows.forEach(row => {
+                if (row.dynamic) {
+                    row.remove(); // Remove the row if it has the dynamic property
+                }
+            });
+
             for (const [property, details] of Object.entries(data)) {
                 const row = document.createElement('tr');
                 row.className = 'controller-row';
+                row.dynamic = true;
 
                 const labelCell = document.createElement('td');
                 labelCell.innerHTML = `<label for="${property}">${property.replace(/_/g, ' ')}:</label>`;

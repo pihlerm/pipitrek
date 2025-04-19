@@ -1,8 +1,14 @@
 import cv2
 import numpy as np
-import time
-import math
-
+from photutils import CircularAperture, CircularAnnulus, aperture_photometry
+from photutils.detection import DAOStarFinder
+from photutils.background import MedianBackground
+from astropy.stats import sigma_clipped_stats
+from astropy.io import fits
+from skimage.feature import blob_log
+from skimage.color import rgb2gray
+from skimage.util import img_as_float
+from scipy.ndimage import gaussian_filter
 
 class Analyzer:
     _instance = None
@@ -171,3 +177,93 @@ class Analyzer:
             cv2.line(enhanced_star_region_bgr, (x, y1), (x + 1, y2), yellow, 1)
 
         return enhanced_star_region_bgr
+    
+
+    def analyze_snr(self, img, snr_threshold=1.5, detection_threshold_sigma=4, fwhm = 3):
+        
+        print(f"analyze_snr start")
+        #ensure frame is black and white
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+
+        snr_threshold = float(snr_threshold)
+        fwhm = float(fwhm)
+        detection_threshold_sigma = float(detection_threshold_sigma)
+
+        gaussian_sigma = 1.0
+        image = img.astype(np.float32)
+
+        # === BACKGROUND STATISTICS ===
+        mean, median, std = sigma_clipped_stats(image, sigma=3.0)
+        #print(f"Background: mean={mean:.2f}, median={median:.2f}, std={std:.2f}")
+
+        smoothed = gaussian_filter(image, sigma=gaussian_sigma)
+        #sigma_clip = SigmaClip(sigma=3.)
+        bkg_estimator = MedianBackground()
+        bkg = bkg_estimator(smoothed)
+        #std = np.std(smoothed - bkg)
+        #print(f"std={std:.2f}")
+
+        # === STAR DETECTION ===
+        daofind = DAOStarFinder(fwhm=fwhm, threshold=detection_threshold_sigma * std)
+        sources = daofind(smoothed - bkg)
+        #sources = daofind(image - median)
+
+        if sources is None or len(sources) == 0:
+            print("No stars found!")
+            exit()
+
+        # === PHOTOMETRY ===
+        results = []
+
+        for row in sources:
+            snr_info = self.estimate_star_snr(image, (row['xcentroid'], row['ycentroid']))
+            if snr_info is not None and snr_info['snr'] > snr_threshold:
+                results.append(snr_info)
+
+        for star in results:
+            print(f"Star at ({star['x']:.2f}, {star['y']:.2f}): SNR={star['snr']:.2f}, Signal={star['signal']:.2f}, Background={star['background']:.2f}, Noise={star['noise']:.2f}")
+        
+        print(f"analyze_snr found {len(results)} stars")        
+        return results
+        
+    # === SNR ESTIMATION ===
+    def estimate_star_snr(self,image, position, cutout_size=30, smooth_sigma=1.0, threshold_sigma=3.0):
+        
+        height, width = image.shape
+        x, y = int(position[0]), int(position[1])
+        half = cutout_size // 2
+
+        if y - half < 0 or y + half >= image.shape[0] or x - half < 0 or x + half >= image.shape[1]:
+            return None  # skip edge stars
+
+        cutout = image[y - half:y + half + 1, x - half:x + half + 1]
+        mean, median, std = sigma_clipped_stats(cutout, sigma=3.0)
+
+        smoothed = gaussian_filter(cutout, sigma=smooth_sigma)
+        star_mask = smoothed > (median + threshold_sigma * std)
+
+        if not np.any(star_mask):
+            return None
+
+        star_pixels = cutout[star_mask]
+        n_pix = star_pixels.size
+
+        signal = np.sum(star_pixels - median)
+        noise = np.sqrt(np.sum(star_pixels) + n_pix * std ** 2)
+
+        if noise <= 0:
+            snr = 0
+        else:
+            snr = signal / noise
+
+        return {
+            'x': float(x),
+            'y': float(y),
+            'xrel': float(x/width),
+            'yrel': float(y/height),
+            'signal': float(signal),
+            'noise': float(noise),
+            'background': float(mean),
+            'snr': float(snr),
+            'n_pixels': int(n_pix)
+        }

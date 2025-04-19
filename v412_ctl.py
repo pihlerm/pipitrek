@@ -1,10 +1,55 @@
 import subprocess
 import re
 
-def get_v4l2_controls():
+
+def list_cameras():
+    """
+    List all connected cameras with their names and indices using v4l2-ctl.
+    :return: A list of dictionaries containing camera names and indices.
+    """
+    try:
+        # Run v4l2-ctl to list devices
+        result = subprocess.run(['v4l2-ctl', '--list-devices'], capture_output=True, text=True, check=True)
+        output = result.stdout
+        # Parse the output
+        cameras = []
+        lines = output.splitlines()
+        current_camera = None
+
+        for line in lines:
+            if not line.strip():
+                continue
+
+            # Match camera name (e.g., "USB Camera (usb-0000:00:14.0-5):")
+            if not line.startswith('\t'):
+                name = line.split(':')[0]
+                current_camera = {'name': name, 'index': None}
+                cameras.append(current_camera)
+            else:
+                # Match device node (e.g., "/dev/video0")
+                match = re.match(r'\t(/dev/video\d+)', line)
+                if match and current_camera:
+                    device_path = match.group(1)
+                    index = int(device_path.split('video')[-1])  # Extract index from /dev/videoX
+                    if current_camera['index'] is None:
+                        current_camera['index'] = index
+        
+        for camera in cameras:
+            print(f"Found camera: {camera['name']}, Index: {camera['index']}")
+
+        return cameras
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error running v4l2-ctl: {e.stderr}")
+        return []
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return []
+
+def get_v4l2_controls(camera_index):
     try:
         # Run v4l2-ctl --list-ctrls-menus
-        result = subprocess.run(['v4l2-ctl', '--list-ctrls-menus', '-d', '/dev/video0'], 
+        result = subprocess.run(['v4l2-ctl', '--list-ctrls-menus', '-d', '/dev/video' + str(camera_index)], 
                                capture_output=True, 
                                text=True, 
                                check=True)
@@ -85,7 +130,7 @@ def get_v4l2_controls():
         return None
 
 
-def set_v4l2_control(name, value):
+def set_v4l2_control(name, value, camera_index):
     """
     Set a V4L2 control to a specified value.
     
@@ -98,7 +143,7 @@ def set_v4l2_control(name, value):
     """
     try:
         # Construct the v4l2-ctl command
-        cmd = ['v4l2-ctl', '-d', '/dev/video0', '--set-ctrl', f"{name}={value}"]
+        cmd = ['v4l2-ctl', '-d', '/dev/video'+str(camera_index), '--set-ctrl', f"{name}={value}"]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         # Check if the command executed without errors
@@ -116,9 +161,9 @@ def set_v4l2_control(name, value):
         print(f"Unexpected error setting {name} to {value}: {e}")
         return False
 
-def set_v4l2_controls(controls_to_set):
+def set_v4l2_controls(controls_to_set, camera_index):
     for name, value in controls_to_set.items():
-        set_v4l2_control(name, value)
+        set_v4l2_control(name, value, camera_index)
 
 def extract_v4l2_control_values(controls):
     """
