@@ -561,16 +561,13 @@ def form_properties():
         actual_fps = 5
         cam_mode = "MJPEG"
         camera_color = True
+    
 
     properties = {
-        "tracked_centroid": (
-            autoguider.tracked_centroid[0] / width,
-            autoguider.tracked_centroid[1] / height
-        ) if autoguider.tracked_centroid else None,
-        "current_centroid": (
-            autoguider.current_centroid[0] / width,
-            autoguider.current_centroid[1] / height
-        ) if autoguider.current_centroid else None,
+        "width": width,
+        "height": height,
+        "tracked_centroids": autoguider.tracked_centroids,
+        "current_centroids": autoguider.current_centroids,
         "pec_position": telescope.scope_info["pec"]["progress"],
         "save_frames" : autoguider.save_frames,
         "max_drift": autoguider.max_drift,
@@ -705,14 +702,33 @@ def acquire():
 
     x = request.form.get('x', type=float)
     y = request.form.get('y', type=float)
+    add = request.form.get('add', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+
     if x is not None and y is not None:
-        autoguider.acquire_star(centroid=(x*camera.width, y*camera.height))
+        if not add:
+            autoguider.remove_all_tracked_stars()
+        autoguider.add_tracked_star(centroid=(x*camera.width, y*camera.height))
         print(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
         return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"}), 200
     else:
-        autoguider.acquire_star()
+        autoguider.remove_all_tracked_stars()
+        autoguider.add_tracked_star()
         print(f"Acquisition of brightest star triggered")
         return jsonify({'status': 'success', 'message': f"Acquisition of brightest star triggered"}), 200
+
+@app.route('/remove_tracked_star', methods=['POST'])
+def remove_tracked_star():
+    if camera is None:
+        return jsonify({'status': 'error', 'message': 'Camera not available'}), 503
+
+    x = request.form.get('x', type=float)
+    y = request.form.get('y', type=float)
+    if autoguider.remove_tracked_star(centroid=(x*camera.width, y*camera.height)):
+        print(f"Star removed at ({x*camera.width}, {y*camera.height})")
+        return jsonify({'status': 'success', 'message': f"Tracked star removed at ({x}, {y})"}), 200
+    else:
+        print(f"No star found at ({x*camera.width}, {y*camera.height})")
+        return jsonify({'status': 'error', 'message': f"No tracked star at ({x}, {y})"}), 503
 
 @app.route('/calibrate', methods=['POST'])
 def calibrate():

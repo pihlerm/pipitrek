@@ -4,8 +4,8 @@ import re
 
 def list_cameras():
     """
-    List all connected cameras with their names and indices using v4l2-ctl.
-    :return: A list of dictionaries containing camera names and indices.
+    List all connected cameras with their names, indices, and USB ports using v4l2-ctl.
+    :return: A list of dictionaries containing camera names, indices, and USB ports.
     """
     try:
         # Run v4l2-ctl to list devices
@@ -20,10 +20,13 @@ def list_cameras():
             if not line.strip():
                 continue
 
-            # Match camera name (e.g., "USB Camera (usb-0000:00:14.0-5):")
+            # Match camera name (e.g., "USB Camera (usb-c90c0000.usb-1.3):")
             if not line.startswith('\t'):
                 name = line.split(':')[0]
-                current_camera = {'name': name, 'index': None}
+                # Extract USB port (e.g., "usb-1.3") using regex
+                port_match = re.search(r'usb-[^\s)]+-([\d\.]+)', name)
+                port = port_match.group(1) if port_match else None
+                current_camera = {'name': name, 'index': None, 'port': port}
                 cameras.append(current_camera)
             else:
                 # Match device node (e.g., "/dev/video0")
@@ -35,7 +38,7 @@ def list_cameras():
                         current_camera['index'] = index
         
         for camera in cameras:
-            print(f"Found camera: {camera['name']}, Index: {camera['index']}")
+            print(f"Found camera: {camera['name']}, Index: {camera['index']}, Port: {camera['port']}")
 
         return cameras
 
@@ -45,7 +48,7 @@ def list_cameras():
     except Exception as e:
         print(f"Unexpected error: {e}")
         return []
-
+    
 def get_v4l2_controls(camera_index):
     try:
         # Run v4l2-ctl --list-ctrls-menus

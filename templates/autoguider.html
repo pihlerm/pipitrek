@@ -709,20 +709,31 @@
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (data.tracked_centroid) {
+        const width = data.width;
+        const height = data.height;
+
+        if (data.tracked_centroids) {
             ctx.strokeStyle = 'green';
-            ctx.beginPath();
-            ctx.arc(data.tracked_centroid[0]*canvas.width, data.tracked_centroid[1]*canvas.height, 10, 0, 2 * Math.PI);
-            ctx.stroke();
+            data.tracked_centroids.forEach(centroid => {
+                if(centroid) {
+                    ctx.beginPath();
+                    ctx.arc(centroid[0]/width * canvas.width, centroid[1]/height * canvas.height, 8, 0, 2 * Math.PI);
+                    ctx.stroke();
+                }
+            });
         }
 
-        if (data.current_centroid) {
+        if (data.current_centroids) {
             ctx.strokeStyle = 'red';
-            ctx.beginPath();
-            ctx.arc(data.current_centroid[0]*canvas.width, data.current_centroid[1]*canvas.height, 10, 0, 2 * Math.PI);
-            ctx.stroke();
+            data.current_centroids.forEach(centroid => {
+                if(centroid) {
+                    ctx.beginPath();
+                    ctx.arc(centroid[0]/width * canvas.width, centroid[1]/height * canvas.height, 10, 0, 2 * Math.PI);
+                    ctx.stroke();
+                }
+            });
         }
-        
+
         
         drawAxes(data.rotation_angle);
         drawAnalysisCircles();
@@ -1051,13 +1062,18 @@
         const rect = this.getBoundingClientRect();
         const x = (event.clientX - rect.left)/rect.width; // X relative to image
         const y = (event.clientY - rect.top)/rect.height;  // Y relative to image
-        fetch('/acquire', {
+        // Check if the Control key is pressed
+        const addParam = event.ctrlKey ? '&add=true' : '&add=false';
+
+        const url = event.shiftKey ? '/remove_tracked_star' : '/acquire';
+
+        fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `x=${x}&y=${y}`
+            body: `x=${x}&y=${y}`+addParam
         })
-        .then(response => console.log(`Acquisition at (${x}, ${y}) triggered`))
-        .catch(error => console.error('Acquisition error:', error));
+        .then(response => console.log(`${url} at (${x}, ${y}) triggered`))
+        .catch(error => console.error(`${url} error:`, error));
     });
 
     function showVideoFeed() {

@@ -38,21 +38,38 @@ class Analyzer:
 #       Adds the crop’s top-left corner (x0, y0) to the weighted centroid (cx_weighted, cy_weighted) to get full-image coordinates (cx_full, cy_full).
 #       Returns as a tuple of floats for sub-pixel precision.
 
-    def detect_star(self, frame, search_near=None, gray_threshold=128, star_size=2):
+    def detect_stars(self, frame, search_near=None, gray_threshold=128, star_size=2):
+        result = []
+        enhanced_with_profile = None
+        thresh = None
+        focus_metric = 0
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
         _, thresh = cv2.threshold(gray, gray_threshold, 255, cv2.THRESH_BINARY)
-
-        
         # Pre-filter small contours with morphological opening
         #kernel_size = int(np.sqrt(star_size) / 2) * 2 + 1  # Rough estimate, ensure odd
         #kernel = np.ones((kernel_size, kernel_size), np.uint8)
         #thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-        
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return None, None, thresh, 0
+        if contours:
+            if search_near is None:
+                # Find the largest contour if no search_near provided
+                centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=None, gray_threshold=gray_threshold, star_size=star_size)
+                result.append(centroid)
+            else:
+                for near in search_near:
+                    if enhanced_with_profile is None:
+                        centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size)
+                    else:
+                        centroid, _, _, _ = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size)
+                    result.append(centroid)
+        
+        return result, enhanced_with_profile, thresh, focus_metric
 
+    def _detect_star(self, frame, thresh, gray, contours, search_near=None, gray_threshold=128, star_size=2, max_dist=10):
+        
         # Find the largest or nearest contour with size > star_size
+        largest = None
         if search_near is not None:
             # Calculate all distances first
             distance_data = []
@@ -63,22 +80,22 @@ class Analyzer:
                     distance = np.linalg.norm(mean_pos - search_near)
                     distance_data.append((distance, c))
             
-            if not distance_data:
-                largest = max(contours, key=cv2.contourArea)
-            else:
+            if distance_data:
                 # Sort by distance
                 distance_data.sort(key=lambda x: x[0])
                 # Check areas in order until we find one > star_size
                 for distance, contour in distance_data:
                     area = cv2.contourArea(contour)
-                    if area > star_size:
+                    if area > star_size and distance < max_dist:
                         largest = contour
                         break
-                else:
-                    largest = max(contours, key=cv2.contourArea)  # Fallback if none big enough
         else:
             largest = max(contours, key=cv2.contourArea)
 
+        if largest is None:
+            #print("No valid star found")
+            return None, None, thresh, 0
+        
         # Check if contour is large enough
         size = cv2.contourArea(largest)
         if size <= star_size:
