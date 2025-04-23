@@ -88,6 +88,7 @@ class Autoguider:
         self.pixel_scale = 3.6              # Float for pixel scale (0.1–10.0)
         self.guide_interval = 1.0           # Time period for tracking in seconds
         self.guide_pulse = 0.4              # Correction length: time between move start and move end (seconds)
+        self.max_distance = 10             # Maximum distance to search for stars (pixels)
         
         self.save_frames = False            # Save each frame to disk
         self.output_dir = ""
@@ -115,7 +116,8 @@ class Autoguider:
             centroids, detail, thresh, focus_metric = self.analyzer.detect_stars(frame, 
                                                                  search_near=search_near_centroids, 
                                                                  gray_threshold = self.gray_threshold,
-                                                                 star_size=self.star_size)
+                                                                 star_size=self.star_size,
+                                                                 max_distance=self.max_distance,)
             self.centroid_image = detail
             self.threshold = thresh
             self.focus_metric = focus_metric
@@ -151,10 +153,10 @@ class Autoguider:
             self.write_track_log(self.last_status)
             return None
     
-    def find_nearby_centroid(self, centroid, max_distance=10):
+    def find_nearby_centroid(self, centroid):
         for tracked_centroid in self.tracked_centroids:
             distance = math.sqrt((centroid[0] - tracked_centroid[0])**2 + (centroid[1] - tracked_centroid[1])**2)
-            if distance < max_distance:
+            if distance < self.max_distance:
                 return tracked_centroid
         return None
 
@@ -170,7 +172,7 @@ class Autoguider:
                 self.write_track_log(self.last_status)
                 return True
         else:
-            self.last_status = f"STAR NOT FOUND IN TRACKED STARS at {centroid} at distance {max_distance}"
+            self.last_status = f"STAR NOT FOUND IN TRACKED STARS at {centroid} at distance {self.max_distance}"
             print(self.last_status)
             self.write_track_log(self.last_status)
             return False
@@ -311,7 +313,7 @@ class Autoguider:
         telescope = Telescope()
         ra_arcsec, dec_arcsec =self.pixels_to_arcseconds(dx_rot, dy_rot, self.pixel_scale, telescope.dec_deg)
         self.last_correction = {
-            "dx": dx_rot, "dy": dy_rot,
+            "ra_px": dx_rot, "dec_px": dy_rot,
             "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec,
             "ra": 0, "dec": 0,
             "ra_speed": 0, "dec_speed": 0
@@ -374,7 +376,11 @@ class Autoguider:
                 telescope.send_backlash_comp_ra(0)
         
             frame = self.camera.frame
-            centroid1 = self.detect_star(frame, search_near=self.tracked_centroids[0])  # Detect star
+
+            centroids = self.detect_stars(frame, search_near_centroids=[self.tracked_centroids[0]])  # Detect star
+            if len(centroids)==0:
+                raise ValueError("Failed to detect centroid")
+            centroid1 =  centroids[0]
             print(f"#################1")
             if not centroid1:
                 raise ValueError("failed to detect centroid1")
@@ -478,6 +484,7 @@ class Autoguider:
         telescope.get_info()
         last_time = time.perf_counter()
         last_frame = None
+        last_save_time_counter = 0
 
         while self.running:
             if time.perf_counter() - last_time >= self.guide_interval:  # Run once per period
@@ -501,7 +508,6 @@ class Autoguider:
                 else:
                     # Tracking mode
                     centroids = self.detect_stars(frame, search_near_centroids=self.current_centroids)
-                    self.current_centroids = centroids
 
                     any_centroid = False
                     for centroid in centroids:
@@ -515,6 +521,10 @@ class Autoguider:
                             # Send correction to telescope
                             if self.guiding:
                                 self.guide_scope( self.last_correction['ra_arcsec'], self.last_correction['dec_arcsec'])
+                        # remember new currnt centroids; it some were not detected this time, keep the old ones
+                        for i in range(len(centroids)):
+                            if centroids[i] is not None:
+                                self.current_centroids[i] = centroids[i]
                     else:
                         self.star_locked = False
                         self.last_correction = null_correction
@@ -526,7 +536,9 @@ class Autoguider:
                         self.write_track_log(self.last_status)
 
                 self.data_ready = True
-                if self.save_frames:
+                last_save_time_counter += 1
+                if self.save_frames and last_save_time_counter>10:
                     self.save_frame(frame)
+                    last_save_time_counter = 0
             time.sleep(0.01)  # Small sleep to prevent busy loop
 

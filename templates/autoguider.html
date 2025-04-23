@@ -45,7 +45,7 @@
                 </div>
             </td>
             <td >
-                <iframe id="control_frame" src="{{ url_for('control') }}" ></iframe>
+                <iframe id="control_frame" src="{{ url_for('control') }}" scrolling="no"></iframe>
                 <iframe id="terminal_frame" src="{{ url_for('terminal') }}" class="hidden"></iframe>
                 <table id="autoguider_panel" class="parameters-table hidden">                   
                     <tr>
@@ -59,8 +59,10 @@
                         <td>
                             <div class="two_buttons">
                                 <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
-                                <div>dx:<span id="dx">0</span><br> dy:<span id="dy">0</span><br> focus:<span id="focus_metric">0</span></div>
-                                <div>RA RMS (arcsec):<span id="ra_arcsec">0.0</span><br> DEC RMS (arcsec):<span id="dec_arcsec">0.0</span></div>
+                                <div>R px:<span id="ra_px">0</span> arcs:<span id="ra_arcsec">0.0</span> rms:<span id="ra_rms">0.0</span><br>
+                                     D px:<span id="dec_px">0</span> arcs:<span id="dec_arcsec">0.0</span> rms:<span id="dec_rms">0.0</span><br>
+                                    focus:<span id="focus_metric">0</span>
+                                </div>
                             </div>
                         </td>
                         
@@ -590,12 +592,12 @@
         document.getElementById('last_loop_time').textContent = data.last_loop_time;
         document.getElementById('last_frame_time').textContent = data.last_frame_time;
 
-        document.getElementById('dx').textContent = data.last_correction.dx.toFixed(2);
-        document.getElementById('dy').textContent = data.last_correction.dy.toFixed(2);
+        document.getElementById('ra_px').textContent = data.last_correction.ra_px.toFixed(2);
+        document.getElementById('dec_px').textContent = data.last_correction.dec_px.toFixed(2);
+        document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(2);
+        document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(2);
         document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
         
-        //document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(1);
-        //document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(1);
         document.getElementById('threshold').value = data.gray_threshold;
         document.getElementById('threshold_value').textContent = data.gray_threshold;
         document.getElementById('max_drift').value = data.max_drift;
@@ -837,8 +839,8 @@
         const decRMS = Math.sqrt(validDecData.reduce((sum, value) => sum + value ** 2, 0) / validDecData.length);
 
         // Update the RA and DEC elements with the RMS values
-        document.getElementById('ra_arcsec').textContent = raRMS.toFixed(2);
-        document.getElementById('dec_arcsec').textContent = decRMS.toFixed(2);
+        document.getElementById('ra_rms').textContent = raRMS.toFixed(2);
+        document.getElementById('dec_rms').textContent = decRMS.toFixed(2);
     }
 
     function drawAxes(rotation_angle) {

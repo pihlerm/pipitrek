@@ -1,6 +1,6 @@
-/*td, th, tr {
+td, th, tr {
     border: 1px solid black; 
-}*/
+}
 
 @font-face {
     font-family: 'Unbounded';
@@ -94,6 +94,7 @@ iframe {
 }
 
 .telescope-container {
+    width:600px;
     display: flex;
     align-items: flex-start;
     gap: 5px;
@@ -146,7 +147,7 @@ iframe {
 
 .flex1 {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: flex-start;
     gap: 0px;
     height : 100%;
@@ -263,20 +264,27 @@ iframe {
 }
 
 #result {
-    width: 620px;
-    height: 230px;
+    width: 368px;
+    height: 225px;
     margin-top: 0px;
 }
 
 #telescope-info {
-    width: 165px;
-    height: 220px;
+    width: 140px;
+    height: 225px;
     margin-top: 0px;
 }
 #pec_table {
-    width: 165px;
-    height: 233px;
+    width: 100px;
+    height: 225px;
     margin-top: 0px;
+}
+
+#telescopeContainer {
+    width: 372px; 
+    height:280px; 
+    margin-top: 0px;
+    overflow: hidden; /* Hide overflow */
 }
 
 @keyframes psychedelicEffect {

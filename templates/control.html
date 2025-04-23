@@ -5,15 +5,22 @@
     <link rel="stylesheet" href="../static/style.css" />
     <script src="../static/inputmask.min.js"></script>
     <script src="../static/wheel.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="../static/telescope_sim.js"></script>
+
 </head>
 <body>
-    <span>Telescope Control</span>
     <div>
         <div class="telescope-container">
             <div id="control-buttons">
             <table>
                 <tr>
-                    <img src="../static/PIPITREK.webp" id="pipitrekImage" style="width: 100%; max-width: 196px; margin-top: 0px; ">
+                    <!--<img src="../static/PIPITREK.webp" id="pipitrekImage" style="width: 100%; max-width: 196px; margin-top: 0px; ">-->
+                    <div id="telescopeContainer">
+                        <canvas id="telescopeCanvas"></canvas>
+                    </div>
                 </tr>
                 <tr>
                     <td>
@@ -56,7 +63,7 @@
                     <button class="command-button" onclick="resetArduino()">Reset</button>
                 </div>
                 <div class = 'two_buttons'>
-                    <button class="command-button" onclick="receivePEC()">Receive PEC</button>
+                    <button class="command-button" onclick="receivePEC()">Rcv PEC</button>
                     <button class="command-button" onclick="sendPEC()">Send PEC</button>
                 </div>
             </div>
@@ -80,6 +87,7 @@
                         <label for="quiet">Quiet mode</label>
                     </div>
                     <div>
+                        <button class="command-button" onclick="setPier('F')">MER. FLIP</button>
                     </div>
                 </div>
             </div>
@@ -95,7 +103,7 @@
                 </div>
             </div>
 
-            <div class = 'boxy'>
+            <div class = 'boxy' onmouseover="handleMouseOverGotoBox()">
                 <div class = 'two_buttons'>
                     <div>
                         <label for="ra-input">RA</label>
@@ -177,14 +185,12 @@
             </div>
 
         </div>
-        <div id="info-boxes" class = "flex1">
-            <textarea id="telescope-info"  placeholder="INFO"></textarea>
-            <textarea id="pec_table" placeholder="PEC Table"></textarea>       
-        </div>
     </div>
     <div>
         <div id="result-boxes" class = "flex1">
             <textarea id="result" placeholder="Result"></textarea>
+            <textarea id="telescope-info"  placeholder="INFO"></textarea>
+            <textarea id="pec_table" placeholder="PEC Table"></textarea>       
         </div>
     </div>
 
@@ -193,6 +199,29 @@
 
     <script>
         PEC_wheel = make_wheel();
+        
+        const telescopeCanvas = document.getElementById('telescopeCanvas');
+        const telescopeSim = new TelescopeSim(telescopeCanvas);
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const container = document.getElementById('telescopeContainer');
+            telescopeSim.resize(container.clientWidth, container.clientHeight);
+        });
+        // Initial resize
+        const container = document.getElementById('telescopeContainer');
+        telescopeSim.resize(container.clientWidth, container.clientHeight);
+
+        var blockUpdate = false;
+        function handleMouseOverGotoBox() {
+            const ra = document.getElementById('ra-input').value.trim();
+            const dec = document.getElementById('dec-input').value.trim();
+            telescopeSim.pointTelescope(ra, dec);
+            blockUpdate = true;
+            setTimeout(() => {
+                blockUpdate = false;
+            }, 1000); // 1 second timeout
+        }
+
 
         function appendToResult(message) {
             const resultTextarea = document.getElementById('result');
@@ -226,16 +255,17 @@
             const data = JSON.parse(event.data);
             appendToResult(event.data);
             if (data.function === "slew_request") {
-                const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
-                if (confirm(message)) {
+                //const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
+                //if (confirm(message)) {
                     // If the user confirms, send the slew command
                     //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
                     document.getElementById('ra-input').value = data.ra;
                     document.getElementById('dec-input').value = data.dec;
+                    if(!blockUpdate) telescopeSim.pointTelescope(data.ra, data.dec);
                     appendToResult('Slew request applied.');
-                } else {
-                    appendToResult('Slew request declined.');
-                }
+                //} else {
+                //    appendToResult('Slew request declined.');
+                //}
             }
         };
 
@@ -348,6 +378,7 @@
                     if(data.pier) {
                         document.getElementById('pier_w').checked = (data.pier === 'W');
                         document.getElementById('pier_e').checked = (data.pier === 'E');
+                        telescopeSim.setPier(data.pier=='W');
                     }
                     if(data.tracking) document.getElementById('tracking').checked = (data.tracking === 'enabled');
                     document.getElementById('quiet').checked = (data.quiet);
@@ -364,7 +395,8 @@
                     if(data.pec) PEC_wheel.setPECPositon(data.pec.progress);
                     if(data.coordinates) {
                         document.getElementById('ra_current').textContent = data.coordinates.ra;
-                        document.getElementById('dec_current').textContent = data.coordinates.dec;                        
+                        document.getElementById('dec_current').textContent = data.coordinates.dec;
+                        if(!blockUpdate) telescopeSim.pointTelescope(data.coordinates.ra, data.coordinates.dec);
                     }                    
 
                     if(data.bc) {
@@ -382,6 +414,11 @@
         setInterval(updateScopeInfo, 1000);
 
         function setPier(pier) {
+            if(pier == 'F') {
+                telescopeSim.meridianFlip();
+            } else {
+                telescopeSim.setPier(pier=='W');
+            }
             submitSetting("pier", pier);
         }
         
@@ -520,6 +557,45 @@
               appendToResult('Success: ' + JSON.stringify(data));
             })
             .catch(error => appendToResult('Error:', error.message));
+        }
+
+        function updateInputBackgrounds() {
+            const raInput = document.getElementById('ra-input');
+            const decInput = document.getElementById('dec-input');
+            const raCurrentVal = parseRA(document.getElementById('ra_current').textContent.trim());            
+            const decCurrentVal = parseDec(document.getElementById('dec_current').textContent.trim());
+            const raInputVal = parseRA(raInput.value.trim());            
+            const decInputVal = parseDec(decInput.value.trim());
+
+            // Check if RA input value differs from RA current value
+            if (Math.abs(raInputVal - raCurrentVal) > 2/3600) {
+                raInput.style.backgroundColor = 'lightcoral'; // Light red background
+            } else {
+                raInput.style.backgroundColor = ''; // Reset background
+            }
+
+            // Check if DEC input value differs from DEC current value
+            if (Math.abs(decInputVal - decCurrentVal) > 2/3600) {
+                decInput.style.backgroundColor = 'lightcoral'; // Light red background
+            } else {
+                decInput.style.backgroundColor = ''; // Reset background
+            }
+        }
+        setInterval(updateInputBackgrounds, 1000); // Update every second
+        
+        function parseRA(raStr) {
+            const [hours, minutes, seconds] = raStr.split(':').map(Number);
+            return hours + minutes / 60 + seconds / 3600;
+        }
+
+        function parseDec(decStr) {
+            const match = decStr.match(/([+-]?\d+)\*(\d+):(\d+)/);
+            if (!match) return 0;
+            const degrees = parseInt(match[1]);
+            const minutes = parseInt(match[2]);
+            const seconds = parseInt(match[3]);
+            const sign = degrees >= 0 ? 1 : -1;
+            return degrees + sign * (minutes / 60 + seconds / 3600);
         }
 
     </script>

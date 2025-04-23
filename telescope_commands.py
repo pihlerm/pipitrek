@@ -184,6 +184,6 @@ class PTCSetTracking(PipiTelescopeCommand):
 
 class PTCSetPier(PipiTelescopeCommand):
     def __init__(self, pier):
-        if pier not in ['W', 'E']:
-            raise ValueError(f"Pier must be W or E")
+        if pier not in ['W', 'E', 'F']:
+            raise ValueError(f"Pier must be W or E or [F]lip")
         super().__init__(f"!M{pier}#")

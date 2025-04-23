@@ -170,12 +170,6 @@ class Telescope:
                     if data:                         
                         self.write_scope(data)  # Write it to scope
 
-
-#                if tcp.in_waiting() > 0:  # Check if there’s any data waiting
-#                    data = tcp.read(tcp.in_waiting())  # Read all available bytes
-#                    if data:
-#                        self.write_scope(data)  # Write it to the other port
-
                 with self.lock:
                     if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
                         data = self.read_scope()  # Read all available bytes                        
@@ -304,7 +298,8 @@ class Telescope:
 
     def send_pier(self, pier):
         try:
-            PTCSetPier(pier).execute(self)
+            resp = PTCSetPier(pier).execute(self)
+            print(resp)
         except ValueError as ve:
             print(ve)
 
