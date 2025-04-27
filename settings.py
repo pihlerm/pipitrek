@@ -98,6 +98,9 @@ class Settings:
         try:
             # Channel settings (converted to float)
             telescope.scope_info = self.settings["scope_info"]
+            telescope.send_PEC_position(int(self.settings["scope_info"]["pec"]["progress"]))
+            telescope.send_pier(self.settings["scope_info"]["pier"])
+            telescope.send_tracking(self.settings["scope_info"]["tracking"])
         except KeyError as e:
             print(f"Missing property in settings: {e}")
         except (ValueError, TypeError) as e:

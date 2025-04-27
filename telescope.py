@@ -34,7 +34,8 @@ class Telescope:
             self.scope_info["pec"]["progress"] = 0
             self.scope_info["pier"] = "W"
             self.scope_info["quiet"] = False
-            self.scope_info["tracking"] = "disabled"
+            self.scope_info["tracking"] = False
+            self.scope_info["locked"] = False
             self.scope_info["text"] = ""
             self.scope_info["slewing"] = False
 
@@ -232,6 +233,10 @@ class Telescope:
         self.scope_info["quiet"] = quiet
         self.quiet= quiet
 
+    def set_locked(self, locked):
+        self.scope_info["locked"] = locked
+        PTCLockMenus(locked).execute(self)
+
     def send_move(self, direction):
         LXMove(direction).execute(self)
 
@@ -349,10 +354,6 @@ class Telescope:
             data["uptime"] = int(lines[line].split()[1])
             line+=1
 
-            # Looptime
-            data["looptime"] = int(lines[line].split()[1])
-            line+=1
-
             # tracktime
             data["tracktime"] = int(lines[line].split()[1])
             line+=1
@@ -395,15 +396,25 @@ class Telescope:
 
             # Camera
             camera_parts = lines[line].split()
-            data["camera"] = {
-                "exposure": int(camera_parts[2]),
-                "shots": int(camera_parts[4].rstrip(':')),
-                "state": camera_parts[5]
-            }
-            line+=1
+            if camera_parts[0]=="Cam":
+                data["camera"] = {
+                    "exposure": int(camera_parts[1].split(":")[1]),
+                    "shots": int(camera_parts[2].split(":")[1]),
+                    "state": camera_parts[3]
+                }
+                line+=1
+            else:
+                data["camera"] = {
+                    "exposure": 0,
+                    "shots": 0,
+                    "state": "I"
+                }
 
             # Tracking
-            data["tracking"] = lines[line].split()[1]
+            data["tracking"] = (lines[line].split()[1]=="on")
+            line+=1
+
+            data["locked"] = (lines[line].split()[1]=="on")
             line+=1
 
             self.scope_info = data

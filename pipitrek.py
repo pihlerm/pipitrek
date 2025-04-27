@@ -245,6 +245,12 @@ def set_quiet():
     telescope.set_quiet(quiet)
     return jsonify({'status': 'success', 'message': f'Quiet mode set to {quiet}'})
 
+@app.route('/set_locked', methods=['POST'])
+def set_locked():
+    locked = request.form.get('locked', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    telescope.set_locked(locked)
+    return jsonify({'status': 'success', 'message': f'Locked mode set to {locked}'})
+
 @app.route('/set_pier', methods=['POST'])
 def set_pier():
     pier = request.form.get('pier')
@@ -852,13 +858,8 @@ if __name__ == '__main__':
     #telescope startup
     print("Connecting to telescope..")
     telescope = Telescope()
-
-    all_settings.set_telescope_settings(telescope)
     time.sleep(2) # wait arduino
-    # update PEC position that was loaded from settings since arduino was restarted
-    telescope.send_PEC_position(telescope.current_pecpos())
-    telescope.send_pier(telescope.scope_info["pier"])
-    telescope.send_tracking(telescope.scope_info["tracking"]=="enabled")    #now enable tracking
+    all_settings.set_telescope_settings(telescope)
     telescope.start_bridge()
     print("telescope started.")
 

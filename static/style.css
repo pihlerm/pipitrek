@@ -1,6 +1,6 @@
-td, th, tr {
+/*td, th, tr {
     border: 1px solid black; 
-}
+}*/
 
 @font-face {
     font-family: 'Unbounded';
@@ -20,7 +20,11 @@ body.night-mode {
     color: #919191; /* Light text */
 }
 
-label,div {
+div {
+    color: #a1a1a1; /* Light text */
+}
+
+label {
     color: #a1a1a1; /* Light text */
 }
 
@@ -34,6 +38,8 @@ button {
     color: #ffffff; /* Light text */
     border: 1px solid #555555;
     font-family: 'Unbounded';
+    vertical-align: middle;
+    text-align: center;
 }
 
 button:hover {
@@ -49,28 +55,20 @@ img {
     cursor: crosshair;
 }
 
+input {
+    vertical-align: middle;
+}
+
+
 input[type="range"] {
     width: 200px; /* Adjust as needed */
 }
-
-.num_input {
-    width: 30px;
-    padding: 2px;
-}
-
-.mini_num_input {
-    width: 16px;
-    padding: 2px;
-}
-
-
 
 iframe {
     width:630px;
     height: 720px;
     border: none;
 }
-
 
 .hidden {
     display: none !important;
@@ -101,31 +99,55 @@ iframe {
     border: 0px solid black;
 }
 
+.num_input {
+    width: 30px;
+    height: 22px;
+    margin: 0px;
+    padding: 0px;
+    border: 0px;
+    text-align: center;
+    font-size: 12px;
+}
+
+.mini_num_input {
+    width: 16px;
+    height: 22px;
+    margin: 0px;
+    padding: 0px;
+    border: 0px;
+    text-align: center;
+    font-size: 12px;
+}
+
 .control-button {
     width: 50px;
     height: 50px;
     margin: 1px;
     font-size: 14px;
-    text-align: center;
-    vertical-align: middle;
+}
+.control-button:active {
+    background-color: rgb(94, 18, 18);
+    color: white; /* Optional: Change text color for better contrast */
 }
 
 .mini-button {
-    width: 36px;
-    height: 20px;
-    margin: 0px;
+    width: 38px;
+    height: 22px;
     font-size: 12px;
-    text-align: left;
-    vertical-align: middle;
+    margin: 0px;
+    padding: 0px;
+    border: 0px;
+}
+.mini-button:active {
+    background-color: rgb(94, 18, 18);
+    color: white; /* Optional: Change text color for better contrast */
 }
 
 .command-button {
     width: 112px;
     height: 22px;
-    margin: 2px;
+    margin: 2px 0px 2px 5px;
     font-size: 14px;
-    text-align: center;
-    vertical-align: middle;
 }
 .command-button:active {
     background-color: rgb(94, 18, 18);
@@ -160,7 +182,7 @@ iframe {
 }
 
 .two_buttons {
-    width: 300px;
+    width: 240px;
     display: flex;
     flex-direction: row;
     align-items: flex-start;
@@ -169,11 +191,13 @@ iframe {
 }
 
 .two_buttons_input {
-    width: 89px;
-    height: 18px;
-    padding: 1px;
-    gap: 2px;
-    margin-top:1px
+    width: 95px;
+    height: 22px;
+    margin: 2px 0px 0px 0px;
+    padding: 0px;
+    border: 0px;
+    text-align: center;
+    font-size: 12px;
 }
 
 .boxy {
@@ -281,7 +305,7 @@ iframe {
 }
 
 #telescopeContainer {
-    width: 372px; 
+    width: 368px; 
     height:280px; 
     margin-top: 0px;
     overflow: hidden; /* Hide overflow */

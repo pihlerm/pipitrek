@@ -11,8 +11,7 @@ from analyzer import Analyzer
 from camera import Camera
 from concurrent.futures import ThreadPoolExecutor
 
-null_correction = { "ra": 0 , "dec": 0, "dx": 0, "dy": 0, "ra_arcsec": 0, "dec_arcsec": 0 }
-
+null_correction = { "ra": 0 , "dec": 0, "ra_px": 0, "dec_px": 0, "ra_arcsec": 0, "dec_arcsec": 0 , "ra_speed": 0, "dec_speed": 0}
 
 class PIDController:
     def __init__(self, Kp, Ki, Kd, alpha=0.9, dt=1.0):
@@ -109,7 +108,9 @@ class Autoguider:
             log_file.write(f"{timestamp}, {log_entry}\n")
 
 
-    def detect_stars(self, frame, search_near_centroids):
+    def detect_stars(self, frame, search_near_centroids, max_distance=None):
+        if max_distance is None:
+            max_distance = self.max_distance
         if frame is None:
             frame = self.camera.frame
         with self.lock:
@@ -117,7 +118,7 @@ class Autoguider:
                                                                  search_near=search_near_centroids, 
                                                                  gray_threshold = self.gray_threshold,
                                                                  star_size=self.star_size,
-                                                                 max_distance=self.max_distance,)
+                                                                 max_distance=max_distance)
             self.centroid_image = detail
             self.threshold = thresh
             self.focus_metric = focus_metric
@@ -345,14 +346,14 @@ class Autoguider:
             dec_arcsec = dy * pixel_scale
             return round(ra_arcsec, 2), round(dec_arcsec, 2)
 
-    def move_and_detect(self, telescope, move_direction, move_time, search_near ):
+    def move_and_detect(self, telescope, move_direction, move_time, search_near):
         print(f" >> moving {move_direction} for {move_time} seconds...")
         telescope.send_correction(move_direction,move_time)  # Move scope west for 10s
         print("settling ... ")
         time.sleep(2)   # settling scope
         frame = self.camera.frame
-        centroids = self.detect_stars(frame, search_near_centroids=[search_near])  # Detect star
-        if len(centroids)==0:
+        centroids = self.detect_stars(frame, search_near_centroids=[search_near], max_distance=100)  # Detect star
+        if len(centroids)==0 or centroids[0] is None:
            raise ValueError("Failed to detect centroid")
         return centroids[0]
 
@@ -436,6 +437,8 @@ class Autoguider:
                     dec_arcsec = round(dy_rot * self.pixel_scale, 0)
                     telescope.send_backlash_comp_dec(abs(dec_arcsec))
                     print(f"#################backlash dec {dec_arcsec} arcsec")
+            else:
+                raise ValueError("Failed to detect centroids for calibration")
         except ValueError as e:
             print(f"Calibration failed {e}.")
             result = False

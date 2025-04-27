@@ -8,6 +8,8 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script src="https://unpkg.com/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script src="../static/starCatalog.js"></script>
     <script src="../static/telescope_sim.js"></script>
 
 </head>
@@ -17,29 +19,44 @@
             <div id="control-buttons">
             <table>
                 <tr>
-                    <!--<img src="../static/PIPITREK.webp" id="pipitrekImage" style="width: 100%; max-width: 196px; margin-top: 0px; ">-->
-                    <div id="telescopeContainer">
-                        <canvas id="telescopeCanvas"></canvas>
-                    </div>
+                    <td colspan="5">
+                        <!--<img src="../static/PIPITREK.webp" id="pipitrekImage" style="width: 100%; max-width: 196px; margin-top: 0px; ">-->
+                        <div id="telescopeContainer">
+                            <canvas id="telescopeCanvas"></canvas>
+                        </div>
+                    </td>
                 </tr>
                 <tr>
-                    <td>
+                    <td style="width:50px;">
                         <button class="control-button" onclick="sendSpeed('G')">slow</button>
                     </td>
-                    <td>
+                    <td style="width:50px;">
                         <button class="control-button" onclick="sendDirection('n')">↑</button>
                     </td>
-                    <td>
+                    <td style="width:50px;">
                         <button class="control-button" onclick="sendSpeed('M')">med</button>
+                    </td>
+                    <td rowspan="2">
+                        <canvas id="pec-wheel" width="80" height="80"></canvas>
+                        <div style="height:24px;">                            
+                            <input class="mini_num_input" type="text" id="pec-position" value="0">
+                            <button class="mini-button" onclick="setPECPosition()">SET</button>
+                        </div>
+                    </td>
+                    <td>
                     </td>
                 </tr>
                 <tr>
                     <td>
                         <button class="control-button" onclick="sendDirection('e')">←</button>
                     </td>
-                    <td><button class="control-button" onclick="sendStop()">Stop</button></td>
+                    <td>
+                        <button class="control-button" onclick="sendStop()">Stop</button>
+                    </td>
                     <td>
                         <button class="control-button" onclick="sendDirection('w')">→</button>
+                    </td>
+                    <td>
                     </td>
                 </tr>
                 <tr>
@@ -50,6 +67,10 @@
                         <button class="control-button" onclick="sendDirection('s')">↓</button>
                     </td>
                     <td></td>
+                    <td>
+                    </td>
+                    <td>
+                    </td>
                 </tr>
 
             </table>       
@@ -71,22 +92,18 @@
                 <div class = 'two_buttons'>
                     <div style="width:120px;">
                         <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
-                        <label for="tracking">Tracking</label>
+                        <label for="tracking">Tracking</label><br>
+                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)">
+                        <label for="quiet">Quiet mode</label><br>
+                        <input type="checkbox" id="joy-lock" onchange="setLocked(this.checked)">
+                        <label for="joy-lock">Joy. Lock</label>
                     </div>
                     <div style="width:120px;">
                         <label>Pier:</label>
                         <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
                         <label for="pier_w">W</label>
                         <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
-                        <label for="pier_e">E</label>
-                    </div>
-                </div>
-                <div class = 'two_buttons'>
-                    <div style="width:120px;">
-                        <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)">
-                        <label for="quiet">Quiet mode</label>
-                    </div>
-                    <div>
+                        <label for="pier_e">E</label><br>
                         <button class="command-button" onclick="setPier('F')">MER. FLIP</button>
                     </div>
                 </div>
@@ -103,7 +120,7 @@
                 </div>
             </div>
 
-            <div class = 'boxy' onmouseover="handleMouseOverGotoBox()">
+            <div class = 'boxy' id="goto-box" onmouseover="handleMouseOverGotoBox(event)" onmouseleave="handleMouseLeaveGotoBox(event)">
                 <div class = 'two_buttons'>
                     <div>
                         <label for="ra-input">RA</label>
@@ -148,7 +165,7 @@
                             <button class="command-button" onclick="submitBacklash()">SET</button>
                         </div>
                     </div>
-                    <div>
+                    <div style="height:50px;">
                         <div>
                             <label for="bc_ra-input">RA</label>
                             <input class="two_buttons_input" type="text" id="bc_ra-input" >
@@ -160,27 +177,13 @@
                     </div>
                 </div>
             </div>
-
-            <div class = 'boxy'>
-                <div class = 'two_buttons'>
-                    <div style="width:120px;">
-                        <canvas id="pec-wheel" width="80" height="80"></canvas>
-                    </div>
-                    <div>
-                        <br>
-                        <label for="pec-position">PEC</label>
-                        <input class="mini_num_input" type="text" id="pec-position" value="0">
-                        <button class="mini-button" onclick="setPECPosition()">SET</button>
-                    </div>
-                </div>
-            </div>
             <div id="upload-firmware" class="boxy">
                 <form id="uploadForm" enctype="multipart/form-data" style="width:100%;">
-                    <input type="file" id="firmware" name="firmware" accept=".hex" style="width:100%;">
+                    <input type="file" id="firmware" name="firmware" accept=".hex" style="width:98%;" onchange="handleFirmwareSelection()">
                 </form>
                 <div class = 'two_buttons'>
                     <span style="width:120px; margin-top:4px;font-size:16px;">Firmware</span>
-                    <button class="command-button red" type="button" onclick="uploadFirmware()">Upload</button>
+                    <button class="command-button" type="button" id="upload-firmware-button" onclick="uploadFirmware()">Upload</button>
                 </div>
             </div>
 
@@ -199,9 +202,18 @@
 
     <script>
         PEC_wheel = make_wheel();
+        const gotoBox = document.getElementById('goto-box');
         
         const telescopeCanvas = document.getElementById('telescopeCanvas');
         const telescopeSim = new TelescopeSim(telescopeCanvas);
+        telescopeSim.addClickDetection( (index) => {
+            const star = starCatalog[index];
+            const [raStr, decStr, mag] = star;
+            document.getElementById('ra-input').value = raStr;
+            document.getElementById('dec-input').value = decStr;
+            appendToResult(`Selected Star: RA: ${raStr}, DEC: ${decStr}`);
+        });
+
         // Handle window resize
         window.addEventListener('resize', () => {
             const container = document.getElementById('telescopeContainer');
@@ -212,16 +224,37 @@
         telescopeSim.resize(container.clientWidth, container.clientHeight);
 
         var blockUpdate = false;
-        function handleMouseOverGotoBox() {
+        function handleMouseOverGotoBox(event) {
             const ra = document.getElementById('ra-input').value.trim();
             const dec = document.getElementById('dec-input').value.trim();
-            telescopeSim.pointTelescope(ra, dec);
+            telescopeSim.pointTelescope(ra, dec, true);
             blockUpdate = true;
-            setTimeout(() => {
-                blockUpdate = false;
-            }, 1000); // 1 second timeout
+            console.log("Mouse over GOTO box, blocking updates.");
+            /*setTimeout(() => {
+                handleMouseLeaveGotoBox();
+            }, 10000); // 10 second timeout*/
         }
 
+        function handleMouseLeaveGotoBox(event) {
+            console.log("handleMouseLeaveGotoBox");
+
+            // Check if the mouse has truly left the parent div
+            if (!gotoBox.contains(event.relatedTarget)) {
+                console.log("Mouse has left the GOTO box.");
+                blockUpdate = false;
+            }
+        }
+
+        function handleFirmwareSelection() {
+            const firmwareInput = document.getElementById('firmware');
+            const uploadButton = document.getElementById('upload-firmware-button');
+
+            if (firmwareInput.files.length > 0) {
+                uploadButton.classList.add('red'); // Add the 'red' class
+            } else {
+                uploadButton.classList.remove('red'); // Remove the 'red' class if no file is selected
+            }
+        }
 
         function appendToResult(message) {
             const resultTextarea = document.getElementById('result');
@@ -241,7 +274,7 @@
         
         function handleSlewingEffect(slewing) {
             const image = document.getElementById('pipitrekImage');
-
+            if(!image) return; // Check if the image element exists
             if (slewing) {
                 image.classList.add('psychedelic'); // Add the effect
             } else {
@@ -261,7 +294,6 @@
                     //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
                     document.getElementById('ra-input').value = data.ra;
                     document.getElementById('dec-input').value = data.dec;
-                    if(!blockUpdate) telescopeSim.pointTelescope(data.ra, data.dec);
                     appendToResult('Slew request applied.');
                 //} else {
                 //    appendToResult('Slew request declined.');
@@ -343,6 +375,8 @@
             .then(response => response.json())
             .then(data => {
                 appendToResult('Upload Success: ' + JSON.stringify(data, null, 2));
+                document.getElementById('firmware').files.length = 0; // Clear the file input
+                document.getElementById('upload-firmware-button').classList.remove('red');
             })
             .catch((error) => {
                 appendToResult('Error: ' + error);
@@ -380,7 +414,10 @@
                         document.getElementById('pier_e').checked = (data.pier === 'E');
                         telescopeSim.setPier(data.pier=='W');
                     }
-                    if(data.tracking) document.getElementById('tracking').checked = (data.tracking === 'enabled');
+                    
+                    document.getElementById('tracking').checked = data.tracking;
+                    document.getElementById('joy-lock').checked = data.locked;
+
                     document.getElementById('quiet').checked = (data.quiet);
                     btnCamStart = document.getElementById('camera-shooting');
                     if(data.camera) {
@@ -428,6 +465,10 @@
 
         function setQuiet(isQuiet) {
             submitSetting("quiet", isQuiet);
+        }
+
+        function setLocked(isLocked) {
+            submitSetting("locked", isLocked);
         }
 
         function setPECPosition() {
