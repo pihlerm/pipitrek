@@ -2,15 +2,17 @@
 <html>
 <head>
     <title>Telescope Control</title>
-    <link rel="stylesheet" href="../static/style.css" />
-    <script src="../static/inputmask.min.js"></script>
-    <script src="../static/wheel.js"></script>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
-
-    <script src="../static/starCatalog.js"></script>
-    <script src="../static/telescope_sim.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "/static/three/three.module.min.js",
+                "OrbitControls": "/static/three/OrbitControls.js"
+            }
+        }</script>
+    <script src="/static/inputmask.min.js"></script>
+    <script src="/static/wheel.js"></script>
+    <script src="/static/starCatalog.js"></script>
 
 </head>
 <body>
@@ -198,30 +200,40 @@
     </div>
 
     </div>
+    <script type="module">
+        import { TelescopeSim } from '/static/telescope_sim.js';
     
-
-    <script>
-        PEC_wheel = make_wheel();
-        const gotoBox = document.getElementById('goto-box');
-        
-        const telescopeCanvas = document.getElementById('telescopeCanvas');
-        const telescopeSim = new TelescopeSim(telescopeCanvas);
-        telescopeSim.addClickDetection( (index) => {
+        // Initialize TelescopeSim and attach it to the global window object
+        const canvas = document.getElementById('telescopeCanvas');
+        window.telescopeSim = new TelescopeSim(canvas);
+    
+        // Example: Add click detection
+        telescopeSim.addClickDetection((index) => {
             const star = starCatalog[index];
             const [raStr, decStr, mag] = star;
             document.getElementById('ra-input').value = raStr;
             document.getElementById('dec-input').value = decStr;
             appendToResult(`Selected Star: RA: ${raStr}, DEC: ${decStr}`);
         });
-
+    
         // Handle window resize
         window.addEventListener('resize', () => {
             const container = document.getElementById('telescopeContainer');
             telescopeSim.resize(container.clientWidth, container.clientHeight);
         });
+    
         // Initial resize
         const container = document.getElementById('telescopeContainer');
         telescopeSim.resize(container.clientWidth, container.clientHeight);
+    </script>
+
+    <script>
+
+        const PEC_wheel = make_wheel();
+        const gotoBox = document.getElementById('goto-box');
+        
+        const telescopeCanvas = document.getElementById('telescopeCanvas');
+
 
         var blockUpdate = false;
         function handleMouseOverGotoBox(event) {
@@ -282,9 +294,9 @@
             }
         }
 
-        const ws = new WebSocket('ws://' + window.location.hostname + '/telescope_socket');
+        const telescope_ws = new WebSocket('wss://' + window.location.host + '/telescope_socket');
     
-        ws.onmessage = function(event) {
+        telescope_ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
             appendToResult(event.data);
             if (data.function === "slew_request") {
@@ -301,10 +313,9 @@
             }
         };
 
-        ws.onclose = function() {
+        telescope_ws.onclose = function() {
             appendToResult("Websocket closed.")
         };
-
 
         function sendDirection(direction) {
             submit('/control_move',
@@ -421,7 +432,7 @@
                     document.getElementById('quiet').checked = (data.quiet);
                     btnCamStart = document.getElementById('camera-shooting');
                     if(data.camera) {
-                        if(data.camera.state === 'shooting') {
+                        if(data.camera.state === 'S') {
                             btnCamStart.innerText = 'STOP';
                             btnCamStart.style.backgroundColor = 'lightcoral'; // Change to light red
                         } else {
@@ -451,11 +462,11 @@
         setInterval(updateScopeInfo, 1000);
 
         function setPier(pier) {
-            if(pier == 'F') {
+            /*if(pier == 'F') {
                 telescopeSim.meridianFlip();
             } else {
                 telescopeSim.setPier(pier=='W');
-            }
+            }*/
             submitSetting("pier", pier);
         }
         

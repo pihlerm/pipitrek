@@ -1,18 +1,35 @@
-class TelescopeSim {
+import * as THREE from 'three';
+import {OrbitControls} from '/static/three/OrbitControls.js';
+import {calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec, positionFromRADEC, positionFromRADECrad } from './astroutils.js';
+import {Controllers} from '/static/controllers.js';
+import {Starfield} from '/static/starfield.js';
+
+export class TelescopeSim {
     constructor(canvas, longitude = 14.5058, latitude = 46.0569) {
         this.canvas = canvas;
-        this.latitude = latitude * Math.PI / 180; // Convert to radians
-		this.longitude = longitude; // Keep in degrees
-        this.westPier = false;
-		this.telescopeScale = 0.5;
-        this.raAngle = 0;
-        this.decAngle = 0;
-        this.raAngleTarget = 0;
-        this.decAngleTarget = 0;
+        this.actualLatitude = latitude * Math.PI / 180;     // Our initial actual latitude
+        this.latitude = latitude * Math.PI / 180;           // Rotates interactively
+		this.longitude = longitude;     // Keep in degrees
+        this.currentLST = calculateLST(this.longitude);
+        this.westPier = false;          // True if telescope is on the west side of the pier
+		this.telescopeScale = 0.3;      // Scale factor for telescope size
+        
+        this.raAngle = 0;               // where the telescope is pointing, degrees 0 - 360
+        this.decAngle = 0;              // where the telescope is pointing, degrees -90 - +90
+        this.blockPointing = false;     // when simulating telescope pointing; block further pointing
+        
+        this.raAngleTarget = 0;         // telescope target angle, changes during animation
+        this.decAngleTarget = 0;        // telescope target angle, changes during animation
         this.onSelectCallback = null;
-        this.currentObjectIndex = null;
+        this.onActionCallback = null;
+
+        this.tempMatrix = new THREE.Matrix4();
+
+        this.controllers = null;
 
         this.addRotation = 0;
+
+        this.initCatalogs();
 
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false });
         //this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
@@ -20,36 +37,61 @@ class TelescopeSim {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.clock = new THREE.Clock();
 
-        this.addSceneAndLighting();
-
-        this.controllerLeft = null;
-        this.controllerRight = null;
+        this.addSceneAndLighting(canvas);
 
         this.addGround(); 
         this.addSkyPoles();
         this.addTelescope();
+
+        this.moveSound = null;
+        this.listener = new THREE.AudioListener();
+        this.camera.add(this.listener);
+
         this.addOrbitControls();
-        this.addControllers();
+
+        this.starCatalog = [];
+        this.starfield = new Starfield(this.starfieldGroup);
+
         this.addClickDetection();
-        this.addMusic();
+        //this.addMusic();
         //this.addCoordinateAxes(this.scene);
 
 
         // Initial angles
         this.setAngles(this.raAngle, this.decAngle);
 
+        this.resetPosition();
+
         // Start animation
         this.renderer.setAnimationLoop(() => this.animate()); 
-        //this.animate();
     }    
+
+    initCatalogs() {
+        this.starCatalog = [];              // catalog of stars to display on sphere
+        this.imageCatalog = [];             // catalog of images to display on sphere
+        this.imageCatalog.push([null, null, "Live", null, null]);
+        this.currentObjectCatalog = null;
+        this.currentObjectIndex = null;
+        this.currentObject = null;
+    }
+    
+    addStarfield(starCatalog, minMagnitude = 5) {
+        this.starCatalog = this.starfield.addStarCatalog(starCatalog, minMagnitude);
+    }
 
     onSelect(funct) {
         this.onSelectCallback = funct;
     }
+    onAction(funct) {
+        this.onActionCallback = funct;
+    }
+    onFrame(funct) {
+        this.onFrameCallback = funct;
+    }
 
     addOrbitControls() {
         // OrbitControls
-        this.controls = new THREE.OrbitControls(this.camera, this.canvas);
+        this.controls = new OrbitControls(this.camera, this.canvas);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.minDistance = 1;
@@ -57,122 +99,54 @@ class TelescopeSim {
         this.controls.enablePan = true;        
     }
     
-    animateToAngles(ra, dec) {
+    adaptDec(dec) {
+        // adapt dec according to pier position and normalize to -180 ... +180
 		if(this.westPier) {
-            ra = (ra + 180) % 360;
             dec = 180 - dec;
         }
         while (dec > 180) dec -= 360;
         while (dec < -180) dec += 360;
-        this.raAngleTarget = ra;
-        this.decAngleTarget = dec;
+        return dec;
+    }
+    adaptRa(ra) {
+        // adapt dec according to pier position and normalize to -180 ... +180
+		if(this.westPier) {
+            ra = (ra + 180) % 360;
+        }
+        return ra;
+    }
+
+    animateToAngles(ra, dec) {
+        this.raAngleTarget = this.adaptRa(ra);
+        this.decAngleTarget = this.adaptDec(dec);
     
     }
 
     setAngles(ra, dec) {
-		if(this.westPier) {
-            ra = (ra + 180) % 360;
-            dec = 180 - dec;
-        }
-        while (dec > 180) dec -= 360;
-        while (dec < -180) dec += 360;
-        this.raAngle = ra;
-        this.decAngle = dec;
-        this.raAngleTarget = ra;
-        this.decAngleTarget = dec;
+        this.raAngle = this.adaptRa(ra);
+        this.decAngle = this.adaptDec(dec);
+        this.raAngleTarget = this.adaptRa(ra);
+        this.decAngleTarget = this.adaptDec(dec);
     }
 
     meridianFlip() {
-        this.raAngle = (this.raAngle + 180) % 360;
+        this.raAngleTarget = (this.raAngle + 180) % 360;
         const decRot = Math.sign(this.decAngle) * (180 - 2 * Math.abs(this.decAngle));
-        this.decAngle += decRot;
+        this.decAngleTarget += decRot;
         this.westPier = !this.westPier;
-        this.setAngles(this.raAngle, this.decAngle);
     }
+    
     setPier(west = false) {
         this.westPier = west;
     }
-
-    parseRA(raStr) {
-        const [hours, minutes, seconds] = raStr.split(':').map(Number);
-        return hours + minutes / 60 + seconds / 3600;
-    }
-
-    parseDec(decStr) {
-        const match = decStr.match(/([+-]?\d+)\*(\d+):(\d+)/);
-        if (!match) return 0;
-        const degrees = parseInt(match[1]);
-        const minutes = parseInt(match[2]);
-        const seconds = parseInt(match[3]);
-        const sign = degrees >= 0 ? 1 : -1;
-        return degrees + sign * (minutes / 60 + seconds / 3600);
-    }
-
-    getJulianDate(now) {
-        const year = now.getUTCFullYear();
-        const month = now.getUTCMonth() + 1;
-        const day = now.getUTCDate();
-        const hours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
-        let y = year, m = month;
-        if (m <= 2) {
-            y -= 1;
-            m += 12;
-        }
-        const A = Math.floor(y / 100);
-        const B = 2 - A + Math.floor(A / 4);
-        const JD0 = Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + day + B - 1524.5;
-        return JD0 + hours / 24;
-    }
-
-    HoursMinutesSeconds(time) {
-        function frac(X) {
-            X = X - Math.floor(X);
-            if (X<0) X = X + 1.0;
-            return X;		
-        }
-   
-        var h = Math.floor(time);
-        var min = Math.floor(60.0*frac(time));
-        var secs = Math.round(60.0*(60.0*frac(time)-min));
-        var str;
-        if (min>=10) str=h+":"+min;
-        else  str=h+":0"+min;
-        if (secs<10) str = str + ":0"+secs;
-        else str = str + ":"+secs;
-        return " " + str;       
-     }
-       
-
-    calculateLST(longitudeDegrees) {
-        const now = new Date(); // browser time (assumed UTC or converted below)
-        const JD = this.getJulianDate(now);
-        const T = (JD - 2451545.0) / 36525.0;
-    
-        // Calculate Greenwich Mean Sidereal Time (GMST) in seconds
-        let GMST = 280.46061837 +
-                   360.98564736629 * (JD - 2451545) +
-                   0.000387933 * T * T -
-                   (T * T * T) / 38710000;
-    
-        // Normalize to 0–360
-        GMST = ((GMST % 360) + 360) % 360;
-    
-        // Local Sidereal Time
-        let LST = GMST + longitudeDegrees;
-    
-        // Normalize to 0–360
-        LST = ((LST % 360) + 360) % 360;
-    
-        // Convert to hours
-        return LST / 15;
-    }
-    
-    
+     
     pointTelescope(raStr, decStr, animate=false) {
-        const raHours = this.parseRA(raStr);
-        const decDegrees = this.parseDec(decStr);
-        const lstHours = this.calculateLST(this.longitude);
-        let raDiff = (raHours - lstHours) * 15 + 180;
+        
+        if(this.blockPointing) return;
+
+        const raHours = parseRA(raStr);
+        const decDegrees = parseDec(decStr);        
+        let raDiff = (raHours - this.currentLST) * 15 + 180;
         raDiff = ((raDiff % 360) + 360) % 360;
         if(animate) {
             this.animateToAngles(raDiff, decDegrees);
@@ -191,14 +165,18 @@ class TelescopeSim {
         //requestAnimationFrame(() => this.animate());
         
         // Update starfield rotation based on current LST
-        const currentLST = this.calculateLST(this.longitude);
-        this.starfieldGroup.rotation.y = -currentLST / 12 * Math.PI - this.addRotation;
+        this.currentLST = calculateLST(this.longitude);
+        this.starfieldGroup.rotation.y = - this.currentLST / 12 * Math.PI - this.addRotation;
+        this.starfieldPolarGroup.rotation.z = -(Math.PI / 2 - this.latitude);
+        this.polarGroup.rotation.z = -(Math.PI / 2 - this.latitude);
 
-        
         const elapsedTime = this.clock.getElapsedTime();
-        this.starMaterial.uniforms.uTime.value = elapsedTime;
+        if(this.starMaterial) {
+            this.starMaterial.uniforms.uTime.value = elapsedTime;
+        }
 
         const delta = 0.2;
+        var animating = false;
         if(this.raAngle !== this.raAngleTarget) {
             var move = delta;
             if(Math.abs(this.raAngleTarget-this.raAngle > 180)) {
@@ -210,17 +188,23 @@ class TelescopeSim {
             if (Math.abs(this.raAngle - this.raAngleTarget) < 2*delta) {
                 this.raAngle = this.raAngleTarget;
             }
+            animating = true;
         }
         if(this.decAngle !== this.decAngleTarget) {
             this.decAngle += Math.sign((this.decAngleTarget-this.decAngle)) * delta;
             if (Math.abs(this.decAngle - this.decAngleTarget) < 2*delta) {
                 this.decAngle = this.decAngleTarget;
             }
+            animating = true;
         }
+        if(animating && this.moveSound && !this.moveSound.isPlaying) this.moveSound.play();
+        if(!animating && this.moveSound && this.moveSound.isPlaying) this.moveSound.stop();
+
         this.raGroup.rotation.y = this.raAngle * Math.PI / 180 - this.addRotation;
         this.decGroup.rotation.z = this.decAngle * Math.PI / 180;
-        
-        this.handleControllers();
+
+        this.updateLiveImagePos(elapsedTime);
+        this.handleControllers(elapsedTime);
 
         if (this.renderer.xr.isPresenting) {
             this.renderer.render(this.scene, this.camera);
@@ -228,250 +212,39 @@ class TelescopeSim {
             if(this.controls) this.controls.update();
             this.renderer.render(this.scene, this.camera);
         }
+
+        if(this.onFrameCallback) this.onFrameCallback();
     }
 
-    handleControllers() {
-        if (this.rightController && this.rightGamepad) {
-            const gp = this.rightGamepad;
-        
-            // Thumbstick axes
-            const x = gp.axes[2] || 0;  // Left/right on thumbstick
-            const y = gp.axes[3] || 0;  // Up/down on thumbstick
-        
-            if (Math.abs(x) > 0.1 || Math.abs(y) > 0.1) {
-                this.addRotation += x * 0.02; // Adjust rotation speed as needed
+    // Movement controls
+
+    resetPosition() {
+        if(this.userRig) {
+            this.userRig.position.set(0,0,0);
+        } else {
+            this.camera.position.set(5,1.6,0);
+            this.controls.target.set(0,2,0);
+            this.controls.update(); 
+        }
+    }
+    moveTo(dest, target = null) {
+        const [x,y,z] = dest;
+        if(this.userRig) {
+            this.userRig.position.set(x,y,z);
+        } else {
+            this.camera.position.set(x,y,z);
+            if(target) {
+                const [tx,ty,tz] = dest;
+                this.controls.target.set(tx,ty,tz);
             }
-        
-            // Oculus A button
-            if (gp.buttons[4].pressed && !this.aPressed) {
-                this.aPressed = true;
-                if(this.currentObjectIndex == null || typeof this.starCatalog === 'undefined' || this.starCatalog==null) {
-                    this.userRig.position.set(0, 0, 0);
-                    return;
-                }
-                const [raStr, decStr, mag] = this.starCatalog[this.currentObjectIndex];
-                const [x, y, z] =  this.positionFromRADEC(raStr, decStr, 90, true);
-                this.removeCurrentLabel();
-                this.currentObjectIndex = null;
-                this.userRig.position.set(x, y, z);    
-            } else if (!gp.buttons[4].pressed) {
-                this.aPressed = false;
-            }
-
-            // Oculus B button
-            if (gp.buttons[5].pressed) {
-                //this.userRig.position.set(0, 0, 0);    
-            }
+            this.controls.update(); 
         }
-    }
-
-    positionFromRADEC(raStr, decStr, r=100, world=false) {
-        const ra = this.parseRA(raStr)/12 * Math.PI; // Hours to radians
-        const dec = this.parseDec(decStr)/180 * Math.PI; // Degrees to radians
-        return this.positionFromRADECrad(ra, dec, r, world);
-    }
-
-    positionFromRADECrad(ra, dec, r=100, world=false) {
-        // Set position
-        var pos = [];
-        pos[0] = -r * Math.cos(ra)*Math.cos(dec); // -x
-        pos[1] = r * Math.sin(dec); // y
-        pos[2] = r * Math.sin(ra) * Math.cos(dec); // z
-        if(world) {
-            const v = new THREE.Vector3(pos[0], pos[1], pos[2]);
-            this.starfieldGroup.updateMatrixWorld(true);
-            v.applyMatrix4(this.starfieldGroup.matrixWorld);
-            pos[0] = v.x;
-            pos[1] = v.y;
-            pos[2] = v.z;
-        }
-        return pos;
-    }
-
-    addStarfield(starCatalog, minMagnitude = 5) {
-        
-        if (typeof starCatalog === 'undefined') return this.addRandomStars();
-
-        // Starfield
-        const starGeometry = new THREE.BufferGeometry();
-        if(this.starCatalog == null) this.starCatalog = [];
-        this.starCatalog = this.starCatalog.concat(starCatalog.filter(star => {
-            const mag = star[2];
-            return mag <= minMagnitude; // Filter stars by magnitude
-        }));
-        
-        const starCount = this.starCatalog.length;
-        const starPositions = new Float32Array(starCount * 3);
-        const starSizes = new Float32Array(starCount); // Array for per-star sizes
-        const r = 105;
-        const maxMag = 6.5; // Faintest magnitude for size scaling
-        const baseSize = 1; // Minimum size for faint stars
-        const sizeScale = 0.5; // Scale factor for size variation
-
-        for (let i = 0; i < starCount; i++) {
-            const [raStr, decStr, mag] = this.starCatalog[i];           
-            const [x, y, z] = this.positionFromRADEC(raStr, decStr, r);
-            starPositions.set([x, y, z], i * 3);
-            // Set size based on magnitude
-            starSizes[i] = baseSize + sizeScale * (maxMag - mag);
-        }
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
-
-        // Custom ShaderMaterial to use per-star sizes
-        this.starMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                color: { value: new THREE.Color(0xffffff) },
-                pointTexture: { value: this.createStarTexture() },
-                uTime: { value: 0.0 }
-            },
-            vertexShader: `
-                attribute float size;
-                varying float vSize;
-                varying vec3 vColor;
-                uniform float uTime;
-                varying float vTwinkle;
-
-                void main() {
-                    vColor = vec3(1.0);
-                    vTwinkle = sin(position.x * 0.5 + uTime * 2.0) * 0.2 + 0.8; // Twinkle effect based on position and time
-                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    vSize = size;
-                    gl_PointSize = size * (300.0 / -mvPosition.z);
-                    gl_Position = projectionMatrix * mvPosition;
-                }
-            `,
-            fragmentShader: `
-                uniform vec3 color;
-                uniform sampler2D pointTexture;
-                uniform float uTime;
-                varying float vSize;
-                varying vec3 vColor;
-                varying float vTwinkle;
-
-                void main() {
-                    vec4 texColor = texture2D(pointTexture, gl_PointCoord);
-        
-                    if (texColor.a < 0.1) discard;
-        
-                    // Fade small stars
-                    float fade = smoothstep(1.0, 3.0, vSize);
-        
-                    gl_FragColor = vec4(color * vColor, texColor.a * fade * vTwinkle);
-                }
-            `,
-            blending: THREE.AdditiveBlending, // makes stars "glow" together
-            transparent: true,
-            depthTest: true
-        });
-
-        const starfield = new THREE.Points(starGeometry, this.starMaterial);
-        this.starfieldGroup.add(starfield);
-    }
-
-    createStarTexture() {
-        const size = 32;
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const context = canvas.getContext('2d');
-    
-        // Draw radial gradient
-        const gradient = context.createRadialGradient(
-            size / 2, size / 2, 0,
-            size / 2, size / 2, size / 2
-        );
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-        gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.6)');
-        gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.2)');
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    
-        context.fillStyle = gradient;
-        context.fillRect(0, 0, size, size);
-    
-        const texture = new THREE.CanvasTexture(canvas);
-        return texture;
-    }
-
-    addRandomStars(starCount = 1000) {
-        const starGeometry = new THREE.BufferGeometry();
-        const starPositions = new Float32Array(starCount * 3);
-        for (let i = 0; i < starCount * 3; i += 3) {
-            const theta = Math.random() * 2 * Math.PI;
-            const phi = Math.acos(2 * Math.random() - 1);
-            const r = 100; // Large sphere radius
-            starPositions[i] = r * Math.sin(phi) * Math.cos(theta);
-            starPositions[i + 1] = r * Math.sin(phi) * Math.sin(theta);
-            starPositions[i + 2] = r * Math.cos(phi);
-        }
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        const starMaterial = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 0.1,
-            sizeAttenuation: true
-        });    
-        const starfield = new THREE.Points(starGeometry, starMaterial);
-        this.starfieldGroup.add(starfield);
-    }
-
-
-    addImage(img, name, ra, dec, arcsecondsPerPixel, rotation = 0) {
-        const catalogIndex = this.starCatalog.length;
-        if(name==="Luna") {
-            ra = this.HoursMinutesSeconds(this.calculateLST(this.longitude));
-        }
-
-        this.starCatalog.push([ra, dec, 1, name, "", ""]);
-    
-        const r = 100;
-    
-        // Load texture
-        const texture = new THREE.TextureLoader().load(img, (texture) => {
-            // Now that texture is loaded, we know its size
-            const imageWidth = texture.image.width;
-            const imageHeight = texture.image.height;
-    
-            // Total size in arcseconds
-            // Convert to radians
-            const widthRad = THREE.MathUtils.degToRad(imageWidth * arcsecondsPerPixel / 3600);
-            const heightRad = THREE.MathUtils.degToRad(imageHeight * arcsecondsPerPixel / 3600);
-    
-            // Create sphere segment
-            const sphereSegment = new THREE.SphereGeometry(
-                r, 32, 32,
-                Math.PI/2 - widthRad/2, widthRad,
-                Math.PI/2 - heightRad/2, heightRad
-            );
-    
-            // Create material
-            const material = new THREE.MeshBasicMaterial({
-                map: texture,
-                side: THREE.DoubleSide
-            });
-    
-            // Create mesh
-            const segmentMesh = new THREE.Mesh(sphereSegment, material);
-            segmentMesh.userData.index = catalogIndex;
-    
-            // Position
-            const [x, y, z] = this.positionFromRADEC(ra, dec);
-            segmentMesh.position.set(0, 0, 0);
-    
-            // Rotate toward RA/Dec
-            const target = new THREE.Vector3(x, y, z);
-            segmentMesh.lookAt(target);
-    
-            // Adjust if needed
-            segmentMesh.rotateZ(rotation); // your rotation tweak
-    
-            this.starfieldGroup.add(segmentMesh);
-        });
     }
 
     addClickDetection() {
         // Initialize raycaster
         this.raycaster = new THREE.Raycaster();
-        this.raycaster.params.Points.threshold = 5; // Adjust for starfield point sensitivity
+        this.raycaster.params.Points.threshold = 1; // Adjust for starfield point sensitivity
     
         // Track current label
         this.currentLabel = null;
@@ -486,27 +259,485 @@ class TelescopeSim {
             this.raycaster.setFromCamera(mouse, this.camera);
             this.handleRaycast();
         };
+        const onRClick = (event) => {
+            this.scaleImages(1.4);
+        };
+        
         const onDblClick = (event) => {
             mouse.x = (event.clientX / this.canvas.clientWidth) * 2 - 1;
             mouse.y = -(event.clientY / this.canvas.clientHeight) * 2 + 1;
             this.raycaster.setFromCamera(mouse, this.camera);
             this.handleRaycast();
-            if(this.currentObjectIndex == null || typeof this.starCatalog === 'undefined' || this.starCatalog==null) return;
-            const [raStr, decStr, mag] = this.starCatalog[this.currentObjectIndex];
-            const [x, y, z] =  this.positionFromRADEC(raStr, decStr, 95, true);
-            this.camera.position.set(x, y, z);
-            const [x1, y1, z1] =  this.positionFromRADEC(raStr, decStr, 100, true);
-            this.camera.lookAt(x1, y1, z1);
             this.camera.updateProjectionMatrix();
-        };
+            if(this.currentObjectIndex == null) {
+                this.resetPosition();
+                return;
+            } 
+            const [raStr, decStr] = this.currentObjectCatalog[this.currentObjectIndex];
+            const [x, y, z] =  positionFromRADEC(raStr, decStr, this.starfieldGroup, 95, true);
+            this.camera.position.set(x, y, z);
+            const [x1, y1, z1] =  positionFromRADEC(raStr, decStr, this.starfieldGroup, 100, true);
+            this.controls.target.set(x1, y1, z1);
+            this.controls.update(); 
+            this.removeCurrentLabel();
+            this.currentObjectIndex = null;
+            this.currentObjectCatalog = null;
+    };
     
 
         // Add mouse event listener for non-VR
         this.canvas.addEventListener('click', onClick, false);
         this.canvas.addEventListener('dblclick', onDblClick, false);
+        this.canvas.addEventListener('rclick', onRClick, false);
         
     
     }
+
+    addControllers() {
+        this.lastThumbPressTime = 0;
+        this.controllers = new Controllers(this.renderer, this.userRig, this.scene);
+        // Prepare controller slots
+        // VR controller handler
+        const onRSelect = () => {
+            const controller = this.controllers.Right;
+            // Make sure matrices are updated
+            controller.updateMatrixWorld(true);
+            // Get world position
+            const position = new THREE.Vector3();
+            controller.getWorldPosition(position);
+            this.raycaster.set(position, controller.getWorldDirection(new THREE.Vector3()).negate());
+            this.raycaster.camera = this.renderer.xr.getCamera(this.camera);
+            this.handleRaycast();
+        };
+
+        const onRSqueeze = () => {
+            if(this.currentObject!=null) this.controllers.hapticFeedback('right');
+            return;
+            // Make sure matrices are updated
+            var currentIndex = this.currentObjectIndex;
+            var currentCatalog = this.currentObjectCatalog;
+            controller.updateMatrixWorld(true);
+            const position = new THREE.Vector3();
+            controller.getWorldPosition(position);
+            this.raycaster.set(position, controller.getWorldDirection(new THREE.Vector3()).negate());
+            this.raycaster.camera = this.renderer.xr.getCamera(this.camera);
+            this.handleRaycast();
+
+            if(this.currentObjectIndex == null) {
+                currentIndex = this.currentObjectIndex;
+                currentCatalog = this.currentObjectCatalog;
+            }
+            if(currentIndex == null) {
+                this.resetPosition();
+                return;
+            }
+            const [raStr, decStr] = currentCatalog[currentIndex];
+            const [x, y, z] =  positionFromRADEC(raStr, decStr, this.starfieldGroup, 95, true);
+            this.removeCurrentLabel();
+            this.resetImageUniforms();
+            this.currentObjectIndex = null;
+            this.userRig.position.set(x, y, z);    
+        };
+
+        const onRSqueezeEnd = () => {
+            this.controllers.attachLaser(this.controllers.Right);
+        };
+
+        this.controllers.onRConnected((controller) => {
+            controller.addEventListener('select', onRSelect);
+            controller.addEventListener('squeezestart', onRSqueeze);
+            controller.addEventListener('squeezeend', onRSqueezeEnd);
+        });
+
+        this.controllers.attachEvent("right", 4, "start", () => {
+                if(this.currentObjectIndex == null) return;
+                const [raStr, decStr] = this.currentObjectCatalog[this.currentObjectIndex];
+                this.pointTelescope(raStr, decStr, true);
+                this.blockPointing = true;
+        },1);        
+        this.controllers.attachEvent("right", 4, "end", () => {
+            this.blockPointing = false;
+        },1);        
+
+        this.controllers.attachEvent("right", 5, "start", () => {
+                if(this.currentObjectIndex == null) return;
+                if(this.onActionCallback) {
+                    this.onActionCallback(this.currentObjectCatalog, this.currentObjectIndex);
+                };
+         },1);
+    
+        this.controllers.attachEvent("right", 3, "press", () => {
+                this.latitude = this.actualLatitude; 
+                this.addRotation = 0;
+        },1);
+
+        this.controllers.attachEvent("left", 3, "press", () => {
+            this.scaleImages(); // reset scale
+            // highlight all
+            this.imageCatalog.forEach(obj => {
+                if (obj[4] != null) {
+                    obj[4].material.uniforms.showBorder.value = true;
+                }
+            });
+        },1);
+
+        // Oculus X button
+        this.controllers.attachEvent("left", 4, "start", () => {
+            if(this.currentObjectIndex == null) {
+                this.resetPosition();
+                return;
+            }
+            const [raStr, decStr] = this.currentObjectCatalog[this.currentObjectIndex];
+            const [x, y, z] =  positionFromRADEC(raStr, decStr, this.starfieldGroup, 95, true);
+            this.removeCurrentLabel();
+            this.currentObjectIndex = null;
+            this.userRig.position.set(x, y, z);    
+        },1);
+
+        this.controllers.attachEvent("left", 5, "start", () => {
+            if(this.currentObjectIndex == null) return;
+            if(this.onActionCallback) {
+                this.onActionCallback(this.currentObjectIndex, this.currentObjectCatalog);
+            };
+        },1);
+
+    }
+
+    handleControllers(elapsedTime) {
+        // Thumbstick axes
+        if(!this.controllers) return;
+        this.controllers.handleControllers(elapsedTime);
+
+        const [x,y] = this.controllers.RthumbAxes();
+        if (Math.abs(x) > 0.1 || Math.abs(y) > 0.1) {
+            this.addRotation += x * 0.02; 
+            if(Math.abs(y)>0.5) {
+                this.latitude += y * 0.02; 
+            }
+        }       
+        const [u,v] = this.controllers.LthumbAxes();
+        if (Math.abs(u) > 0.1 || Math.abs(v) > 0.1) {
+            if(Math.abs(v)>0.5) {
+                const factor = v > 0 ? 1.01 : 1/1.01;
+                if(this.currentObjectIndex!=null && this.currentObjectCatalog == this.imageCatalog) {
+                    this.resizeMesh(this.imageCatalog[this.currentObjectIndex][4], factor);
+                } else {
+                    this.scaleImages(factor);
+                }
+            }
+            if(Math.abs(u)>0.5) {
+                if(this.currentObjectIndex!=null && this.currentObjectCatalog == this.imageCatalog) {
+                    if(elapsedTime - this.lastThumbPressTime > 0.5) {
+                        this.resetImageUniforms();
+                        this.currentObjectIndex+=Math.sign(x);
+                        if(this.currentObjectIndex>=this.currentObjectCatalog.length) this.currentObjectIndex = 1;
+                        if(this.currentObjectIndex<1) this.currentObjectIndex = this.currentObjectCatalog.length-1;
+                        this.highlightImage(this.currentObjectIndex);
+                        this.lastThumbPressTime = elapsedTime;
+                    }
+                }
+            }
+        }
+
+        const isPulling = this.controllers.RightGamepad && this.controllers.RightGamepad.buttons[1].pressed;
+        if(this.currentObject!=null && isPulling) {
+            // Calculate velocity (pulling motion)
+            const controller = this.controllers.Right;
+            // Check for pulling gesture (backward motion along controller's Z-axis)
+            // Orient laser during pulling
+            // Compute world direction from image mesh
+            const worldDir = new THREE.Vector3(0, 0, 1); // SphereGeometry faces +Z
+            worldDir.applyQuaternion(this.currentObject.getWorldQuaternion(new THREE.Quaternion()));
+            // Compute world position at radius r = 100
+            const objectPos = worldDir.multiplyScalar(100);
+            this.controllers.pointLaser('right', objectPos);
+
+            const direction = objectPos.clone().sub(this.controllers.currentPositionR).normalize();
+
+            // project controller velocity onto direction
+            const velocityAlongDirection = -this.controllers.velocityR.clone().dot(direction) / 20;
+            console.log("velocityAlongDirection:",velocityAlongDirection);
+
+            if (Math.abs(velocityAlongDirection) > 0.001) {
+                const factor = (velocityAlongDirection > 0 ? 1+velocityAlongDirection : 1/(1+Math.abs(velocityAlongDirection)));
+                this.resizeMesh(this.currentObject, factor);
+                // Move star toward user
+                //const userPosition = this.userRig.position;
+                //const direction = userPosition.clone().sub(this.currentObject.position).normalize();
+                //const speed = 0.1; // Adjust speed
+                //this.currentObject.position.add(direction.multiplyScalar(speed));
+            }
+        }
+    }
+
+    // Shared raycast logic
+    handleRaycast() {
+        const intersects = this.raycaster.intersectObjects([this.starfieldGroup], true);
+        this.resetImageUniforms();
+        if (intersects.length > 0) {
+            const intersect = intersects[0];
+            const point = intersect.point;
+            var labelText = null;
+            if(intersect.object.isPoints) {
+                this.currentObjectIndex = intersect.index;
+                this.currentObjectCatalog = this.starCatalog;
+                this.currentObject = null;
+                const [raStr, decStr, mag, name, constellation, HDnr] = this.starCatalog[this.currentObjectIndex];
+                labelText = `${name} ${constellation} HD${HDnr} ${mag}`;
+                console.log(`Selected star: RA=${raStr}, Dec=${decStr}, Label=${labelText}, Position=${point.x},${point.y},${point.z}`);
+            } else {
+                this.currentObjectIndex = intersect.object.userData.index;
+                this.currentObjectCatalog = this.imageCatalog;
+                this.currentObject = intersect.object;
+                this.highlightImage(this.currentObjectIndex);
+                const [raStr, decStr, name, texture, m] = this.imageCatalog[this.currentObjectIndex];
+                labelText = name;
+                labelText = null;
+                console.log(`Selected image object: RA=${raStr}, Dec=${decStr}, name=${name}, Position=${point.x},${point.y},${point.z}`);
+            }
+            this.removeCurrentLabel();
+            if(labelText) this.addCurrentLabel(point, labelText);
+            if(this.onSelectCallback) this.onSelectCallback(this.currentObjectCatalog, this.currentObjectIndex);            
+        } else {
+            this.removeCurrentLabel();
+            this.currentObjectIndex = null;
+            this.currentObjectCatalog = null;
+            this.currentObject = null;
+            if(this.onSelectCallback) this.onSelectCallback(null, null);
+            console.log('No star selected');
+        }
+    }
+
+    base64ToBlob(base64, mime = 'image/jpeg') {
+        const binary = atob(base64);
+        const len = binary.length;
+        const buffer = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            buffer[i] = binary.charCodeAt(i);
+        }
+        return new Blob([buffer], { type: mime });
+    }
+
+    async addLiveImage(imageb64, arcsecondsPerPixel, rotation = 0) {
+        const blob = this.base64ToBlob(imageb64);
+        const url = URL.createObjectURL(blob);
+        const dec = Degrees(this.decAngle);
+        const ra = HoursMinutesSeconds(this.raAngle/15); 
+        await this.addImage(url, "Live Image", ra, dec, arcsecondsPerPixel, rotation, 0);
+        URL.revokeObjectURL(url); // Free memory
+    }
+    
+    async updateLiveImage(imageb64) {
+        const blob = this.base64ToBlob(imageb64);
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {            
+            this.imageCatalog[0][3].image = img;
+            this.imageCatalog[0][3].needsUpdate = true;
+            URL.revokeObjectURL(url); // Free memory
+        };
+        img.src = url;
+    }
+
+    updateLiveImagePos(){
+        if(this.imageCatalog[0][3] != null) {            
+            const raHours = (this.raAngle-180)/15 + this.currentLST;
+            var raDeg = (((raHours * 15) % 360) + 360) % 360;
+            this.imageCatalog[0][0] = HoursMinutesSeconds(raHours);
+            this.imageCatalog[0][1] = Degrees(this.decAngle);
+            const [x, y, z] = positionFromRADECrad(raDeg* Math.PI / 180, this.decAngle* Math.PI / 180, this.starfieldGroup, 100, true);
+            const target = new THREE.Vector3(x, y, z);
+            this.imageCatalog[0][4].lookAt(target);    
+        }
+    }
+
+
+    resetImageUniforms() {
+        for(var i=0; i< this.imageCatalog.length; i++) {
+            const mesh = this.imageCatalog[i][4];
+            if( mesh != null) {
+                mesh.material.uniforms.gamma.value = 1;
+                mesh.material.uniforms.transparency.value = 0.5;
+                mesh.material.uniforms.brightness.value = 1;
+                mesh.material.uniforms.showBorder.value = false;
+            }
+        }
+    }
+    highlightImage(index) {
+        if(index != null && index >=0 && index < this.imageCatalog.length) {
+            const mesh = this.imageCatalog[index][4];
+            if( mesh != null) {
+                mesh.material.uniforms.gamma.value = 1.2;
+                mesh.material.uniforms.transparency.value = 1;
+                mesh.material.uniforms.brightness.value = 1;
+                mesh.material.uniforms.showBorder.value = true;
+            }
+        }
+    }
+
+    scaleImages(factor = null) {
+        for(var i=0; i< this.imageCatalog.length; i++) {
+            const mesh = this.imageCatalog[i][4];
+            if(mesh != null) {
+                this.resizeMesh(mesh, factor);
+            }
+        }
+    }
+    
+    resizeMesh(mesh, factor) {
+        const oldGeom = mesh.geometry;
+    
+        // Extract old parameters
+        const r = oldGeom.parameters.radius;
+
+        const widthRad = Math.min(2*Math.PI, factor ? oldGeom.parameters.phiLength * factor : mesh.userData.originalSize.widthRad);
+        const heightRad = Math.min(Math.PI, factor ? oldGeom.parameters.thetaLength * factor : mesh.userData.originalSize.heightRad);
+    
+        const newGeom = new THREE.SphereGeometry(
+            r, 
+            oldGeom.parameters.widthSegments, 
+            oldGeom.parameters.heightSegments,
+            oldGeom.parameters.phiStart - (widthRad - oldGeom.parameters.phiLength)/2,
+            widthRad,
+            oldGeom.parameters.thetaStart - (heightRad - oldGeom.parameters.thetaLength)/2,
+            heightRad
+        );
+        
+        mesh.geometry.dispose(); // Free GPU memory
+        mesh.geometry = newGeom;
+    }
+
+    async addImage(img, name, ra, dec, arcsecondsPerPixel, rotation = 0, index = null) {
+        
+        if (name === "Luna") {
+            ra = HoursMinutesSeconds(this.currentLST);
+        }
+        if (name === "Saturn" ) {
+            ra = HoursMinutesSeconds(this.currentLST+1);
+        }
+    
+        const catalogIndex = (index == null ? this.imageCatalog.length : index);
+        if(index == null) this.imageCatalog.push(null);
+
+        const loader = new THREE.TextureLoader();
+        const texture = await new Promise((resolve, reject) => {
+            loader.load(
+                img,
+                tex => {
+                    tex.flipY = false; // ← IMPORTANT
+                    resolve(tex);
+                },
+                undefined, // On progress (not needed)
+                reject     // On error, reject the promise
+            );
+        });
+
+        const mesh = this.addImageTexture(texture, ra, dec, arcsecondsPerPixel, rotation, catalogIndex);        
+        this.imageCatalog[catalogIndex] = [ra, dec, name, texture, mesh ];
+        return catalogIndex;
+    }
+
+    addImageTexture(texture, ra, dec, arcsecondsPerPixel, rotation, catalogIndex){
+        // Now that texture is loaded, we know its size
+        const imageWidth = texture.image.width;
+        const imageHeight = texture.image.height;
+        const r = 100;
+
+        // Total size in arcseconds
+        // Convert to radians
+        const widthRad = THREE.MathUtils.degToRad(imageWidth * arcsecondsPerPixel / 3600);
+        const heightRad = THREE.MathUtils.degToRad(imageHeight * arcsecondsPerPixel / 3600);
+
+        // Create sphere segment
+        const sphereSegment = new THREE.SphereGeometry(
+            r, 32, 32,
+            Math.PI/2 - widthRad/2, widthRad,
+            Math.PI/2 - heightRad/2, heightRad
+        );
+
+        // Create material
+        const material = this.makeImageMaterial(texture);
+        material.uniforms.transparency.value = 0.8;
+        //material.uniforms.mirror.value = true;
+
+        // Create mesh
+        const segmentMesh = new THREE.Mesh(sphereSegment, material);
+        segmentMesh.userData.index = catalogIndex;
+        segmentMesh.userData.originalSize = {
+            widthRad,
+            heightRad
+        };
+
+        // Position
+        const [x, y, z] = positionFromRADEC(ra, dec, this.starfieldGroup);
+        //segmentMesh.position.set(x, y, z);
+        segmentMesh.position.set(0, 0, 0);
+
+        // Rotate toward RA/Dec
+        const target = new THREE.Vector3(x, y, z);
+        segmentMesh.lookAt(target);
+
+        // Adjust if needed
+        segmentMesh.rotateZ(Math.PI-rotation);
+        
+        this.starfieldGroup.add(segmentMesh);
+
+        return segmentMesh;
+    }
+    makeImageMaterial(texture) {
+        return new THREE.ShaderMaterial({
+            uniforms: {
+                map: { value: texture },
+                brightness: { value: 1.0 },
+                gamma: { value: 1.0 },
+                transparency: { value: 1.0 },
+                mirror: { value: false },
+                showBorder: { value: false },
+                borderColor: { value: new THREE.Color(1, 0, 0) }, // Red
+                borderWidth: { value: 0.03 }, // In UV space (0 to 1)
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D map;
+                uniform float brightness;
+                uniform float gamma;
+                uniform float transparency;
+                uniform bool mirror;
+                uniform bool showBorder;
+                uniform vec3 borderColor;
+                uniform float borderWidth;
+                varying vec2 vUv;
+                
+                void main() {
+                    vec2 uv = vUv;
+                    if (mirror) uv.x = 1.0 - uv.x;
+                    vec4 texColor = texture2D(map, uv);
+                    texColor.rgb *= brightness;
+                    texColor.rgb = pow(texColor.rgb, vec3(1.0 / gamma));
+                    texColor.a *= transparency;
+                    // Border effect
+                    if (showBorder) {
+                        float edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+                        float border = smoothstep(0.0, borderWidth, edgeDist); // 0 at edge, 1 inside
+                        if (border < 1.0) {
+                            // Inside border area: blend border color
+                            texColor.rgb = mix(borderColor, texColor.rgb, border); // border → texColor
+                        }
+                    }
+                    gl_FragColor = texColor;
+                }
+            `,
+            transparent: true,
+            side: THREE.DoubleSide
+        });
+    }
+
 
     createTextSprite(text, width=512, height=64) {
         const canvas = document.createElement('canvas');
@@ -543,113 +774,9 @@ class TelescopeSim {
         this.currentLabel = labelSprite;
     }
     
-    // Shared raycast logic
-    handleRaycast() {
-        const intersects = this.raycaster.intersectObjects([this.starfieldGroup], true);
-        if (intersects.length > 0) {
-            const intersect = intersects[0];
-            const point = intersect.point;
-            let index = null;
-            if(intersect.object.isPoints) {
-                index = intersect.index;
-            } else {
-                index = intersect.object.userData.index;
-            }
-            if (index != null && typeof this.starCatalog !== 'undefined') {
-                const star = this.starCatalog[index];
-                const [raStr, decStr, mag, name, constellation, HDnr] = star;
-                const labelText = `${name} ${constellation} HD${HDnr} ${mag}`;
-                console.log(`Selected star: RA=${raStr}, Dec=${decStr}, Label=${labelText}, Position=${point.x},${point.y},${point.z}`);
-
-                // Remove previous label
-                this.removeCurrentLabel();
-                this.addCurrentLabel(point, labelText);
-
-                this.currentObjectIndex = index; // Store the index of the selected object
-                if(this.onSelectCallback) this.onSelectCallback(index);
-            }
-        } else {
-            // Remove label if no star selected
-            if (this.currentLabel) {
-                this.scene.remove(this.currentLabel);
-                this.currentLabel = null;
-            }
-            this.currentObjectIndex = null;
-            if(this.onSelectCallback) this.onSelectCallback(null);
-            console.log('No star selected');
-        }
-    }
 
 
-    addControllers() {
-        // Prepare controller slots
-        const controller0 = this.renderer.xr.getController(0);
-        const controller1 = this.renderer.xr.getController(1);
-
-        // VR controller handler
-        const onSelect = () => {
-            if(this.rightController == null) return;
-            const controller = this.rightController;
-            // Make sure matrices are updated
-            controller.updateMatrixWorld(true);
-            // Get world position
-            const position = new THREE.Vector3();
-            controller.getWorldPosition(position);
-            this.raycaster.set(position, controller.getWorldDirection(new THREE.Vector3()).negate());
-            this.raycaster.camera = this.renderer.xr.getCamera(this.camera);
-            this.handleRaycast();
-        };
-
-        const onSqueeze = () => {
-            if(this.currentObjectIndex == null || typeof this.starCatalog === 'undefined' || this.starCatalog==null) return;
-            const star = this.starCatalog[this.currentObjectIndex];
-            const [raStr, decStr, mag] = star;
-            this.pointTelescope(raStr, decStr, true);
-        };
-
-
-        // Handle when controllers connect
-        const onControllerConnected = (event) => {
-            const handedness = event.data.handedness;
-            const controller = event.target;
-
-            if (handedness === 'right') {
-                console.log('Right controller connected!');
-                controller.addEventListener('select', onSelect);
-                controller.addEventListener('squeeze', onSqueeze);
-                
-
-                this.rightController = controller;
-                this.rightGamepad = event.data.gamepad || null; // <-- store gamepad reference!
-
-                // Create laser
-                const laserGeometry = new THREE.CylinderGeometry(0.002, 0.002, 100, 8);
-                const laserMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-
-                const laser = new THREE.Mesh(laserGeometry, laserMaterial);
-
-                // Rotate so it's pointing forward
-                laser.rotation.x = Math.PI / 2;
-
-                // Move the laser so it starts at the controller
-                laser.position.z = -50; // Half of 100 meters forward
-
-                // Attach laser to controller
-                controller.add(laser);
-
-                this.userRig.add(controller);
-            }
-        }
-
-        // Listen for connected event on both controller slots
-        controller0.addEventListener('connected', onControllerConnected);
-        controller1.addEventListener('connected', onControllerConnected);
-        
-    }
-
-
-
-    enableWebXR() {
+    enableWebXR(canvas) {
         // Enable WebXR on renderer
         this.renderer.xr.enabled = true;
        
@@ -661,12 +788,13 @@ class TelescopeSim {
         
         // Adjust camera for VR
         this.camera.position.set(0, 0, 0);
-        this.userRig.position.set(0, 0, 0); // Eye-level height for VR
         this.userRig.near = 0.1; // Adjust near plane for VR
         this.userRig.far = 1000; // Ensure far plane covers starfield
-        //this.camera.updateProjectionMatrix();
+        this.resetPosition();        
+        this.addControllers();
+        
+        this.camera.add(this.listener);
 
-    
         // Disable OrbitControls in VR (optional, as VR uses headset orientation)
         this.renderer.xr.addEventListener('sessionstart', () => {
             this.controls.enabled = false;
@@ -690,13 +818,11 @@ class TelescopeSim {
     }
 
 
-    addSceneAndLighting() {
+    addSceneAndLighting(canvas) {
         // Scene setup
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
         //this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.camera.position.set(5, 5, 10);
-        this.camera.lookAt(0, 0, 0);
         // Lighting
         this.ambientLight = new THREE.AmbientLight(0x404040, 0.6);
         this.scene.add(this.ambientLight);
@@ -713,7 +839,6 @@ class TelescopeSim {
         this.starfieldPolarGroup = new THREE.Group();
         this.scene.add(this.starfieldPolarGroup);
         this.starfieldPolarGroup.add(this.starfieldGroup);
-        this.starfieldPolarGroup.rotation.z = -(Math.PI / 2 - this.latitude);
 
     }
 
@@ -722,11 +847,11 @@ class TelescopeSim {
         // Materials
         this.bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x2222aa, shininess: 50 });
         this.axisMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000, shininess: 50 });
-        const laserMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 }); 
+        const laserMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff }); 
         this.shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x555555, shininess: 50 });
         this.weightMaterial = new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 50 });
         const textureLoader = new THREE.TextureLoader();
-        const telescopeTexture = textureLoader.load('PIPITREK.PNG');
+        const telescopeTexture = textureLoader.load('/static/img/PIPITREK_wash.webp');
         this.telescopeMaterial = new THREE.MeshPhongMaterial({
             map: telescopeTexture,
             shininess: 50,
@@ -736,7 +861,7 @@ class TelescopeSim {
 
 
         // Dimensions
-        const shaftHeight = 1.6*this.telescopeScale;
+        const shaftHeight = 1.6;
         const bodyL = 1.2*this.telescopeScale;
         const axleL = 1*this.telescopeScale;
         const shaftR = 0.2*this.telescopeScale;
@@ -758,7 +883,6 @@ class TelescopeSim {
 
         this.polarGroup = new THREE.Group();
         this.scene.add(this.polarGroup);
-        this.polarGroup.rotation.z = -(Math.PI / 2 - this.latitude);
         this.polarGroup.position.y = shaftHeight;
 
         this.raGroup = new THREE.Group();
@@ -922,17 +1046,27 @@ class TelescopeSim {
         this.scene.add(ground);
     }
 
-    addMusic(){
-        // Create an AudioListener and attach it to the camera
-        const listener = new THREE.AudioListener();
-        this.camera.add(listener);
+    addMovingSound(file) {
+        this.moveSound = new THREE.PositionalAudio(this.listener);
+        this.raGroup.add(this.moveSound);
+        const audioLoader = new THREE.AudioLoader();
+        audioLoader.load(file, (buffer) => {
+            this.moveSound.setBuffer(buffer);
+            this.moveSound.setRefDistance(10); // How quickly it fades with distance
+            sound.setRolloffFactor(1.1);
+            this.moveSound.setLoop(true);
+            this.moveSound.setVolume(0.6);
+        });
 
+    }
+
+    addMusic(song){
         // Create an Audio object and attach it to the listener
-        this.sound = new THREE.Audio(listener);
+        this.sound = new THREE.Audio(this.listener);
         var sound = this.sound;
         // Load an audio file (for example, an MP3 file)
         const audioLoader = new THREE.AudioLoader();
-        audioLoader.load('Vbazi.mp3', function(buffer) {
+        audioLoader.load(song, function(buffer) {
             sound.setBuffer(buffer);
             sound.setLoop(true);  // Set loop if needed
             sound.setVolume(0.5); // Set the initial volume

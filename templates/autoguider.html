@@ -58,7 +58,7 @@
                         </td>
                         <td>
                             <div class="two_buttons">
-                                <img id="detail_feed" src="../static/Airy.png" alt="Not Available">
+                                <img id="detail_feed" src="/static/img/Airy.png" alt="Not Available">
                                 <div>R px:<span id="ra_px">0</span> arcs:<span id="ra_arcsec">0.0</span> rms:<span id="ra_rms">0.0</span><br>
                                      D px:<span id="dec_px">0</span> arcs:<span id="dec_arcsec">0.0</span> rms:<span id="dec_rms">0.0</span><br>
                                     focus:<span id="focus_metric">0</span>
@@ -95,6 +95,8 @@
                         <td>
                             <div>
                                 <input type="checkbox" id="save_frames" onchange="submitSaveFrames(this.checked)">Save</input>
+                                every
+                                <input class="num_input" type="text" id="save_frames_every" placeholder="10" value="10">frame(s)
                             </div>
                         </td>
                     </tr>
@@ -163,37 +165,8 @@
                         </td>
                     </tr>
                     <tr>
-                        <td>
-                            <div >
-                                <table style="padding:0px;">
-                                    <tr>
-                                        <td style="width:50px;"></td>
-                                        <td>
-                                            <button class="control-button" onclick="sendCorrection('n')">↑</button>
-                                        </td>
-                                        <td></td>
-                                    </tr>
-                                    <tr>
-                                        <td style="width:50px;">
-                                            <button class="control-button" onclick="sendCorrection('e')">←</button>
-                                        </td>
-                                        <td></td>
-                                        <td>
-                                            <button class="control-button" onclick="sendCorrection('w')">→</button>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td style="width:50px;"></td>
-                                        <td>
-                                            <button class="control-button" onclick="sendCorrection('s')">↓</button>
-                                        </td>
-                                        <td></td>
-                                    </tr>
-                                </table>                               
-                            </div>
-                        </td>
-                        <td>
-                        </td>
+                        <td></td>
+                        <td></td>
                     </tr>
                 </table>
 
@@ -390,6 +363,18 @@
                             <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
                     </tr>
+                    <tr class = "controller-row">
+                        <td>
+                            <label >Platesolve:</label>
+                            <button class="command-button" title="plate solve saved image" onclick="plateSolve()">Solve</button>
+                        </td>
+                        <td>
+                            <div class = 'two_buttons'>
+                                    RA:<input class="two_buttons_input" type="text" id="ra-solved">
+                                    DE:<input class="two_buttons_input" type="text" id="dec-solved">
+                            </div>
+                        </td>
+                    </tr>
                     <tr>
                         <td colspan="2">
                             <div id="result-boxes" class = "flex1">
@@ -510,7 +495,7 @@
     }
 
 
-    const ws = new WebSocket('ws://' + window.location.hostname + '/autoguider_socket');
+    const ws = new WebSocket('wss://' + window.location.host + '/autoguider_socket');
     
     ws.onmessage = function(event) {
         processCorrections(JSON.parse(event.data));
@@ -557,13 +542,13 @@
     }
 
     function startVideoFeed() {
-        _startVideoFeed('ws://' + window.location.host + '/video_feed_ws');
+        _startVideoFeed('wss://' + window.location.host + '/video_feed_ws');
     }
     function stopVideoFeed() {
         _stopVideoFeed();
     }
     function startThreshFeed() {
-        _startVideoFeed('ws://' + window.location.host + '/thresh_feed_ws');
+        _startVideoFeed('wss://' + window.location.host + '/thresh_feed_ws');
     }
     function stopThreshFeed() {
         _stopVideoFeed();
@@ -703,7 +688,7 @@
             detailFeed.src = `data:image/png;base64,${data.centroid_image}`;
             detailFeed.alt = "Detail Feed";
         } else {
-            detailFeed.src = "../static/Airy.png"; // Fallback to placeholder
+            detailFeed.src = "../static/img/Airy.png"; // Fallback to placeholder
             detailFeed.alt = "Not Available";
         }
 
@@ -899,6 +884,15 @@
             body: JSON.stringify({ r_channel, g_channel, b_channel }),
         })
     }
+
+    function submitJSON(name, obj) {
+        return fetch(name, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(obj)
+        });
+    }
+
 
     function submitSetting(name, value) {
         fetch(`/set_${name}`, {
@@ -1159,24 +1153,6 @@
         });
     }
 
-
-    function sendCorrection(direction) {
-        fetch('/control_correction', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `direction=${direction}`
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log('Success:', data);
-        })
-        .catch((error) => {
-            console.log('Error:', error);
-        });
-    }
-
     function shutdown() {
         if (confirm("Are you sure you want to shut down the telescope?")) {
             fetch('/shutdown', {
@@ -1193,6 +1169,26 @@
             console.log('Shutdown canceled.');
         }        
 
+    }
+
+    
+    function plateSolve() {
+        submitJSON('/plateSolve', { "filename" : "saved_frame.png", "capture" : true })
+        .then(response => response.json())
+        .then(data => {
+            appendToResult(JSON.stringify(data, null, 2)); // Append the result to the textarea
+            if(data.status === 'ok') {
+                document.getElementById('ra-solved').value = data.ra;
+                document.getElementById('dec-solved').value = data.dec;
+                document.getElementById('rotation_angle').value = data.rotation.toFixed(3);
+                document.getElementById('rotation_angle_value').textContent = data.rotation.toFixed(3);
+                submitRotationAngle();
+                document.getElementById('pixel_scale').value = data.scale.toFixed(1);
+                document.getElementById('pixel_scale_value').textContent = data.scale.toFixed(1);
+                submitPixelScale();
+            }
+        })
+        .catch(error => console.error('Error:', error));
     }
 
     currentAnalysis = null;

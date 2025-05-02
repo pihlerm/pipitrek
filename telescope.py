@@ -44,7 +44,7 @@ class Telescope:
 
             self.quiet = False
             self._thread = None
-
+            self.slew_request = None
 
     def open_serial(self):
         self._serial_connection = serial.Serial(

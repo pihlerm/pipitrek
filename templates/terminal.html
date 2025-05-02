@@ -37,7 +37,7 @@
 
     <script>
 
-        const ws = new WebSocket('ws://' + window.location.hostname + '/command_terminal');
+        const ws = new WebSocket('wss://' + window.location.host + '/command_terminal');
         const terminal = document.getElementById('terminal');
         const input = document.getElementById('input');
         const abortBtn = document.getElementById('abort');

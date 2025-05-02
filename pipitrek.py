@@ -3,6 +3,7 @@ from analyzer import Analyzer
 from autoguider import Autoguider
 from camera import Camera
 from comm.telescopeserver import TelescopeServer
+from platesolver import PlateSolver
 from threading import Thread, Event
 import time
 import numpy as np
@@ -20,6 +21,7 @@ from flask_sock import Sock
 import re
 import json
 import base64
+import ssl
 from v412_ctl import list_cameras
 
 # Disable Flask request logging
@@ -64,6 +66,11 @@ def index():
 def terminal():
     return render_template('terminal.html')
 
+
+@app.route('/scopevr')
+def scopevr():
+    return render_template('scopevr.html')
+
 # SOCKETS
 
 def draw_info(frame, nframe):
@@ -96,6 +103,8 @@ def video_feed_ws(ws):
                 else:
                     print("Frame encoding failed")
             time.sleep(max(video_interval - (time.time()-start),0.01))
+    except ssl.SSLEOFError as e:
+        print(f"SSL EOF error in video_feed_ws: {e}")
     except Exception as e:
         print(f"video_feed_ws video feed error: {e}")
     finally:
@@ -128,6 +137,8 @@ def thresh_feed_ws(ws):
                 else:
                     print("Frame encoding failed")
             time.sleep(max(video_interval - (time.time()-start),0.01))
+    except ssl.SSLEOFError as e:
+        print(f"SSL EOF error in thresh_feed_ws: {e}")
     except Exception as e:
         print(f"thresh_feed_ws video feed error: {e}")
     finally:
@@ -141,6 +152,8 @@ def autoguider_socket(ws):
                 autoguider.data_ready = False
                 ws.send(json.dumps(form_properties()))
             time.sleep(0.1)
+        except ssl.SSLEOFError as e:
+            print(f"SSL EOF error in autoguider_socket: {e}")
         except Exception as e:  # Catches WebSocketConnectionClosedException
             break
     print("autoguider_socket disconnected")
@@ -148,11 +161,25 @@ def autoguider_socket(ws):
     
 @sock.route('/telescope_socket')
 def telescope_socket(ws):
+    last_yield = time.time()
     while True:
         try:
+            start = time.time()
+            if start - last_yield > 100:
+                properties = {"function": "ping"}
+                ws.send(json.dumps(properties))
+                last_yield = start
+
+            slew_request = None
             if telescopeserver.slew_request is not None:
-                ra, dec = telescopeserver.slew_request
+                slew_request = telescopeserver.slew_request
                 telescopeserver.slew_request = None
+            elif telescope.slew_request is not None:
+                slew_request = telescope.slew_request
+                telescope.slew_request = None
+
+            if slew_request is not None:
+                ra, dec = slew_request
                 properties = {
                     "function": "slew_request",
                     "ra": ra,
@@ -160,7 +187,10 @@ def telescope_socket(ws):
                 }
                 ws.send(json.dumps(properties))
             time.sleep(0.1)
+        except ssl.SSLEOFError as e:
+            print(f"SSL EOF error in telescope_socket: {e}")
         except Exception as e:  # Catches WebSocketConnectionClosedException
+            print(f"Unexpected error in telescope_socket: {e}")
             break
     print("telescope_socket disconnected")
 
@@ -220,6 +250,8 @@ def command_terminal(ws):
             
             ws.send(f"exit: {current_process.returncode}")
             current_process = None
+        except ssl.SSLEOFError as e:
+            print(f"SSL EOF error in command_terminal: {e}")
         except Exception as e:
             ws.send(f"error: {str(e)}")
             current_process = None
@@ -233,7 +265,6 @@ def scope_info():
 @app.route('/set_tracking', methods=['POST'])
 def set_tracking():
     tracking = request.form.get('tracking', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-    telescope.scope_info
     telescope.send_tracking(tracking)
     time.sleep(0.1)
     telescope.get_info()
@@ -280,6 +311,15 @@ def set_backlash():
     telescope.send_backlash_comp_ra(int(ra))
     telescope.send_backlash_comp_dec(int(dec))
     return jsonify({'status': 'success', 'message': f'Backlash set'})
+
+@app.route('/command_slew_request', methods=['POST'])
+def command_slew_request():
+    data = request.json
+    ra = data.get('ra')
+    dec = data.get('ra')
+    telescope.slew_request = (ra,dec)
+    return jsonify({'status': 'success', 'message': f'slew_request set'})
+
 
 @app.route('/command_camera', methods=['POST'])
 def command_camera():
@@ -390,18 +430,6 @@ def control_upload():
             return jsonify({"status": "error", "message": "Error uploading file."}), 500
     return 'Invalid file type', 400
 
-@app.route('/control_correction', methods=['POST'])
-def control_correction():
-    direction = request.form.get('direction')
-    if direction not in ['n', 's', 'e', 'w']:
-        return jsonify({'status': 'error', 'message': 'Invalid direction'}), 400
-
-    telescope = Telescope()
-    try:
-        telescope.send_correction(direction)
-        return jsonify({'status': 'success', 'message': f'Moved {direction}'})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/command_reset', methods=['POST'])
 def command_reset():
@@ -760,6 +788,38 @@ def analyze():
     retval= analyzer.analyze_snr(frame,analysis_snr,analysis_std, analysis_fwhm)
     return jsonify(retval), 200
 
+@app.route('/plateSolve', methods=['POST'])
+def plateSolve():   
+    filename = request.json.get('filename')
+    capture = request.json.get('capture')
+    if capture and camera is not None and camera.running:
+        frame = camera.frame
+        if frame is not None and frame.size > 0:
+            # Save the frame as an image file
+            save_path = os.path.join(os.getcwd(), 'saved_frame.png')
+            cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
+            print(f"Frame saved to {save_path}")
+        else:
+            return jsonify({"status": "error", "message": "No valid frame available"}), 400
+    else:
+        return jsonify({"status": "error", "message": "Camera is not running"}), 503
+    
+    platesolver = PlateSolver()
+    try:
+        ra, dec, rot, scale = platesolver.solve(filename)
+        raStr = deg_to_lx200_ra(float(ra))
+        decStr = deg_to_lx200_dec(float(dec))
+        retval = {
+            'status': 'ok',
+            'ra' : raStr,
+            'dec' : decStr,
+            'rotation' : rot,
+            'scale' : scale
+        }
+        telescope.slew_request = (raStr, decStr)
+        return jsonify(retval), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
 
 # Shutdown APPLICATION
@@ -829,7 +889,14 @@ def cleanup():
 class ServerThread(Thread):
     def __init__(self, app):
         Thread.__init__(self)
-        self.server = make_server('0.0.0.0', 80, app, threaded=True)
+        # SSL Context
+        self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.ssl_context.load_cert_chain(certfile='cert/cert.pem', keyfile='cert/key.pem')
+
+        # Make server on port 8443 (HTTPS)
+        self.server = make_server('0.0.0.0', 8443, app, threaded=True)
+        self.server.socket = self.ssl_context.wrap_socket(self.server.socket, server_side=True)
+
         self.ctx = app.app_context()
         self.ctx.push()
 

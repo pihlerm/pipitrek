@@ -256,6 +256,13 @@ class Autoguider:
         # Clamp speeds to -99 to 99 arcseconds/10 seconds
         ra_speed = int(max(-99, min(ra_speed, 99)))
         dec_speed = int(max(-99, min(dec_speed, 99)))
+        
+        # zero if inside max drift
+        if abs(ra_arcsec_error) < self.max_drift:
+            ra_speed = 0
+        if abs(dec_arcsec_error) < self.max_drift:
+            dec_speed = 0
+
         if not self.dec_guiding:
             dec_speed = 0
 
@@ -292,19 +299,20 @@ class Autoguider:
         vectors = np.array(vectors)
         
         # Calculate mean centroid (mean dx, mean dy)
-        mean_centroid = np.mean(vectors, axis=0)  # Shape: (2,)
+        #mean_centroid = np.mean(vectors, axis=0)  # Shape: (2,)
         
         # Calculate distances of each vector from mean centroid
-        distances = np.sqrt(np.sum((vectors - mean_centroid) ** 2, axis=1))
+        #distances = np.sqrt(np.sum((vectors - mean_centroid) ** 2, axis=1))
         
         # Calculate mean and standard deviation of distances
-        mean_distance = np.mean(distances)
-        std_distance = np.std(distances)
+        #mean_distance = np.mean(distances)
+        #std_distance = np.std(distances)
         
         # Filter vectors within 2 sigma of mean distance
-        mask = np.abs(distances - mean_distance) <= 2 * std_distance
-        filtered_vectors = vectors[mask]
-        
+        #mask = np.abs(distances - mean_distance) <= 2 * std_distance
+        #filtered_vectors = vectors[mask]
+        filtered_vectors = vectors
+
         # Calculate final mean centroid from filtered vectors
         final_mean_centroid = np.mean(filtered_vectors, axis=0) if len(filtered_vectors) > 0 else np.array([0.0, 0.0])
         
@@ -501,8 +509,8 @@ class Autoguider:
                 last_frame = frame
 
                 # Print tracked_centroids and current_centroids
-                print(f"Tracked Centroids: {self.tracked_centroids}")
-                print(f"Current Centroids: {self.current_centroids}")
+                #print(f"Tracked Centroids: {self.tracked_centroids}")
+                #print(f"Current Centroids: {self.current_centroids}")
 
 
                 if len(self.tracked_centroids)==0:
@@ -526,7 +534,7 @@ class Autoguider:
                                 self.guide_scope( self.last_correction['ra_arcsec'], self.last_correction['dec_arcsec'])
                         # remember new currnt centroids; it some were not detected this time, keep the old ones
                         for i in range(len(centroids)):
-                            if centroids[i] is not None:
+                            if centroids[i] is not None and len(self.current_centroids)>i:
                                 self.current_centroids[i] = centroids[i]
                     else:
                         self.star_locked = False
