@@ -41,9 +41,10 @@
         var blockUpdate=false;
 
         const telescopeSim = new TelescopeSim(canvas);
+        telescopeSim.enableWebXR(canvas);
         telescopeSim.addStarfield(starCatalog, 6);
         telescopeSim.addMusic('/static/music/Vbazi.mp3');
-        telescopeSim.addMovingSound('/static/music/SimMove.ogg');
+        telescopeSim.addSounds('/static/music');
         
         fetch('https://' + window.location.host + '/static/astroImages/catalog.json')
         .then(response => response.json())
@@ -128,7 +129,6 @@
         });*/
 
         enterVRButton.addEventListener('click', () => {
-            telescopeSim.enableWebXR(canvas);
             telescopeSim.enterVR();
         });
 
@@ -173,7 +173,7 @@
                 video_feed_ws = null;
             }
         }
-        _startVideoFeed('wss://' + window.location.host + '/video_feed_ws');
+        //_startVideoFeed('wss://' + window.location.host + '/video_feed_ws');
 
 
         function submitJSON(name, obj) {
@@ -220,7 +220,7 @@
         telescopeSim.onFrame( () => {
             updateCounter++;
             if (updateCounter > updateInterval) {
-               updateScopeInfo();
+               //updateScopeInfo();
                updateCounter = 0;
             }
         });

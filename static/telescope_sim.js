@@ -44,6 +44,9 @@ export class TelescopeSim {
         this.addTelescope();
 
         this.moveSound = null;
+        this.ropeSound = null;
+        this.ratchetSound = null;
+        this.clickSound = null;
         this.listener = new THREE.AudioListener();
         this.camera.add(this.listener);
 
@@ -298,6 +301,7 @@ export class TelescopeSim {
         this.controllers = new Controllers(this.renderer, this.userRig, this.scene);
         // Prepare controller slots
         // VR controller handler
+        
         const onRSelect = () => {
             const controller = this.controllers.Right;
             // Make sure matrices are updated
@@ -308,45 +312,52 @@ export class TelescopeSim {
             this.raycaster.set(position, controller.getWorldDirection(new THREE.Vector3()).negate());
             this.raycaster.camera = this.renderer.xr.getCamera(this.camera);
             this.handleRaycast();
+            if(this.currentObject!=null) {
+                this.clickSound.play();
+            } else {
+                this.imageCatalog.forEach(obj => {
+                    if (obj[4] != null) {
+                        obj[4].material.uniforms.showBorder.value = true;
+                    }
+                });    
+            }
         };
 
         const onRSqueeze = () => {
-            if(this.currentObject!=null) this.controllers.hapticFeedback('right');
-            return;
-            // Make sure matrices are updated
-            var currentIndex = this.currentObjectIndex;
-            var currentCatalog = this.currentObjectCatalog;
-            controller.updateMatrixWorld(true);
-            const position = new THREE.Vector3();
-            controller.getWorldPosition(position);
-            this.raycaster.set(position, controller.getWorldDirection(new THREE.Vector3()).negate());
-            this.raycaster.camera = this.renderer.xr.getCamera(this.camera);
-            this.handleRaycast();
-
-            if(this.currentObjectIndex == null) {
-                currentIndex = this.currentObjectIndex;
-                currentCatalog = this.currentObjectCatalog;
+            if(this.currentObject!=null) {
+                this.controllers.hapticFeedback('right');
+            } else {
+                this.resetImageUniforms();
             }
-            if(currentIndex == null) {
-                this.resetPosition();
-                return;
-            }
-            const [raStr, decStr] = currentCatalog[currentIndex];
-            const [x, y, z] =  positionFromRADEC(raStr, decStr, this.starfieldGroup, 95, true);
-            this.removeCurrentLabel();
-            this.resetImageUniforms();
-            this.currentObjectIndex = null;
-            this.userRig.position.set(x, y, z);    
         };
 
         const onRSqueezeEnd = () => {
             this.controllers.attachLaser(this.controllers.Right);
         };
 
+        const onLSqueeze = () => {
+            if(this.currentObject!=null) {
+                this.controllers.hapticFeedback('left');
+                if(this.ropeSound && !this.ropeSound.isPlaying) this.ropeSound.play();
+            } else {
+                this.resetImageUniforms();
+            }
+        };
+
+        const onLSqueezeEnd = () => {
+            this.controllers.attachLaser(this.controllers.Left);
+            if(this.ropeSound && this.ropeSound.isPlaying) this.ropeSound.stop();
+        };
+
         this.controllers.onRConnected((controller) => {
             controller.addEventListener('select', onRSelect);
             controller.addEventListener('squeezestart', onRSqueeze);
             controller.addEventListener('squeezeend', onRSqueezeEnd);
+        });
+
+        this.controllers.onLConnected((controller) => {
+            controller.addEventListener('squeezestart', onLSqueeze);
+            controller.addEventListener('squeezeend', onLSqueezeEnd);
         });
 
         this.controllers.attachEvent("right", 4, "start", () => {
@@ -395,10 +406,8 @@ export class TelescopeSim {
         },1);
 
         this.controllers.attachEvent("left", 5, "start", () => {
-            if(this.currentObjectIndex == null) return;
-            if(this.onActionCallback) {
-                this.onActionCallback(this.currentObjectIndex, this.currentObjectCatalog);
-            };
+        },1);
+        this.controllers.attachEvent("left", 5, "end", () => {
         },1);
 
     }
@@ -438,16 +447,46 @@ export class TelescopeSim {
                 }
             }
         }
+        const isFlying = this.controllers.LeftGamepad && this.controllers.LeftGamepad.buttons[1].pressed;
+        if(this.currentObject!=null && isFlying) {           
+            
+            this.currentObject.updateMatrixWorld(true);
+            const worldDir = new THREE.Vector3(0, 0, 1); // SphereGeometry faces +Z
+            worldDir.applyQuaternion(this.currentObject.getWorldQuaternion(new THREE.Quaternion()));
+            // Compute world position at radius r = 100
+            const objectPos = worldDir.multiplyScalar(100);
+            this.controllers.pointLaser('left', objectPos, this.controllers.Left.userData.color);
+
+            const direction = objectPos.clone().sub(this.controllers.currentPositionL);
+            let distance = direction.length();
+            direction.normalize();
+
+            // project controller velocity onto direction
+            let velocityAlongDirection = -this.controllers.velocityL.clone().dot(direction) / 20;
+
+            if (Math.abs(velocityAlongDirection) > 0.001) {
+               // velocityAlongDirection = Math.max(-0.1 , Math.min(velocityAlongDirection, 0.1));
+               distance = Math.max(-50,Math.min(50, distance));
+               this.userRig.position.add(direction.multiplyScalar(velocityAlongDirection*distance));
+            }
+        }
+        if(!isFlying && this.userRig.position.length() > 1) {
+            // pulled towards origin
+            const direction = this.controllers.currentPositionL.clone();
+            const distance = direction.length();
+            direction.normalize();
+            this.userRig.position.add(direction.multiplyScalar(-0.1));
+        }
 
         const isPulling = this.controllers.RightGamepad && this.controllers.RightGamepad.buttons[1].pressed;
         if(this.currentObject!=null && isPulling) {
             // Calculate velocity (pulling motion)
-            const controller = this.controllers.Right;
             // Check for pulling gesture (backward motion along controller's Z-axis)
             // Orient laser during pulling
             // Compute world direction from image mesh
             const worldDir = new THREE.Vector3(0, 0, 1); // SphereGeometry faces +Z
             worldDir.applyQuaternion(this.currentObject.getWorldQuaternion(new THREE.Quaternion()));
+            this.currentObject.updateMatrixWorld(true);
             // Compute world position at radius r = 100
             const objectPos = worldDir.multiplyScalar(100);
             this.controllers.pointLaser('right', objectPos);
@@ -456,11 +495,14 @@ export class TelescopeSim {
 
             // project controller velocity onto direction
             const velocityAlongDirection = -this.controllers.velocityR.clone().dot(direction) / 20;
-            console.log("velocityAlongDirection:",velocityAlongDirection);
+            console.log("CP L:",this.controllers.currentPositionL);
+            console.log("VAD R:",velocityAlongDirection);
 
             if (Math.abs(velocityAlongDirection) > 0.001) {
                 const factor = (velocityAlongDirection > 0 ? 1+velocityAlongDirection : 1/(1+Math.abs(velocityAlongDirection)));
                 this.resizeMesh(this.currentObject, factor);
+                if(!this.clickSound.isPlaying) this.clickSound.play();
+
                 // Move star toward user
                 //const userPosition = this.userRig.position;
                 //const direction = userPosition.clone().sub(this.currentObject.position).normalize();
@@ -1046,16 +1088,38 @@ export class TelescopeSim {
         this.scene.add(ground);
     }
 
-    addMovingSound(file) {
+    addSounds(directory) {
         this.moveSound = new THREE.PositionalAudio(this.listener);
         this.raGroup.add(this.moveSound);
         const audioLoader = new THREE.AudioLoader();
-        audioLoader.load(file, (buffer) => {
+        audioLoader.load(directory+"/SimMove.ogg", (buffer) => {
             this.moveSound.setBuffer(buffer);
             this.moveSound.setRefDistance(10); // How quickly it fades with distance
-            sound.setRolloffFactor(1.1);
+            this.moveSound.setRolloffFactor(1.1);
             this.moveSound.setLoop(true);
             this.moveSound.setVolume(0.6);
+        });
+
+        this.clickSound = new THREE.PositionalAudio(this.listener);
+        this.userRig.add(this.clickSound);
+        audioLoader.load(directory+"/Click.ogg", (buffer) => {
+            this.clickSound.setBuffer(buffer);
+            this.clickSound.setLoop(false);
+            this.clickSound.setVolume(0.8);
+        });
+        this.ratchetSound = new THREE.PositionalAudio(this.listener);
+        this.userRig.add(this.ratchetSound);
+        audioLoader.load(directory+"/Ratchet.ogg", (buffer) => {
+            this.ratchetSound.setBuffer(buffer);
+            this.ratchetSound.setLoop(false);
+            this.ratchetSound.setVolume(0.8);
+        });
+        this.ropeSound = new THREE.PositionalAudio(this.listener);
+        this.userRig.add(this.ropeSound);
+        audioLoader.load(directory+"/Rope.ogg", (buffer) => {
+            this.ropeSound.setBuffer(buffer);
+            this.ropeSound.setLoop(false);
+            this.ropeSound.setVolume(0.8);
         });
 
     }

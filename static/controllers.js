@@ -9,8 +9,10 @@ export class Controllers {
         this.RightGamepad = null;
         this.currentPositionL = new THREE.Vector3();
         this.lastPositionL = new THREE.Vector3();
+        this.lastLocalPositionL = new THREE.Vector3();
         this.currentPositionR = new THREE.Vector3();
         this.lastPositionR = new THREE.Vector3();
+        this.lastLocalPositionR = new THREE.Vector3();
         this.velocityL = new THREE.Vector3();   
         this.velocityR = new THREE.Vector3();   
         this.lastTime = 0;
@@ -121,13 +123,14 @@ export class Controllers {
             laser.material.color.set(controller.userData.color); // Red
         }
     }
-    pointLaser(side, objectPos) {
+    pointLaser(side, objectPos, color=null) {
         const controller = (side == 'left' ? this.Left : this.Right);
         const laser = controller.userData.laser;
         if (laser.parent !== this.scene) {
             controller.remove(laser);
             this.scene.add(laser);
-            laser.material.color.set(0xffff00); // Yellow
+            if(color == null) color = 0xffff00;
+            laser.material.color.set(color); // Yellow
         }
 
         const controllerPos = (side == 'left' ? this.currentPositionL : this.currentPositionR);
@@ -176,13 +179,23 @@ export class Controllers {
             this.lastPositionR.copy(this.currentPositionR);
             this.Right.updateMatrixWorld(true);
             this.Right.getWorldPosition(this.currentPositionR);
-            this.velocityR.subVectors(this.currentPositionR, this.lastPositionR).divideScalar(deltaTime);
+            if (deltaTime > 0.01) {
+                this.velocityR.subVectors(this.Right.position, this.lastLocalPositionR).divideScalar(deltaTime);
+                this.lastLocalPositionR.copy(this.Right.position);
+            } else {
+                this.velocityR.set(0, 0, 0);
+            }
         }
         if (this.Left) {
             this.lastPositionL.copy(this.currentPositionL);
             this.Left.updateMatrixWorld(true);
             this.Left.getWorldPosition(this.currentPositionL);
-            this.velocityL.subVectors(this.currentPositionL, this.lastPositionL).divideScalar(deltaTime);
+            if (deltaTime > 0.01) {
+                this.velocityL.subVectors(this.Left.position, this.lastLocalPositionL).divideScalar(deltaTime);
+                this.lastLocalPositionL.copy(this.Left.position);
+            } else {
+                this.velocityL.set(0, 0, 0);
+            }
         }
     }
 
