@@ -198,7 +198,7 @@ export class Telescope {
         this.shaftMaterial = new THREE.MeshPhongMaterial({ color: 0x555555, shininess: 50 });
         this.weightMaterial = new THREE.MeshPhongMaterial({ color: 0x333333, shininess: 50 });
         const textureLoader = new THREE.TextureLoader();
-        const telescopeTexture = textureLoader.load('/static/img/PIPITREK_wash.webp');
+        const telescopeTexture = textureLoader.load('./img/PIPITREK_wash.webp');
         this.telescopeMaterial = new THREE.MeshPhongMaterial({
             map: telescopeTexture,
             shininess: 50,
