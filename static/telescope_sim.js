@@ -94,10 +94,10 @@ export class TelescopeSim {
         // Start animation
         this.renderer.setAnimationLoop((time, frame) => this.animate(time, frame)); 
 
-        const loader = new FontLoader();
-        loader.load('/static/three/fonts/optimer_regular.typeface.json', (font) => {
-            this.font = font;
-        });
+        //const loader = new FontLoader();
+        //loader.load('../three/fonts/optimer_regular.typeface.json', (font) => {
+        //    this.font = font;
+        //});
 
         TelescopeGUI.init(this.container, this.renderer, this.scene, this.camera, this.userRig);
         this.telescopeGUI = new TelescopeGUI(this.scene, this.userRig, this.settings, this.starfield, this, this.telescope);
