@@ -4,7 +4,7 @@
 
 @font-face {
     font-family: 'Unbounded';
-    src: url('/static/fonts/static/Unbounded-Light.ttf') format('truetype');
+    src: url('./fonts/static/Unbounded-Light.ttf') format('truetype');
     font-weight: normal;
     font-style: normal;
 }
