@@ -52,7 +52,7 @@
         telescopeSim.addMusic('../static/music/Vbazi.mp3');
         telescopeSim.addSounds('../static/music');
         
-        fetch('https://' + window.location.hostname + '/static/astroImages/catalog.json')
+        fetch('../static/astroImages/catalog.json')
         .then(response => response.json())
         .then(data => {
                 data.forEach(item => {
