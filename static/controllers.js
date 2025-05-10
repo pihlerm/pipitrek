@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+const maxButtons=6;
+const menuButtonIndex=12;   // LEFT Meta Quest 2 controller's menu button is at index 12
+
 export class Controllers {
     constructor(renderer, userRig, scene) {
         // left and right controllers
@@ -29,8 +32,8 @@ export class Controllers {
         this.prepareCallbacks();
 
         // Prepare controller slots
-        const controller0 = renderer.xr.getController(0);
-        const controller1 = renderer.xr.getController(1);
+        this.controller0 = renderer.xr.getController(0);
+        this.controller1 = renderer.xr.getController(1);
 
         // Handle when controllers connect
         const onControllerConnected = (event) => {
@@ -51,6 +54,10 @@ export class Controllers {
 
             if (handedness === 'right') {
                 console.log('Right controller connected!');
+                if(this.Right) {
+                    console.log('Right controller already connected!');
+                    return;
+                }
                 this.Right = controller;
                 this.RightGamepad = event.data.gamepad || null; // <-- store gamepad reference!
                 addLaser(controller, 0xff0000);
@@ -59,6 +66,10 @@ export class Controllers {
                 if(this.onRConnectedCallback) this.onRConnectedCallback(controller);
             }
             if (handedness === 'left') {
+                if(this.Left) {
+                    console.log('Right controller already connected!');
+                    return;
+                }
                 console.log('Left controller connected!');
                 this.Left = controller;
                 this.LeftGamepad = event.data.gamepad || null; // <-- store gamepad reference!
@@ -70,8 +81,8 @@ export class Controllers {
         }
 
         // Listen for connected event on both controller slots
-        controller0.addEventListener('connected', onControllerConnected);
-        controller1.addEventListener('connected', onControllerConnected); 
+        this.controller0.addEventListener('connected', onControllerConnected);
+        this.controller1.addEventListener('connected', onControllerConnected); 
     }
 
     prepareCallbacks() {
@@ -79,7 +90,11 @@ export class Controllers {
         this.Lcallbacks = [];
         this.onRConnectedCallback = null;
         this.onLConnectedCallback = null;
-        for(var i=0; i<7; i++) {
+        this.menuPressedCallback = null;
+        this.menuReleasedCallback = null;
+        this.menuState = false;
+
+        for(var i=0; i<maxButtons; i++) {
             this.Rcallbacks.push({start: null, end:null, press:null, pressed: false, interval:0, lastTime:0});
             this.Lcallbacks.push({start: null, end:null, press:null, pressed: false, interval:0, lastTime:0});
         }
@@ -92,9 +107,16 @@ export class Controllers {
         this.onLConnectedCallback = callback;
     }
 
+    onMenuPressed(callback) {
+        this.menuPressedCallback = callback;
+    }
+    onMenuReleased(callback) {
+        this.menuReleasedCallback = callback;
+    }
+
     attachEvent(side, button, action, callback, interval=null) {
         
-        if(button > 6 || button<0) throw new Error("Invalid argument: button must be between 0 and 6.");
+        if(button > maxButtons || button<0) throw new Error("Invalid argument: button must be between 0 and 7.");
         
         const btn = (side == "left" ? this.Lcallbacks[button] : this.Rcallbacks[button]);
         
@@ -158,10 +180,11 @@ export class Controllers {
     }
 
     handleButtons(time, buttons, state) {
-        for(var i=0; i<buttons.length && i<state.length; i++) {
+        for(var i=0; i<buttons.length && i<maxButtons && i<state.length; i++) {
             const btn = buttons[i];
             const st = state[i];
             if(btn.pressed  && !st.pressed && time > (st.lastTime + st.interval)) {
+                // console.log('Button:',i,buttons[i].pressed, state[i].pressed, time, state[i].lastTime, state[i].interval);
                 st.pressed = btn.pressed;
                 st.lastTime = time;
                 if(st.start) st.start();
@@ -198,6 +221,20 @@ export class Controllers {
             }
         }
     }
+    
+    handleMenuButton(btns) {
+    // menu button is special
+        if(btns.length >=menuButtonIndex && (this.menuPressedCallback || this.menuReleasedCallback)) {
+            const btnmenu = btns[menuButtonIndex];
+            if(btnmenu.pressed && !this.menuState) {
+                this.menuState = true;
+                if(this.menuPressedCallback) this.menuPressedCallback(btnmenu.pressed);
+            } else if(!btnmenu.pressed && this.menuState) {
+                this.menuState = false;
+                if(this.menuReleasedCallback) this.menuReleasedCallback(btnmenu.pressed);
+            }
+        }
+    }
 
     handleControllers(time) {
         this.updateVectors(time - this.lastTime);
@@ -206,7 +243,9 @@ export class Controllers {
             this.handleButtons(time, this.RightGamepad.buttons, this.Rcallbacks);
         }
         if (this.LeftGamepad) {
-            this.handleButtons(time, this.LeftGamepad.buttons, this.Lcallbacks);
+            const btns = this.LeftGamepad.buttons;
+            this.handleButtons(time, btns, this.Lcallbacks);
+            this.handleMenuButton(btns);
         }
     }
 
@@ -224,4 +263,27 @@ export class Controllers {
             return [0,0];
         }        
     }
+
+
+    /** * Check all buttons on the left controller and add labels to the scene.
+     * @param {THREE.WebGLRenderer} renderer - The WebGL renderer instance.
+     * @param {TelescopeSim} t - The TelescopeSim instance to add labels to.
+     */
+    checkAllButtons(renderer, t) {
+        const session = renderer.xr.getSession();
+        if (!session) return;
+
+        for (const inputSource of session.inputSources) {
+            if (inputSource.gamepad) {
+                inputSource.gamepad.buttons.forEach((btn, i) => {
+                    if (btn.pressed) {
+                        console.log(`${inputSource.handedness} button ${i} is pressed`);
+                        t.addCurrentLabel(new THREE.Vector3(2,2,2), `Left button ${i} is pressed`);
+                    }
+                });
+            }
+        }
+    }
+
+
 }

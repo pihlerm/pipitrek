@@ -13,7 +13,7 @@
 		"name":"Luna",
 		"ra" : "16:30:13",
 		"dec" : "+00*00:00",
-		"arcsecPerPixel" : "5",
+		"arcsecPerPixel" : "3",
 		"rotation" : "0"
 	},
 	{
@@ -53,14 +53,6 @@
 		"name":"NGC 4631 Whale",
 		"ra" : "12:43:16",
 		"dec" : "+32*22:01",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "261"
-	},
-	{
-		"file":"NGC6054.jpg",
-		"name":"NGC Field",
-		"ra" : "16:06:18",
-		"dec" : "+17*48:21",
 		"arcsecPerPixel" : "0.93",
 		"rotation" : "261"
 	},
@@ -119,6 +111,14 @@
 		"dec" : "+25*54:55",
 		"arcsecPerPixel" : "0.93",
 		"rotation" : "262"
+	},
+	{
+		"file":"Eagle.jpg",
+		"name":"Eagle Nebula",
+		"ra" : "18:18:37",
+		"dec" : "-13*55:13",
+		"arcsecPerPixel" : "0.93",
+		"rotation" : "82"
 	}	
 	
 	

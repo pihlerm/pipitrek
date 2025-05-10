@@ -9,12 +9,13 @@
         {
             "imports": {
                 "three": "/static/three/three.module.min.js",
-                "OrbitControls": "/static/three/OrbitControls.js"
+                "OrbitControls": "/static/three/OrbitControls.js",
+                "DigitalBacon-UI": "/static/three/DigitalBacon-UI.min.js"
             }
         }</script>
 </head>
 <body>
-    <div id="controls">
+    <div id="controls" style="position: absolute;top:0;left:0;overflow: hidden;z-index: 100;">
         <label>RA (deg): <input type="range" id="raSlider" min="0" max="360" value="0"></label><br>
         <label>Dec (deg): <input type="range" id="decSlider" min="-180" max="180" value="0"></label><br>
         <label>Object RA (HH:MM:SS): <input type="text" id="raInput" value="13:45:22"></label><br>
@@ -24,26 +25,31 @@
         <button class="command-button" id="pointTelescope">Point</button>
         <button class="command-button" id="pointRealTelescope">Point</button><br>
         <button class="command-button" id="meridianFlip">M. Flip</button>
-        <button class="command-button" style="width:400px;height:200px;" id="enterVR">VR</button>
+        <button class="command-button" style="width:100px;height:50px;" id="enterVR">VR</button>
     </div>
     <div id="telescopeContainer" style="position: absolute;width:100vw;height:100vh;top:0;left:0;overflow: hidden;z-index: -1;">
         <canvas id="telescopeCanvas"></canvas>
     </div>
     <script src="/static/starCatalog.js"></script>
+    <script src="/static/ngcCatalog.js"></script>
+    
+    
     <script type="module">
         import { TelescopeSim } from '/static/telescope_sim.js';
         import { calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec } from '/static/astroutils.js';
 
         // Initialize telescope simulation
         const canvas = document.getElementById('telescopeCanvas');
+        const container = document.getElementById('telescopeContainer');
         const latitude = parseFloat(document.getElementById('lattitudeInput').value);
         const longitude = parseFloat(document.getElementById('longitudeInput').value);
         var blockUpdate=false;
 
-        const telescopeSim = new TelescopeSim(canvas);
-        telescopeSim.enableWebXR(canvas);
-        telescopeSim.addStarfield(starCatalog, 6);
-        telescopeSim.addMusic('/static/music/Vbazi.mp3');
+        const telescopeSim = new TelescopeSim(container, canvas);
+        telescopeSim.enableWebXR();
+        telescopeSim.addNGCs(ngcCatalog, 13);
+        telescopeSim.addStarfield(starCatalog, 7);
+        //telescopeSim.addMusic('/static/music/Vbazi.mp3');
         telescopeSim.addSounds('/static/music');
         
         fetch('https://' + window.location.host + '/static/astroImages/catalog.json')
@@ -135,12 +141,10 @@
 
         // Handle window resize
         window.addEventListener('resize', () => {
-            const container = document.getElementById('telescopeContainer');
             telescopeSim.resize(container.clientWidth, container.clientHeight);
         });
 
         // Initial resize
-        const container = document.getElementById('telescopeContainer');
         telescopeSim.resize(container.clientWidth, container.clientHeight);
 
 

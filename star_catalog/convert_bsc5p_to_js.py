@@ -66,7 +66,7 @@ def convert_bsc5p_to_js(input_file, output_file):
             # Escape quotes in strings and format the array element
             ra = ra.replace('"', '\\"')
             dec = dec.replace('"', '\\"')
-            line = f'  ["{ra}", "{dec}", {mag}, "{name}", "{constellation}", "{HDnr}"]'
+            line = f'  ["{ra}","{dec}","*",{mag},0,0,"{constellation}","HD{HDnr}","{name} {constellation}",""]'
             if i < len(stars) - 1:
                 line += ','
             f.write(line + '\n')
