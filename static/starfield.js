@@ -496,7 +496,7 @@ export class Starfield {
 
     createGalaxyTexture() {
         const textureLoader = new THREE.TextureLoader();
-        const texture = textureLoader.load('./img/galaxy.png', () => {
+        const texture = textureLoader.load('../static/img/galaxy.png', () => {
             console.log('Galaxy texture loaded:', texture.image.width, texture.image.height);
         });
         texture.colorSpace = THREE.SRGBColorSpace; // Ensure correct color rendering
@@ -505,7 +505,7 @@ export class Starfield {
 
     createNebulaTexture() {
         const textureLoader = new THREE.TextureLoader();
-        const texture = textureLoader.load('./img/nebula.png', () => {
+        const texture = textureLoader.load('../static/img/nebula.png', () => {
             console.log('Nebula texture loaded:', texture.image.width, texture.image.height);
         });
         texture.colorSpace = THREE.SRGBColorSpace;
@@ -514,7 +514,7 @@ export class Starfield {
 
     createStarClusterTexture() {
         const textureLoader = new THREE.TextureLoader();
-        const texture = textureLoader.load('./img/cluster.png', () => {
+        const texture = textureLoader.load('../static/img/cluster.png', () => {
             console.log('Cluster texture loaded:', texture.image.width, texture.image.height);
         });
         texture.colorSpace = THREE.SRGBColorSpace;
