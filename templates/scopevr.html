@@ -8,9 +8,9 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "/static/three/three.module.min.js",
-                "OrbitControls": "/static/three/OrbitControls.js",
-                "DigitalBacon-UI": "/static/three/DigitalBacon-UI.min.js"
+                "three": "../static/three/three.module.min.js",
+                "OrbitControls": "../static/three/OrbitControls.js",
+                "DigitalBacon-UI": "../static/three/DigitalBacon-UI.min.js"
             }
         }</script>
 </head>
@@ -30,13 +30,13 @@
     <div id="telescopeContainer" style="position: absolute;width:100vw;height:100vh;top:0;left:0;overflow: hidden;z-index: -1;">
         <canvas id="telescopeCanvas"></canvas>
     </div>
-    <script src="/static/starCatalog.js"></script>
-    <script src="/static/ngcCatalog.js"></script>
+    <script src="../static/starCatalog.js"></script>
+    <script src="../static/ngcCatalog.js"></script>
     
     
     <script type="module">
-        import { TelescopeSim } from '/static/telescope_sim.js';
-        import { calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec } from '/static/astroutils.js';
+        import { TelescopeSim } from '../static/telescope_sim.js';
+        import { calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec } from '../static/astroutils.js';
 
         // Initialize telescope simulation
         const canvas = document.getElementById('telescopeCanvas');
@@ -49,15 +49,15 @@
         telescopeSim.enableWebXR();
         telescopeSim.addNGCs(ngcCatalog, 13);
         telescopeSim.addStarfield(starCatalog, 7);
-        telescopeSim.addMusic('/static/music/Vbazi.mp3');
-        telescopeSim.addSounds('/static/music');
+        telescopeSim.addMusic('../static/music/Vbazi.mp3');
+        telescopeSim.addSounds('../static/music');
         
         fetch('https://' + window.location.host + '/static/astroImages/catalog.json')
         .then(response => response.json())
         .then(data => {
                 data.forEach(item => {
                     telescopeSim.addImage(
-                        '/static/astroImages/'+item.file,
+                        '../static/astroImages/'+item.file,
                         item.name,
                         item.ra,
                         item.dec,
