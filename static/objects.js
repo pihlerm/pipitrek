@@ -137,7 +137,7 @@ export function addSkyPoles(scene) {
 
 export function  addGround2(height, scene) {
     const loader = new THREE.TextureLoader();
-    loader.load('./img/Ground042_1K-JPG_Color.jpg', (texture) => {
+    loader.load('../static/img/Ground042_1K-JPG_Color.jpg', (texture) => {
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
         texture.repeat.set(30, 30); // Tile the texture for more detail
         texture.encoding = THREE.sRGBEncoding;
@@ -162,15 +162,15 @@ export function addGround(height) {
 
     const loader = new THREE.TextureLoader();
     const loadTexture = (url) => loader.load(url);
-    const colorMap = loadTexture('./img/Ground038_1K-JPG_Color.jpg');
+    const colorMap = loadTexture('../static/img/Ground038_1K-JPG_Color.jpg');
     colorMap.encoding = THREE.sRGBEncoding;
     colorMap.colorSpace = THREE.SRGBColorSpace;
 
     const groundGeometry = new THREE.CircleGeometry(100, 64);
     const groundMaterial = new THREE.MeshStandardMaterial({
         map: colorMap,
-        normalMap: loadTexture('./img/Ground038_1K-JPG_NormalGL.jpg'),
-        roughnessMap: loadTexture('./img/Ground038_1K-JPG_Roughness.jpg'),
+        normalMap: loadTexture('../static/img/Ground038_1K-JPG_NormalGL.jpg'),
+        roughnessMap: loadTexture('../static/img/Ground038_1K-JPG_Roughness.jpg'),
         //aoMap: loadTexture('/static/img/Ground042_1K-JPG_AmbientOcclusion.jpg'),
         //displacementMap: loadTexture('/static/img/Ground042_1K-JPG_Displacement.jpg'),
         //displacementScale: 1, // Adjust based on scene scale
@@ -204,7 +204,7 @@ export function addGround(height) {
 
 export function addTrees(scene) {
     const loader2 = new  GLTFLoader();
-    loader2.load('./img/searsia_burchellii_4k.gltf/searsia_burchellii_4k.gltf', (gltf) => {
+    loader2.load('../static/img/searsia_burchellii_4k.gltf/searsia_burchellii_4k.gltf', (gltf) => {
         const originalTree = gltf.scene;
     
         const treePositions = [
