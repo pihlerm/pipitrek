@@ -1,16 +1,16 @@
 import * as THREE from 'three';
-import {GLTFLoader} from '/static/three/loaders/GLTFLoader.js';
-import {FontLoader} from '/static/three/loaders/FontLoader.js';
-import {OrbitControls} from '/static/three/OrbitControls.js';
-import Stats from '/static/three/stats.module.js';
+import {GLTFLoader} from './three/loaders/GLTFLoader.js';
+import {FontLoader} from './three/loaders/FontLoader.js';
+import {OrbitControls} from './three/OrbitControls.js';
+import Stats from './three/stats.module.js';
 import * as AstroUtils from './astroutils.js';
 import * as TextUtils from './textutils.js';
-import {Controllers} from '/static/controllers.js';
-import {Starfield} from '/static/starfield.js';
-import {Telescope} from '/static/telescope.js';
-import {TelescopeGUI} from '/static/TelescopeGUI.js';
+import {Controllers} from './controllers.js';
+import {Starfield} from './starfield.js';
+import {Telescope} from './telescope.js';
+import {TelescopeGUI} from './TelescopeGUI.js';
 import {createObservingPlatform,addSkyPoles,addCoordinateAxes, addGround} from './objects.js';
-import { getImageDSS,getImageDSSUrl } from '/static/dssTools.js';
+import { getImageDSS,getImageDSSUrl } from './dssTools.js';
 
 export class TelescopeSim {
     constructor(container, canvas, longitude = 14.5058, latitude = 46.0569) {
