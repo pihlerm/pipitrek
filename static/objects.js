@@ -114,19 +114,19 @@ export function addSkyPoles(scene) {
 
     // Add text labels at the end of each axis
     const nLabel = TextUtils.createTextSprite('N');
-    nLabel.scale.set(10, 10, 10);
+    nLabel.scale.set(2, 2, 2);
     nLabel.position.set(100, 0, 0);
     
     const sLabel = TextUtils.createTextSprite('S');
-    sLabel.scale.set(10, 10, 10);
+    sLabel.scale.set(2, 2, 2);
     sLabel.position.set(-100, 0, 0); 
 
     const eLabel = TextUtils.createTextSprite('E');
-    eLabel.scale.set(10, 10, 10);
+    eLabel.scale.set(2, 2, 2);
     eLabel.position.set(0, 0, 100);
 
     const wLabel = TextUtils.createTextSprite('W');
-    wLabel.scale.set(10, 10, 10);
+    wLabel.scale.set(2, 2, 2);
     wLabel.position.set(0, 0, -100);
     // Add labels to scene
     scene.add(nLabel);

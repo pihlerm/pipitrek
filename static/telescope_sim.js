@@ -797,7 +797,7 @@ export class TelescopeSim {
         this.telescope.group.add(this.moveSound);
         this.telescope.moveSound = this.moveSound;
         const audioLoader = new THREE.AudioLoader();
-        audioLoader.load(directory+"/SimMove.ogg", (buffer) => {
+        audioLoader.load(directory+"/DomeMove.ogg", (buffer) => {
             this.moveSound.setBuffer(buffer);
             this.moveSound.setRefDistance(10); // How quickly it fades with distance
             this.moveSound.setRolloffFactor(1.1);

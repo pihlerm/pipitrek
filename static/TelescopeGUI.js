@@ -101,7 +101,6 @@ export class TelescopeGUI {
             span.add(element);
             span.add(labelText);
             element.onChange = (value) => onChangeCallback(value);
-            element.value = value;
             parent.add(span);
             return span;
           }
