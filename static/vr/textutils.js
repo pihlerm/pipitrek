@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 export function createTextSprite(text) {
+    if(text == null) return null;
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
 

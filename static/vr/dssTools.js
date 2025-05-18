@@ -77,3 +77,61 @@ function validateDEC(dec) {
     return decPattern.test(dec);
 }
 
+
+/**
+ * Uploads an array of catalog objects as a JSON string to catalog.json via PUT request
+ * @param {Array} imageCatalog - Array of [ra, dec, name, texture, mesh, rotation]
+ * @param {string} [serverUrl='https://192.168.1.16:8443'] - Server URL
+ * @returns {Promise<string>} - Success message or throws error
+ */
+export async function uploadCatalogAsJson(imageCatalog, serverUrl = 'https://192.168.1.16:8443') {
+    // Validate input
+    if (!Array.isArray(imageCatalog) || imageCatalog.length === 0) {
+        throw new Error('imageCatalog must be a non-empty array');
+    }
+
+    // Extract ra, dec, name, rotation
+    const catalogData = imageCatalog.map((entry, index) => {
+        if (!Array.isArray(entry) || entry.length < 6) {
+            console.warn(`Invalid catalog entry at index ${index}: ${JSON.stringify(entry)}`);
+            return null;
+        }
+        const [ra, dec, name, , , rotation] = entry;
+        if (typeof ra !== 'string' || typeof dec !== 'string' || typeof name !== 'string') {
+            console.warn(`Invalid types at index ${index}: ra=${ra}, dec=${dec}, name=${name}`);
+            return null;
+        }
+        return { ra, dec, name, rotation: typeof rotation === 'number' ? rotation : 0 };
+    }).filter(entry => entry !== null);
+
+    if (catalogData.length === 0) {
+        throw new Error('No valid catalog entries found');
+    }
+
+    // Convert to JSON string
+    const jsonString = JSON.stringify(catalogData, null, 2); // Pretty-print with 2 spaces
+
+    // Upload via PUT
+    try {
+        const response = await fetch(`${serverUrl}/catalog.json`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': jsonString.length
+            },
+            body: jsonString
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server responded with status ${response.status}: ${await response.text()}`);
+        }
+
+        const responseText = await response.text();
+        console.log(`Uploaded catalog.json: ${responseText}`);
+        return `Successfully uploaded ${catalogData.length} entries to catalog.json`;
+    } catch (error) {
+        console.error(`Failed to upload catalog.json: ${error.message}`);
+        throw new Error(`Upload failed: ${error.message}`);
+    }
+}
+

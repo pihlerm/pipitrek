@@ -23,13 +23,18 @@ for input_csv in input_csvs:
                 dec = row['Dec'].replace(':', '*', 1)  # Replace first colon with asterisk
                 const = row['Const']
                 b_mag = row['B-Mag']
+                v_mag = row['V-Mag']
+                try:
+                    bvindex = float(b_mag)-float(v_mag)
+                except:
+                    bvindex = ''
                 ang_size = row['MajAx']
                 SurfBr = row['SurfBr']
                 M = row['M']
                 cname = row['Common names']
                 # Format as JavaScript array element
                 # Quote strings, keep B-Mag as number (float)
-                js_entry = f'["{ra}","{dec}","{type_}",{b_mag},{SurfBr},{ang_size},"{const}","{name}","{cname}","{M}"]'
+                js_entry = f'["{ra}","{dec}","{type_}",{b_mag},{SurfBr},{ang_size},"{const}","{name}","{cname}","{M}",{bvindex}]'
                 js_array.append(js_entry + ',')
 
 # Remove the last comma and close the array

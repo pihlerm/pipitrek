@@ -6,8 +6,9 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "/static/three/three.module.min.js",
-                "OrbitControls": "/static/three/OrbitControls.js"
+                "three": "../static/three/three.module.min.js",
+                "OrbitControls": "../static/three/OrbitControls.js",
+                "DigitalBacon-UI": "../static/three/DigitalBacon-UI.min.js"
             }
         }</script>
     <script src="/static/inputmask.min.js"></script>
@@ -205,7 +206,8 @@
     
         // Initialize TelescopeSim and attach it to the global window object
         const canvas = document.getElementById('telescopeCanvas');
-        window.telescopeSim = new TelescopeSim(canvas);
+        const container = document.getElementById('telescopeContainer');
+        window.telescopeSim = new TelescopeSim(container, canvas);
     
         // Example: Add click detection
         telescopeSim.addClickDetection((index) => {
@@ -218,12 +220,10 @@
     
         // Handle window resize
         window.addEventListener('resize', () => {
-            const container = document.getElementById('telescopeContainer');
             telescopeSim.resize(container.clientWidth, container.clientHeight);
         });
     
         // Initial resize
-        const container = document.getElementById('telescopeContainer');
         telescopeSim.resize(container.clientWidth, container.clientHeight);
     </script>
 

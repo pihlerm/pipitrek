@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec, positionFromRADEC, positionFromRADECrad } from './astroutils.js';
 
 export class Telescope {
-    constructor(scale, height) {
+    constructor(scale, height, group) {
         this.westPier = false;          // True if telescope is on the west side of the pier
         this.telescopeScale = scale;      // Scale factor for telescope size
         this.telescopeFOV =2;           // FOV of the telescope camera
@@ -17,6 +17,7 @@ export class Telescope {
         this.decAngleTarget = 0;        // telescope target angle, changes during animation
         this._addTelescope();
         this._addProjectionScreen();
+        group.add(this.group);
         // Initial angles
         this.setAngles(this.raAngle, this.decAngle);
         this.moveSound = null;
@@ -33,6 +34,8 @@ export class Telescope {
     // the texture is then mapped onto this.projectionScreen
 
     renderScreen(renderer, scene) {
+        if(!this.isVisible()) return;
+
         const currentRenderTarget = renderer.getRenderTarget();
         const wasXREnabled = renderer.xr.enabled;
         const prevParent = this.projectionGroup.parent; 
@@ -45,6 +48,15 @@ export class Telescope {
         if(prevParent) prevParent.add(this.projectionGroup);
         renderer.xr.enabled = wasXREnabled; // Restore XR rendering for rest of scene
         renderer.setRenderTarget(currentRenderTarget);
+    }
+    
+    isVisible() {
+        return this.group.visible;
+    }
+
+    setVisible(visible) {
+        this.group.visible = visible;
+        this.projectionGroup.visible = visible;
     }
 
     getFOV() {
@@ -93,6 +105,7 @@ export class Telescope {
 
     select(selected = true) {
         this.bodyMaterial.color.set(selected ? 0xff1111 : 0x2222aa);
+        this.screenBorder.visible = selected;
     }
 
     setPolarAngle(angle) {
@@ -130,6 +143,8 @@ export class Telescope {
     }
 
     animate(addRaRotation) {
+        if(!this.isVisible()) return;
+
         const delta = 0.2;
         var animating = false;
         if(this.raAngle !== this.raAngleTarget) {
@@ -178,6 +193,7 @@ export class Telescope {
         for(const obj of this.projectionGroup.children) obj.layers.set(2);
         this.group.remove(this.projectionGroup);
         camera.add(this.projectionGroup);
+        this.shield.visible = true;
         this.projectionGroup.position.set(0.055, -0.02, -0.15); // In front of camera, adjust as needed
         this.projectionGroup.scale.set(0.22,0.22,0.22);        
     }
@@ -185,6 +201,7 @@ export class Telescope {
         for(const obj of this.projectionGroup.children) obj.layers.set(0);
         camera.remove(this.projectionGroup);
         this.group.add(this.projectionGroup);
+        this.shield.visible = false;
         this.projectionGroup.position.set(1, this.height, 0); 
         this.projectionGroup.scale.set(1,1,1);
     }
@@ -351,13 +368,16 @@ export class Telescope {
 
         // projection screen for telescope camera
         this.projectionScreen = new THREE.Mesh( new THREE.CircleGeometry(0.5, 64), material2);
-        const shield = new THREE.Mesh( new THREE.CircleGeometry(0.8, 64), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide}));
+        this.shield = new THREE.Mesh( new THREE.CircleGeometry(0.8, 64), new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide}));
+        this.screenBorder = new THREE.Mesh( new THREE.CircleGeometry(0.55, 64), new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide}));
         this.projectionGroup = new THREE.Group();
         this.projectionGroup.position.set(1, this.height, 0); 
         this.projectionGroup.rotation.set(0, 0, Math.PI); // Reset rotation
         this.projectionGroup.name = "projectionScreen";
-        shield.position.set(0, 0, -0.01); 
-        //this.projectionGroup.add(shield);
+        this.shield.position.set(0, 0, -0.01); 
+        this.screenBorder.position.set(0, 0, -0.005); 
+        //this.projectionGroup.add(this.shield);
+        //this.projectionGroup.add(this.screenBorder);
         this.projectionGroup.add(this.projectionScreen);
 
         this.group.add(this.projectionGroup);

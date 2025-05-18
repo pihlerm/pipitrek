@@ -90,12 +90,12 @@ class Telescope:
                         raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
-        #print(f"scope send: {data}")
+        print(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
-        #print(f"scope read: {data}")
+        print(f"scope read: {data}")
         return data
 
     def readline_scope(self, timeout=1):
@@ -103,7 +103,7 @@ class Telescope:
         self._serial_connection.timeout = timeout
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
         self._serial_connection.timeout = prevto
-        #print(f"scope readline: {data}")
+        print(f"scope readline: {data}")
         return data
 
     def read_scope_byte(self):

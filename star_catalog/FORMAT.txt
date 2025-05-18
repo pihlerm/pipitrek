@@ -1,7 +1,7 @@
 The catalog array shall have the following format:
 
 const catalogName = [
-[raStr, decStr, type, visMAG, surfB, angSize, constStr, catNumber, name, M],
+[raStr, decStr, type, visMAG, surfB, angSize, constStr, catNumber, name, M, BVcolor],
 ..
 }
 
@@ -15,10 +15,11 @@ constStr : constellation
 catNumber : object number from catalog (NGCxx, ..)
 name : common name of object
 M : messier catalog number
+BVcolor: B-V color index (from bsc5p catalog B-V color in the UBV system)
 
 examples:
 
-["00:11:00.88", "-12*49:22.3", "G", 15.46, 23.45, 0.98, "Cet", "IC0002", "", ""],
+["00:11:00.88", "-12*49:22.3", "G", 15.46, 23.45, 0.98, "Cet", "IC0002", "", "", 1.3],
 
 
 - Type: Object type

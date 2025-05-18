@@ -1,7 +1,26 @@
 [
 
 	{
-		"file":"Saturn3.jpg",
+		"file":"MW2.jpg",
+		"name":"MW",
+		"ra" : "17:45:45",
+		"dec" : "-23*40:00",
+		"arcsecPerPixel" : "216",
+		"rotation" : "24.15",
+		"ra2": " 17:49:31.8",
+		"dec2": "-25*25:17.4",
+		"rotation2": 60.551384878158295
+	},
+	{
+		"file":"Jupiter.webp",
+		"name":"Jupiter",
+		"ra" : "17:30:13",
+		"dec" : "+00*00:00",
+		"arcsecPerPixel" : "5",
+		"rotation" : "0"
+	},
+	{
+		"file":"Saturn3.webp",
 		"name":"Saturn",
 		"ra" : "17:30:13",
 		"dec" : "+00*00:00",
@@ -19,106 +38,106 @@
 	{
 		"file":"Orion.jpg",
 		"name":"M42 Orion Nebula",
-		"ra" : "05:34:46",
-		"dec" : "-05*40:16",
+		"ra" : "05:34:46.6",
+		"dec" : "-05*40:24.3",
 		"arcsecPerPixel" : "1.24",
 		"rotation" : "346.2"
 	},
 	{
 		"file":"M101-pinwheel.jpg",
 		"name":"M101 Pinwheel galaxy",
-		"ra" : "14:03:13",
-		"dec" : "+54*20:57",
-		"arcsecPerPixel" : "1.2",
-		"rotation" : "0"
+		"ra" : "14:03:11.6",
+		"dec" : "+54*24:45.9",
+		"arcsecPerPixel" : "1.24",
+		"rotation" : "273.9"
 	},
 	{
 		"file":"M81B.jpg",
 		"name":"M81",
-		"ra" : "9:55:33",
-		"dec" : "+69*03:55",
-		"arcsecPerPixel" : "1.2",
-		"rotation" : "0"
+		"ra" : "9:56:39.2",
+		"dec" : "+69*20:33.2",
+		"arcsecPerPixel" : "0.931",
+		"rotation" : "260.1"
 	},
 	{
 		"file":"hamburger.jpg",
 		"name":"NGC 3628 Hamburger",
-		"ra" : "11:19:58",
-		"dec" : "+13*22:39",
+		"ra" : "11:19:58.2",
+		"dec" : "+13*22:39.52",
 		"arcsecPerPixel" : "1.24",
 		"rotation" : "259.3"
 	},
 	{
 		"file":"NGC4631.jpg",
 		"name":"NGC 4631 Whale",
-		"ra" : "12:43:16",
-		"dec" : "+32*22:01",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "261"
+		"ra" : "12:43:16.5",
+		"dec" : "+32*21:52.2",
+		"arcsecPerPixel" : "0.931",
+		"rotation" : "261.7"
 	},
 	{
 		"file":"M94-Crocodile.jpg",
 		"name":"M94 Crocodile Eye",
-		"ra" : "12:51:15",
-		"dec" : "+41*09:28",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "262"
+		"ra" : "12:50:53.2",
+		"dec" : "+41*07:18.6",
+		"arcsecPerPixel" : "0.933",
+		"rotation" : "262.1"
 	},
 	{
 		"file":"NGC4826_BlackEye_cutout.jpg",
 		"name":"NGC4826 Black Eye",
-		"ra" : "12:56:48",
-		"dec" : "+21*42:08",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "262"
+		"ra" : "12:56:48.3",
+		"dec" : "+21*42:46.3",
+		"arcsecPerPixel" : "0.933",
+		"rotation" : "261.8"
 	},
 	{
 		"file":"starfield.jpg",
 		"name":"Beehive Cluster",
 		"ra" : "08:40:42",
-		"dec" : "+19*43:21",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "262"
+		"dec" : "+19*43:22.28",
+		"arcsecPerPixel" : "0.931",
+		"rotation" : "261.8"
 	},
 	{
 		"file":"M106.jpg",
 		"name":"M106 et al",
 		"ra" : "12:17:28",
-		"dec" : "+47*30:36",
+		"dec" : "+47*30:36.8",
 		"arcsecPerPixel" : "1.24",
-		"rotation" : "276"
+		"rotation" : "275.7"
 	},
 	{
 		"file":"Zvezde_Jup21M.jpg",
 		"name":"Sagittarius",
 		"ra" : "19:54:18",
-		"dec" : "+18*42:11",
+		"dec" : "+18*42:11.4",
 		"arcsecPerPixel" : "9.83",
-		"rotation" : "268"
+		"rotation" : "267.7"
 	},
 	{
 		"file":"RingNebulaWide1.jpg",
 		"name":"Ring Nebula",
-		"ra" : "18:53:25",
-		"dec" : "+33*00:37",
+		"ra" : "18:53:25.9",
+		"dec" : "+33*00:47.15",
 		"arcsecPerPixel" : "1.24",
-		"rotation" : "278"
+		"rotation" : "277.9"
 	},
 	{
 		"file":"NGC4565 Needle.jpg",
 		"name":"NGC 4565 Needle Galaxy",
-		"ra" : "12:36:16",
-		"dec" : "+25*54:55",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "262"
+		"ra" : "12:36:15.8",
+		"dec" : "+25*54:54.8",
+		"arcsecPerPixel" : "0.933",
+		"rotation" : "262.3"
 	},
 	{
 		"file":"Eagle.jpg",
 		"name":"Eagle Nebula",
-		"ra" : "18:18:37",
-		"dec" : "-13*55:13",
-		"arcsecPerPixel" : "0.93",
-		"rotation" : "82"
+		"ra" : "18:18:31.4",
+		"dec" : "-13*50:59.9",
+		"arcsecPerPixel" : "0.932",
+		"rotation" : "81.9"
 	}	
 	
 	

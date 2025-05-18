@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import {GLTFLoader} from './three/loaders/GLTFLoader.js';
-import {FontLoader} from './three/loaders/FontLoader.js';
-import {OrbitControls} from './three/OrbitControls.js';
-import Stats from './three/stats.module.js';
+import {GLTFLoader} from '../three/loaders/GLTFLoader.js';
+import {FontLoader} from '../three/loaders/FontLoader.js';
+import {OrbitControls} from '../three/OrbitControls.js';
+import Stats from '../three/stats.module.js';
+
 import * as AstroUtils from './astroutils.js';
 import * as TextUtils from './textutils.js';
 import {Controllers} from './controllers.js';
@@ -10,21 +11,25 @@ import {Starfield} from './starfield.js';
 import {Telescope} from './telescope.js';
 import {TelescopeGUI} from './TelescopeGUI.js';
 import {createObservingPlatform,addSkyPoles,addCoordinateAxes, addGround} from './objects.js';
-import { getImageDSS,getImageDSSUrl } from './dssTools.js';
+import { getImageDSS,getImageDSSUrl, uploadCatalogAsJson } from './dssTools.js';
+import { getDefaultProperties } from './properties.js';
+
 
 export class TelescopeSim {
-    constructor(container, canvas, longitude = 14.5058, latitude = 46.0569) {
+    constructor(container, canvas, vr=false, properties = null) {
+
+        this.settings = properties ? properties : this.loadSettings();
         this.container = container;
         this.canvas = canvas;
+        this.latitude = this.settings.latitude * Math.PI / 180,       // Rotates interactively
+		this.longitude = this.settings.longitude;                     // Keep in degrees
         this.currentLST = AstroUtils.calculateLST(this.longitude);
         this.onSelectCallback = null;
         this.onActionCallback = null;
         this.tempMatrix = new THREE.Matrix4();
         this.controllers = null;
-        this.addRotation = 0;
+        this.addRotation = 0;                           // Rotates RA interactively
         this.height = 1.6;
-        this.latitude = latitude * Math.PI / 180,           // Rotates interactively
-		this.longitude = longitude;     // Keep in degrees
 
         this.currentObjectCatalog = null;
         this.currentObjectIndex = null;
@@ -32,45 +37,15 @@ export class TelescopeSim {
 
         this.currentLabels = [];
         this.currentLabel = null;
-
-        this.settings = {
-            actualLatitude: latitude * Math.PI / 180,     // Our initial actual latitude
-            showStars: true,
-            showGalaxies: true,
-            showNebulae: true,
-            showClusters: true,
-            showConstellations: true,
-            showLabels: false,
-            showTelescope: true,
-            showTelescopeScreen: true,
-            showGround: true,
-            gravity: true
-        }
-
-        this.renderer = new THREE.WebGLRenderer({
-             canvas: this.canvas,
-             antialias: true,
-             //logarithmicDepthBuffer: true,
-             //alpha: true
-        });
-
-        this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio); // Optimize for Quest 3
-        this.renderer.outputEncoding = THREE.sRGBEncoding;
-        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        this.renderer.toneMapping = THREE.LinearToneMapping; // Try other options like LinearToneMapping
-        this.renderer.toneMappingExposure = 1.0; // Try lowering if it's washed out
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
         
         this.clock = new THREE.Clock();
 
         this.addSceneAndLighting(canvas);
-
         this.ground = addGround(0, this.scene);
         addSkyPoles(this.scene);
         
-        this.telescope = new Telescope(0.25, this.height);
-        this.scene.add(this.telescope.group);
+        this.telescope = new Telescope(0.25, this.height, this.scene);
+        this.telescope.setVisible(this.settings.showTelescope);
 
         this.moveSound = null;
         this.ropeSound = null;
@@ -78,14 +53,14 @@ export class TelescopeSim {
         this.clickSound = null;
         this.audioListener = new THREE.AudioListener();
         this.camera.add(this.audioListener);
-        this.addOrbitControls();
         this.addControllers();
         //this.addStats();
 
-        this.starfield = new Starfield(this.starfieldGroup);
+        if(vr) this.enableWebXR();
+
+        this.starfield = new Starfield(this.starfieldGroup, this.settings, this.scene);
 
         this.addClickDetection();
-        //this.addMusic();
         //this.addCoordinateAxes(this.scene);
         //this.userRig.add(createObservingPlatform());
 
@@ -100,30 +75,57 @@ export class TelescopeSim {
         //});
 
         TelescopeGUI.init(this.container, this.renderer, this.scene, this.camera, this.userRig);
-        this.telescopeGUI = new TelescopeGUI(this.scene, this.userRig, this.settings, this.starfield, this, this.telescope);
+        this.telescopeGUI = TelescopeGUI.createVisibilityGUI(this.scene, this.userRig, this.settings, this.starfield, this, this.telescope);
+        //this.addOrbitControls();
+        
+        this.settings.gravity = false;
+
+        //this.telescopeGUI.show();
+        //this.moveTo([0,0,0]);
+        //this.telescopeGUI.body.position.set(2, 1.6, 0);
+        //this.telescopeGUI.body.rotation.set(0, Math.PI/2, 0);
+        //this.camera.rotateY(Math.PI * 0.5);
 
         //this.scene.add(new THREE.CameraHelper(this.telescopeCamera));
         //this.scene.add(new THREE.CameraHelper(this.camera)); // main VR camera
 
     }    
-
-    setVisibility() {
-        this.telescope.group.visible = this.settings.showTelescope;
-        this.telescope.screen.visible = this.settings.showTelescopeScreen;
-        this.starfield.enableCatalogs('star',this.settings.showStars);
-        this.starfield.enableCatalogs('galaxy',this.settings.showGalaxies);
-        this.starfield.enableCatalogs('nebula',this.settings.showNebulae);
-        this.starfield.enableCatalogs('cluster',this.settings.showClusters);
-    }
     
-    addStarfield(catalog, minMagnitude = 5) {
-        this.starfield.addStarCatalog(catalog, minMagnitude);        
+    saveSettings() {
+        localStorage.setItem('telescopeSimSettings', JSON.stringify(this.settings));
     }
 
-    addNGCs(catalog, minMagnitude = 13) {
-        this.starfield.addGalaxyCatalog(catalog, minMagnitude);
-        this.starfield.addNebulaCatalog(catalog, minMagnitude);
-        this.starfield.addClusterCatalog(catalog, minMagnitude);        
+    loadSettings() {
+        const savedSettings = localStorage.getItem('telescopeSimSettings');
+        return savedSettings ? JSON.parse(savedSettings) : getDefaultProperties();
+    }
+
+    saveCatalog() {
+        uploadCatalogAsJson(this.starfield.imageCatalog);
+    }
+
+    addStarfield(catalog) {
+        this.starfield.addCatalog(catalog, 'star');        
+    }
+
+    addNGCs(catalog) {
+        this.starfield.addCatalog(catalog, 'galaxy');
+        this.starfield.addCatalog(catalog, 'nebula');
+        this.starfield.addCatalog(catalog, 'cluster');
+    }
+
+    addImages(catalog) {
+        this.starfield.addCatalog(catalog, 'image');        
+    }
+
+    addLiveImage(imageb64, arcsecondsPerPixel, rotation = 0) {
+        const dec = AstroUtils.Degrees(this.telescope.decAngle);
+        const ra = AstroUtils.HoursMinutesSeconds(this.telescope.raAngle/15); 
+        return this.starfield.addLiveImage(imageb64, arcsecondsPerPixel, rotation, ra, dec);
+    }
+
+    updateLiveImage(imageb64) {
+        return this.starfield.updateLiveImage(imageb64);
     }
 
     pointTelescope(raStr, decStr, animate=false) {
@@ -131,6 +133,10 @@ export class TelescopeSim {
     }
     meridianFlip() {
         this.telescope.meridianFlip();
+    }
+
+    setPier(west = false) {
+        this.telescope.setPier(west);
     }
 
     onSelect(funct) {
@@ -161,6 +167,7 @@ export class TelescopeSim {
     }
 
     animate(time, frame) {
+        
         // Update starfield rotation based on current LST
         this.currentLST = AstroUtils.calculateLST(this.longitude);
         this.telescope.setLST(this.currentLST);
@@ -179,7 +186,10 @@ export class TelescopeSim {
         this.starfieldPolarGroup.position.copy(this.telescope.cameraPosition);
         
         this.starfield.animateStars(elapsedTime);
-        this.starfield.updateLiveImagePos(elapsedTime);
+        
+        const raDeg = (((this.telescope.raAngle-180) % 360) + 360) % 360;
+        this.starfield.updateLiveImagePos(raDeg, this.telescope.decAngle);
+
         this.handleControllers(elapsedTime);
 
 
@@ -268,11 +278,13 @@ export class TelescopeSim {
                 return;
             } 
             const [raStr, decStr] = this.currentObjectCatalog[this.currentObjectIndex];
-            const [x, y, z] =  AstroUtils.positionFromRADEC(raStr, decStr, this.starfieldGroup, 95, true);
+            const [x, y, z] =  AstroUtils.positionFromRADEC(raStr, decStr, this.starfieldGroup, 95);
             this.camera.position.set(x, y, z);
-            const [x1, y1, z1] =  AstroUtils.positionFromRADEC(raStr, decStr, this.starfieldGroup, 100, true);
-            this.controls.target.set(x1, y1, z1);
-            this.controls.update(); 
+            const [x1, y1, z1] =  AstroUtils.positionFromRADEC(raStr, decStr, this.starfieldGroup, 100);
+            if(this.controls){
+                this.controls.target.set(x1, y1, z1);
+                this.controls.update(); 
+            }
             this.removeCurrentLabel();
             this.currentObjectIndex = null;
             this.currentObjectCatalog = null;
@@ -346,12 +358,12 @@ export class TelescopeSim {
         },1);        
         
         this.controllers.attachEvent("right", 0, "end", () => {
-            const selections = this.starfield.select();
-            this.raycaster.setFromXRController(this.controllers.Right);
             const point = new THREE.Vector3();
-            const hit = this.raycaster.ray.intersectSphere(this.starfield.sphere, point);
+            this.raycaster.setFromXRController(this.controllers.Right);
             this.lastSelectTime = 0;
 
+            // check selection polygon
+            const selections = this.starfield.select();
             if (selections.length > 0) {
                 var labelText = "";
                 this.currentObject = null;
@@ -364,11 +376,13 @@ export class TelescopeSim {
                     }
                     this.starfield.getWorldPosition(sel.object, sel.index, point);
                     labelText = this.starfield.getLabelText(sel.object, sel.index);
-                    const labelSprite = TextUtils.createTextSprite(labelText);
-                    labelSprite.position.copy(point);
-                    this.scene.add(labelSprite);
-                    this.currentLabels.push(labelSprite);
-                    this.scaleLabel(labelSprite);
+                    if(labelText) {
+                        const labelSprite = TextUtils.createTextSprite(labelText);
+                        labelSprite.position.copy(point);
+                        this.scene.add(labelSprite);
+                        this.currentLabels.push(labelSprite);
+                        this.scaleLabel(labelSprite);
+                    }
                     //labelText += this.starfield.getLabelText(sel.object, sel.index) +"\n";
                 }
                 //if(labelText) this.addCurrentLabel(point, labelText);
@@ -379,10 +393,12 @@ export class TelescopeSim {
 
 
         this.controllers.attachEvent("right", 4, "start", () => {
-                if(this.currentObjectIndex == null) return;
-                const [raStr, decStr] = this.currentObjectCatalog[this.currentObjectIndex];
+                if(this.currentObjectIndex == null) {
+                    // get ra dec from centroid point
+                }
+                const [raStr, decStr] = this.starfield.getRaDecPosition(this.currentObject, this.currentObjectIndex);
                 const imageUrl = getImageDSSUrl(raStr, decStr, 50, 50);
-                this.addImage(imageUrl, "new img", raStr, decStr, 0, 0, null, 50*60);
+                this.starfield.addImage(imageUrl, null, raStr, decStr, 0, 0, null, 50*60);
                 this.pointTelescope(raStr, decStr, true);
                 this.blockPointing = true;
         },1);        
@@ -398,7 +414,7 @@ export class TelescopeSim {
          },1);
     
         this.controllers.attachEvent("right", 3, "press", () => {
-                this.latitude = this.settings.actualLatitude; 
+                this.latitude = this.settings.latitude * Math.PI / 180; 
                 this.addRotation = 0;
         },1);
 
@@ -410,12 +426,7 @@ export class TelescopeSim {
 
         this.controllers.attachEvent("left", 3, "press", () => {
             this.starfield.scaleImages(); // reset scale
-            // highlight all
-            this.imageCatalog.forEach(obj => {
-                if (obj[4] != null) {
-                    obj[4].material.uniforms.showBorder.value = true;
-                }
-            });
+            this.starfield.highlightImages();
         },1);
 
         // Oculus X button
@@ -450,12 +461,19 @@ export class TelescopeSim {
         if(!this.controllers) return;
         this.controllers.handleControllers(elapsedTime);
 
+        // right hand thumbstick
         const [x,y] = this.controllers.RthumbAxes();
         if(this.currentObject == this.telescope.group) {
             // move the scope
             const delta = Math.PI/3600;
             if (Math.abs(x) > 0.1 || Math.abs(y) > 0.1) {
                 this.telescope.move(x*delta*3, y*delta*3);
+            }
+        } else if(this.currentObject != null && this.currentObject.name == 'image') {
+            // move the image
+            const delta = Math.PI/3600;
+            if (Math.abs(x) > 0.1 || Math.abs(y) > 0.1) {
+                this.starfield.moveImage(-x*delta*2, y*delta*2, 0, this.currentObjectIndex);
             }
         } else {
             // move the sky
@@ -486,6 +504,18 @@ export class TelescopeSim {
                     this.telescope.setFOV(this.telescope.getFOV()*factor);
                 }
             }
+        } else if(this.currentObject != null && this.currentObject.name == 'image') {
+            // rotate the image
+            const delta = 0.1;
+            if (Math.abs(u) > 0.1) {
+                this.starfield.moveImage(0, 0, u*delta, this.currentObjectIndex);
+            }
+
+            // scale the image
+            if (Math.abs(v) > 0.3) {
+                const factor = v > 0 ? 1.005 : 1/1.005;
+                this.starfield.scaleImages(factor, this.currentObjectIndex);
+            }                                
         } else {
             // move user rig
             const delta = 0.1;
@@ -599,7 +629,7 @@ export class TelescopeSim {
 
         // try telescope
         const it = this.raycaster.intersectObjects([this.telescope.group], true);
-        if (it.length > 0) {
+        if (this.telescope.isVisible() && it.length > 0) {
             this.currentObject = this.telescope.group;
             this.currentObjectIndex = null;
             this.currentObjectCatalog = null;
@@ -611,6 +641,7 @@ export class TelescopeSim {
         const intersects = this.raycaster.intersectObjects([this.starfieldGroup], true);
         if (intersects.length > 0) {
             for(const intersect of intersects) {
+                if(!intersect.object.visible) continue;
                 point = intersect.point;
                 if(intersect.object.name=='image') {
                     this.currentObject = intersect.object;
@@ -653,26 +684,6 @@ export class TelescopeSim {
             if(this.onSelectCallback) this.onSelectCallback(null, null);
             console.log('No star selected');
         }
-    }
-
-    addLiveImage(imageb64, arcsecondsPerPixel, rotation = 0) {
-        return this.starfield.addLiveImage(imageb64, arcsecondsPerPixel, rotation);
-    }
-
-    updateLiveImage(imageb64) {
-        return this.starfield.updateLiveImage(imageb64);
-    }
-
-    addImage(img, name, ra, dec, arcsecondsPerPixel, rotation = 0, index = null, widthArcsec = null) {
-        
-        if (name === "Luna") {
-            ra = AstroUtils.HoursMinutesSeconds(this.currentLST);
-        }
-        if (name === "Saturn" ) {
-            ra = AstroUtils.HoursMinutesSeconds(this.currentLST+1);
-        }
-    
-        return this.starfield.addImage(img, name, ra, dec, arcsecondsPerPixel, rotation, index, widthArcsec);
     }
 
 
@@ -738,10 +749,10 @@ export class TelescopeSim {
 
         // Disable OrbitControls in VR (optional, as VR uses headset orientation)
         this.renderer.xr.addEventListener('sessionstart', () => {
-            this.controls.enabled = false;
+            if(this.controls) this.controls.enabled = false;
         });
         this.renderer.xr.addEventListener('sessionend', () => {
-            this.controls.enabled = true;
+            if(this.controls) this.controls.enabled = true;
         });
     }
 
@@ -760,6 +771,22 @@ export class TelescopeSim {
 
 
     addSceneAndLighting(canvas) {
+
+        this.renderer = new THREE.WebGLRenderer({
+             canvas: this.canvas,
+             antialias: true,
+             //logarithmicDepthBuffer: true,
+             //alpha: true
+        });
+
+        this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio); // Optimize for Quest 3
+        this.renderer.outputEncoding = THREE.sRGBEncoding;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.renderer.toneMapping = THREE.LinearToneMapping; // Try other options like LinearToneMapping
+        this.renderer.toneMappingExposure = 1.0; // Try lowering if it's washed out
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+
         // Scene setup
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 500);
@@ -832,8 +859,8 @@ export class TelescopeSim {
 
     addMusic(song){
         // Create an Audio object and attach it to the audioListener
-        this.sound = new THREE.Audio(this.audioListener);
-        var sound = this.sound;
+        this.music = new THREE.Audio(this.audioListener);
+        var sound = this.music;
         // Load an audio file (for example, an MP3 file)
         const audioLoader = new THREE.AudioLoader();
         audioLoader.load(song, function(buffer) {
@@ -844,8 +871,11 @@ export class TelescopeSim {
 
         // Wait for a user gesture before playing
         const startMusic = () => {
-            if (this.sound && !this.sound.isPlaying) {
-                this.sound.play();
+            if (this.music && !this.music.isPlaying) {
+                this.music.play();
+                if(!this.settings.playMusic) {
+                    this.music.stop();
+                }
                 console.log('Music started.');
             }
             // Remove event listener after starting

@@ -30,25 +30,26 @@
     <div id="telescopeContainer" style="position: absolute;width:100vw;height:100vh;top:0;left:0;overflow: hidden;z-index: -1;">
         <canvas id="telescopeCanvas"></canvas>
     </div>
-    <script src="../static/starCatalog.js"></script>
-    <script src="../static/ngcCatalog.js"></script>
+    <script src="../static/vr/starCatalog.js"></script>
+    <script src="../static/vr/ngcCatalog.js"></script>
     
     
     <script type="module">
-        import { TelescopeSim } from '../static/telescope_sim.js';
-        import { calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec } from '../static/astroutils.js';
+        import { TelescopeSim } from '../static/vr/telescope_sim.js';
+        import * as AstroUtils from '../static/vr/astroutils.js';
 
         // Initialize telescope simulation
         const canvas = document.getElementById('telescopeCanvas');
         const container = document.getElementById('telescopeContainer');
         const latitude = parseFloat(document.getElementById('lattitudeInput').value);
         const longitude = parseFloat(document.getElementById('longitudeInput').value);
+        const currentLST = AstroUtils.calculateLST(longitude);
         var blockUpdate=false;
+        const isLive = false;
 
-        const telescopeSim = new TelescopeSim(container, canvas);
-        telescopeSim.enableWebXR();
-        telescopeSim.addNGCs(ngcCatalog, 13);
-        telescopeSim.addStarfield(starCatalog, 7);
+        const telescopeSim = new TelescopeSim(container, canvas, true);
+        telescopeSim.addNGCs(ngcCatalog, 19);
+        telescopeSim.addStarfield(starCatalog);
         telescopeSim.addMusic('../static/music/Vbazi.mp3');
         telescopeSim.addSounds('../static/music');
         
@@ -56,16 +57,11 @@
         .then(response => response.json())
         .then(data => {
                 data.forEach(item => {
-                    telescopeSim.addImage(
-                        '../static/astroImages/'+item.file,
-                        item.name,
-                        item.ra,
-                        item.dec,
-                        parseFloat(item.arcsecPerPixel),
-                        parseFloat(item.rotation)
-                    );
-                    console.log(`Added image: ${item.name} at RA=${item.ra}, Dec=${item.dec}`);
+                    preparePlanet(item);
+                    item.file='../static/astroImages/'+item.file;
+                    console.log(`Added image: ${item.name} at RA=${item.ra}, Dec=${item.dec}, rotation=${item.rotation}`);
                 });
+                telescopeSim.addImages(data);
         })
         .catch(error => {
             console.error('Error loading catalog.json:', error);
@@ -94,7 +90,7 @@
         });
 
         telescopeSim.onAction( (catalog, index) => {
-            if(index === null) {
+            if(!isLive || index === null) {
 
             } else {
                 const [raStr, decStr] = catalog[index];
@@ -177,7 +173,7 @@
                 video_feed_ws = null;
             }
         }
-        //_startVideoFeed('wss://' + window.location.host + '/video_feed_ws');
+        if(isLive) _startVideoFeed('wss://' + window.location.host + '/video_feed_ws');
 
 
         function submitJSON(name, obj) {
@@ -201,6 +197,8 @@
         }
 
 
+        let updateCounter = 0;
+        const updateInterval = 100; // 100 frames
         function updateScopeInfo() {
             fetch('/scope_info')
                 .then(response => response.json())
@@ -219,16 +217,43 @@
             .catch(error => console.log('Error:', error));
         }
         
-        let updateCounter = 0;
-        const updateInterval = 100; // 100 frames
         telescopeSim.onFrame( () => {
             updateCounter++;
-            if (updateCounter > updateInterval) {
-               //updateScopeInfo();
+            if (isLive && updateCounter > updateInterval) {
+               updateScopeInfo();
                updateCounter = 0;
             }
         });
         
+        function preparePlanet(entry) {
+            switch(entry.name) {
+                case "Mercury":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST - 3);
+                    break;
+                case "Venus":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST - 2);
+                    break;
+                case "Mars":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST - 1);
+                    break;
+                case "Luna":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST);
+                    break;
+                case "Jupiter":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST + 1);
+                    break;
+                case "Saturn":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST + 2);
+                    break;
+                case "Uranus":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST + 3);
+                    break;
+                case "Neptune":
+                    entry.ra = AstroUtils.HoursMinutesSeconds(currentLST + 4);
+                    break;
+            }
+        }
+
 
     </script>
 </body>

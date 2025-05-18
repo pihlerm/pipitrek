@@ -158,7 +158,7 @@ export function  addGround2(height, scene) {
     });
 }
 
-export function addGround(height) {
+export function addGround(height, scene) {
 
     const loader = new THREE.TextureLoader();
     const loadTexture = (url) => loader.load(url);
@@ -197,7 +197,8 @@ export function addGround(height) {
     ground.position.set(0, -height, 0);
     ground.rotation.x = -Math.PI / 2;
 
-    //ground.receiveShadow = true; // Optional: if you use lighting/shadows
+    ground.receiveShadow = true; // Optional: if you use lighting/shadows
+    scene.add(ground);
     return ground;
 
 }

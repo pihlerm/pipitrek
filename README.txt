@@ -1,3 +1,6 @@
+references:
+https://github.com/ofrohn/d3-celestial
+
 1. Put files under /root/astro
 
 2. To enable service:
@@ -48,3 +51,8 @@
 	
 	
 9. Moving dome sound https://www.youtube.com/watch?v=Hb6h99cfBqA&ab_channel=AlexandreSanterne
+
+
+
+
+

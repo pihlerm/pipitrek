@@ -1,10 +1,25 @@
 import * as THREE from 'three';
 import * as AstroUtils from './astroutils.js';
 
+
+const starTypes = ['*'];
+const galaxyTypes = ['G','Gpair','GTrpl','GGroup'];
+const nebulaTypes = ['PN', 'HII', 'DrkN', 'EmN', 'Neb', 'RfN', 'SNR'];
+const clusterTypes = ['OC1', 'GCl', 'Cl+N'];
+function filterByMagnitudeAndType(cat, types, minMagnitude) {
+        return cat.filter(g => {
+        const [,, type, visMAG] = g;
+        return visMAG <= minMagnitude && types.includes(type);
+    });
+}
+
+
 export class Starfield {
 
-    constructor(group) {
+    constructor(group, settings, scene) {
         this.group = group;
+        this.scene = scene;
+        this.settings = settings;
         this.catalogs = [];
         this.sphere = null;
         this.sphereRadius = 100.5;
@@ -61,7 +76,11 @@ export class Starfield {
     }
 
     getWorldPosition(obj, index, vec) {       
-        if(obj.name == 'image') {
+        if(obj.name == 'centroid' && this.centroid) {
+            // centroid - compute world position from polygon center
+            this.group.updateMatrixWorld(true); // Ensure world matrix is up-to-date
+            vec.copy(this.polygonLineCenter).applyMatrix4(this.group.matrixWorld);
+        } else if(obj.name == 'image') {
             // image - compute world direction from image mesh
             obj.updateMatrixWorld(true);
             const v2 = new THREE.Vector3(0,0,1); // SphereGeometry faces +Z
@@ -70,7 +89,6 @@ export class Starfield {
             v2.multiplyScalar(this.sphereRadius);
             obj.getWorldPosition(vec); // get world position - sphere center
             vec.add(v2);
-            return vec;
         } else {
             const entry = this.getEntryByObject(obj);
             if(!entry) return null;
@@ -78,73 +96,109 @@ export class Starfield {
             // Step 2: Apply group's world transform
             this.group.updateMatrixWorld(true); // Ensure world matrix is up-to-date
             vec.fromArray(entry.positions, index * 3).applyMatrix4(this.group.matrixWorld);
-            return vec;
+        }
+        return vec;
+    }
+
+    getRaDecPosition(obj, index) {
+        const cat = this.getCatalog(obj);
+        const vec = new THREE.Vector3();
+        this.getWorldPosition(obj, index, vec);
+        const [ra, dec] =  AstroUtils.getRaDecFromPosition(vec, this.group, this.sphereRadius, true);
+        if(cat!=null) {
+            const [raStr, decStr] = cat[index];
+            return [raStr, decStr];
+        }
+        return [ra, dec];
+    }
+
+    refilterCatalog(type) {
+
+        if(type == 'image') {
+            this.resetImageUniforms();
+            return;
+        }
+
+        const toProcess = [];
+        for (const entry of this.catalogs) {
+            if (entry.type == type && entry.originalCatalog) {
+                toProcess.push(entry);
+            }
+        }
+        for (const entry of toProcess) {
+            this._disposeCatalogMesh(entry);
+            this.addCatalog(entry.originalCatalog, type);
         }
     }
 
-    
-    addStarCatalog(cat, minMagnitude = 5) {    
-        this.addCatalogMesh(
-            cat.filter(g => {
-                const [,, type, visMAG, surfB, angSize] = g;
-                return visMAG <= minMagnitude && type == '*'; 
-            }), 
-            'star', 
-            'stars');        
-    }
-    addGalaxyCatalog(cat, minMagnitude = 14) {
-    
-        this.addCatalogMesh(
-            cat.filter(g => {
-                const [,, type, visMAG, surfB, angSize] = g;
-                return visMAG <= minMagnitude && ['G','Gpair','GTrpl','GGroup'].includes(type); 
-            }), 
-            'galaxy', 
-            'NGC-galaxy');
-        
-    }
-    addNebulaCatalog(cat, minMagnitude = 14) {    
-        this.addCatalogMesh(
-            cat.filter(g => {
-                const [,, type, visMAG, surfB, angSize] = g;
-                return visMAG <= minMagnitude && ['PN', 'HII', 'DrkN', 'EmN', 'Neb', 'RfN', 'SNR'].includes(type); 
-            }), 
-            'nebula', 
-            'NGC-nebula');
-        
-    }
-    addClusterCatalog(cat, minMagnitude = 14) {    
-        this.addCatalogMesh(
-            cat.filter(g => {
-                const [,, type, visMAG, surfB, angSize] = g;
-                return visMAG <= minMagnitude && ['OC1', 'GCl', 'Cl+N'].includes(type); 
-            }), 
-            'cluster', 
-            'NGC-cluster');
-        
+    _disposeCatalogMesh(entry) {
+        this.group.remove(entry.object);
+        entry.object.geometry.dispose(); // Free GPU memory
+        entry.object.material.dispose(); // Free GPU memory
+        this.catalogs.splice(this.catalogs.indexOf(entry), 1); // Remove from catalogs
     }
 
+    addCatalog(cat, type) {       
+        switch(type) {
+            case 'galaxy':
+                this.addCatalogMesh(
+                    filterByMagnitudeAndType(cat, galaxyTypes, this.settings.minGalaxyMagnitude),
+                    type, type, null, cat, this.settings.galaxyBrightness);
+                this.enableCatalogs(type, this.settings.showGalaxies);
+                break;
+            case 'nebula':
+                this.addCatalogMesh(
+                    filterByMagnitudeAndType(cat, nebulaTypes, this.settings.minNebulaMagnitude),
+                    type, type, null, cat, this.settings.nebulaBrightness);
+                this.enableCatalogs(type, this.settings.showNebulae);
+                break;
+            case 'star':
+                this.addCatalogMesh(
+                    filterByMagnitudeAndType(cat, starTypes, this.settings.minStarMagnitude),
+                    type, type, null, cat, this.settings.starBrightness);
+                this.enableCatalogs(type, this.settings.showStars);
+                break;
+            case 'cluster':
+                this.addCatalogMesh(
+                    filterByMagnitudeAndType(cat, clusterTypes, this.settings.minClusterMagnitude),
+                    type, type, null, cat, this.settings.clusterBrightness);
+                this.enableCatalogs(type, this.settings.showClusters);
+                break;
+            case 'image':
+                cat.forEach(item => {
+                    this.addImage(item.file, item.name, item.ra, item.dec, parseFloat(item.arcsecPerPixel), parseFloat(item.rotation));
+                });
+                this.enableCatalogs(type, this.settings.showImages);
+                break;
+            default:
+                console.error('Unknown type:', type);
+        }
+    }
+
+
     async addImage(img, name, ra, dec, arcsecondsPerPixel, rotation = 0, index = null, widthArcsec = null) {
+
         const catalogIndex = (index == null ? this.imageCatalog.length : index);
         if(index == null) this.imageCatalog.push(null);
         const texture = await this.createImageTexture(img);
-        const mesh = this.addImageMesh(texture, ra, dec, arcsecondsPerPixel, rotation, catalogIndex, widthArcsec);        
-        this.imageCatalog[catalogIndex] = [ra, dec, name, texture, mesh ];
+        
+        const r = this.sphereRadius+Math.random()*0.2 + (name=='MW' ? 10 : 0);
+
+        const mesh = this._addImageMesh(texture, ra, dec, arcsecondsPerPixel, rotation, catalogIndex, widthArcsec, r);        
+        this.imageCatalog[catalogIndex] = [ra, dec, name, texture, mesh, rotation ];
         return catalogIndex;
     }
 
-
-    addLiveImage(imageb64, arcsecondsPerPixel, rotation = 0) {
+    addLiveImage(imageb64, arcsecondsPerPixel, rotation = 0, ra,dec) {
         const blob = AstroUtils.base64ToBlob(imageb64);
         const url = URL.createObjectURL(blob);
-        const dec = AstroUtils.Degrees(this.decAngle);
-        const ra = AstroUtils.HoursMinutesSeconds(this.raAngle/15); 
-        this.addImage(url, "Live Image", ra, dec, arcsecondsPerPixel, rotation, 0);
-        URL.revokeObjectURL(url); // Free memory
+        this.addImage(url, "Live Image", ra, dec, arcsecondsPerPixel, rotation, 0).then((index) => {
+            URL.revokeObjectURL(url); // Free memory
+        });
     }
 
     async updateLiveImage(imageb64) {
-        const blob = this.base64ToBlob(imageb64);
+        const blob = AstroUtils.base64ToBlob(imageb64);
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {            
@@ -155,20 +209,6 @@ export class Starfield {
         img.src = url;
     }
 
-
-    updateLiveImagePos(){
-        if(this.imageCatalog[0][3] != null) {            
-            const raHours = (this.raAngle-180)/15 + this.currentLST;
-            var raDeg = (((raHours * 15) % 360) + 360) % 360;
-            this.imageCatalog[0][0] = AstroUtils.HoursMinutesSeconds(raHours);
-            this.imageCatalog[0][1] = AstroUtils.Degrees(this.decAngle);
-            const [x, y, z] = AstroUtils.positionFromRADECrad(raDeg* Math.PI / 180, 
-                this.decAngle* Math.PI / 180, 
-                this.group, this.sphereRadius, true);
-            const target = new THREE.Vector3(x, y, z);
-            this.imageCatalog[0][4].lookAt(target);    
-        }
-    }
 
     animateStars(elapsedTime) {
         return;
@@ -182,8 +222,8 @@ export class Starfield {
             const mesh = obj[4];
             if( mesh != null) {
                 mesh.material.uniforms.gamma.value = 1;
-                mesh.material.uniforms.transparency.value = 0.5;
-                mesh.material.uniforms.brightness.value = 1;
+                mesh.material.uniforms.transparency.value = 0.7;
+                mesh.material.uniforms.brightness.value = this.settings.imageBrightness;
                 mesh.material.uniforms.showBorder.value = false;
             }
         });
@@ -195,8 +235,8 @@ export class Starfield {
             if( mesh != null) {
                 mesh.material.uniforms.gamma.value = 1.1;
                 mesh.material.uniforms.transparency.value = 1;
-                mesh.material.uniforms.brightness.value = 1;
-                mesh.material.uniforms.showBorder.value = false;
+                mesh.material.uniforms.brightness.value = this.settings.imageBrightness;
+                mesh.material.uniforms.showBorder.value = true;
             }
         });
     }
@@ -212,10 +252,52 @@ export class Starfield {
     scaleImages(factor = null, index = null) {
         this._doToOneOrAllImages(index, obj => {
             if (obj[4] != null) {
-                this._resizeMesh(obj[4], factor);
+                this._resizeImageMesh(obj[4], factor);
             }
         })
     }
+    /**
+     * 
+     * @param {*} raDelta       : RA delta in degrees to move image(s)
+     * @param {*} decDelta      : DEC delta in degrees to move image(s)
+     * @param {*} rotationDelta : rotation delta in degrees
+     * @param {*} index         : catalog index of image
+     */
+    moveImage(raDelta, decDelta, rotationDelta, index) {
+        const obj = this.imageCatalog[index];
+        if (obj != null && obj[4]!=null) {                
+            let ra = AstroUtils.parseRA(obj[0])*15 + raDelta;
+            let dec = AstroUtils.parseDec(obj[1]) + decDelta;
+            ra = ((ra  % 360) + 360) % 360;
+            dec = Math.max(-90, Math.min(90, dec));
+            const rotation = obj[4].userData.originalSize.rotation;
+            this.setImagePos(obj, ra, dec, rotation*180/Math.PI + rotationDelta);
+        }
+    }
+
+    setImagePos(img,raDeg, decDeg, rotationDeg = null) {
+        const mesh = img[4];
+        if (mesh != null) {                
+            img[0] = AstroUtils.HoursMinutesSeconds(raDeg/15.0);
+            img[1] = AstroUtils.Degrees(decDeg);
+            this.group.remove(mesh); // so the lookAt is local ..
+            const [x, y, z] = AstroUtils.positionFromRADECrad(raDeg* Math.PI / 180, decDeg* Math.PI / 180.0);
+            mesh.position.set(0, 0, 0);
+            mesh.lookAt(x, y, z);
+            if(rotationDeg!=null) mesh.userData.originalSize.rotation = rotationDeg*Math.PI/180.0;
+            mesh.rotateZ(mesh.userData.originalSize.rotation);
+            img[5] = (mesh.userData.originalSize.rotation-Math.PI)*180/Math.PI;
+            this.group.add(mesh);
+        }
+    }
+
+    updateLiveImagePos(raDeg, decDeg){
+        if(this.imageCatalog[0][3] != null) {
+            setImagePos(this.imageCatalog[0], raDeg, decDeg);
+        }
+    }
+
+
     _doToOneOrAllImages(index = null, fn) {
         if(index != null && index >=0 && index < this.imageCatalog.length) {
             if(this.imageCatalog[index]) fn(this.imageCatalog[index]);
@@ -224,7 +306,7 @@ export class Starfield {
         }
     }
 
-    _resizeMesh(mesh, factor) {
+    _resizeImageMesh(mesh, factor) {
         const oldGeom = mesh.geometry;
     
         // Extract old parameters
@@ -270,6 +352,7 @@ export class Starfield {
 
     clearSphereIntersecion() {
         this.sphereIntersects = [];
+        this._removePolygonCenter();
         if (this.polygonLine) {
             this.group.remove(this.polygonLine);
             this.polygonLine.geometry.dispose();
@@ -302,20 +385,43 @@ export class Starfield {
         return hit;
     }
 
-    selectObjects(positions) {
+    _removePolygonCenter() {
+        if (this.centroid) {
+            this.group.remove(this.centroid);
+            this.centroid.geometry.dispose();
+            this.centroid.material.dispose();
+            this.centroid = null;
+        }
+    }
+    _addPolygonCenter() {
+        this._removePolygonCenter();
+        if (this.polygonLineCenter) {
+            const geometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            this.centroid = new THREE.Mesh(geometry, material);
+            this.centroid.position.copy(this.polygonLineCenter);
+            this.centroid.name = 'centroid';
+            this.group.add(this.centroid);
+        }
+    }
+
+    _selectObjects(positions) {
         this.sphereIntersects = AstroUtils.makeSphericalPolygonConvex(this.sphereIntersects);
         if (!this.sphereIntersects || this.sphereIntersects.length < 3) {
             this.clearSphereIntersecion(); // clear the polygon if not enough points
             return []; // not enough points to form a polygon
         }
-        this._updatePolygonVisualization(true); // redraw polygon visually
-        this.polygonLineCenter = AstroUtils.getCenter(this.sphereIntersects).clone().multiplyScalar(this.sphereRadius); // for visualization
+        if(!this.polygonLineCenter) {
+            this._updatePolygonVisualization(true); // redraw polygon visually
+            this.polygonLineCenter = AstroUtils.getCenter(this.sphereIntersects).clone().multiplyScalar(this.sphereRadius); // for visualization
+            this._addPolygonCenter();
+        }
         const center = this.polygonLineCenter.clone().normalize(); // unit vector of center
         const selected = [];
         const pos = new THREE.Vector3();
         for (let i = 0; i < positions.length/3; i++) {
             pos.fromArray(positions, i * 3).normalize();
-            const dist = center.dot(pos); // angular distance
+            const dist = 1 - center.dot(pos); // angular distance
             if (AstroUtils.isPointInConvexSphericalPolygon(pos, this.sphereIntersects)) {
                 selected.push({index : i, distance: dist}); // Store index or object
             }
@@ -325,13 +431,16 @@ export class Starfield {
 
     select() {
         let selected = [];
+        this.polygonLineCenter = null;
         for (const entry of this.catalogs) {
-            const sel = this.selectObjects(entry.positions);
+            if(!entry.object.visible) continue;
+            const sel = this._selectObjects(entry.positions);
             for(const obj of sel) {
                 selected.push({object: entry.object, catalog: entry.catalog, index: obj.index, distance: obj.distance});
             }
         }
-        selected.sort((a, b) => b.distance - a.distance); // Sort by distance
+        if(this.centroid) selected.push({object: this.centroid, catalog: null, index: null, distance: 0}); // add the centroid
+        selected.sort((a, b) => a.distance - b.distance); 
         return selected;
     }
 
@@ -348,6 +457,7 @@ export class Starfield {
         const pos = new THREE.Vector3();
     
         for (const entry of this.catalogs) {
+            if(!entry.object.visible) continue;
             const selectedIndices = [];
             for (let i = 0; i < entry.positions.length / 3; i++) {
                 pos.fromArray(entry.positions, i * 3).normalize();
@@ -367,12 +477,8 @@ export class Starfield {
         return selected;
     }
     
-    addCatalogMesh(catalog, type, name, r=null) {
+    addCatalogMesh(catalog, type, name, r=null, originalCatalog = null, brightnessFactor = 1) {
         
-        // for stars
-        const maxMag = 6.5;
-        const baseSize = 1;
-        const sizeScale = 3.5;
         if(r == null) r = this.sphereRadius;
         const cnt = catalog.length;
         if (cnt === 0) return;
@@ -405,7 +511,7 @@ export class Starfield {
             map: texture,
             transparent: true,
             depthWrite: false,
-            opacity: isStar ? 1 : 0.2,
+            opacity: isStar ? 1 : 0.4,
             alphaTest: 0.1,
             blending: THREE.NormalBlending,
             vertexColors: true
@@ -415,6 +521,7 @@ export class Starfield {
             name: name,
             type: type,
             catalog: catalog, 
+            originalCatalog: originalCatalog,
             positions:  new Float32Array(cnt * 3),
             object: new THREE.InstancedMesh(geometry, material, cnt),
             colorArray: new Float32Array(cnt * 3), // RGB per instance
@@ -438,10 +545,14 @@ export class Starfield {
             }        
         }
     
-        for (let i = 0; i < cnt; i++) {
-            const [raStr, decStr, type, visMAG, surfB, angSize, constStr, catNumber, name, M] = catalog[i];
-            const [x, y, z] = AstroUtils.positionFromRADEC(raStr, decStr, this.group, r);
+        // for stars
+        const maxMag = 7;
+        const baseSize = 1;
+        const sizeScale = 3.0;
 
+        for (let i = 0; i < cnt; i++) {
+            const [raStr, decStr, type, visMAG, surfB, angSize, constStr, catNumber, name, M, bvi] = catalog[i];
+            const [x, y, z] = AstroUtils.positionFromRADEC(raStr, decStr, null, r);
             entry.positions.set([x, y, z], i * 3);
 
             const angularSize = (isStar ? (baseSize + sizeScale * (maxMag - visMAG)) :  (angSize ?? 1));
@@ -456,18 +567,26 @@ export class Starfield {
 
             let brightness = 1.0;
             if(isStar) {
-                brightness = 0.3 + 0.7*(maxMag - visMAG)/maxMag;
+                brightness = brightnessFactor*(0.3 + 0.7*(maxMag - visMAG)/maxMag);
             } else {
-                brightness = 1.0 - ((surfB ?? minB) -minB) / (maxB-minB);
+                brightness = brightnessFactor*(1.0 - ((surfB ?? minB) -minB) / (maxB-minB));
             }
             
             brightness = Math.max(0.0, Math.min(1.0, brightness)); // Clamp to [0, 1]
-            entry.colorArray.set([brightness, brightness, brightness], i * 3);
+            if(bvi != null) {
+                const rgb = AstroUtils.bvToRGB(bvi);
+                const r =Math.max(0.0, Math.min(1.0, rgb.r*brightness));
+                const g =Math.max(0.0, Math.min(1.0, rgb.g*brightness));
+                const b =Math.max(0.0, Math.min(1.0, rgb.b*brightness));
+                entry.colorArray.set([r, g, b], i * 3);
+            } else {
+                entry.colorArray.set([brightness, brightness, brightness], i * 3);
+            }
         }
-    
         entry.object.name = 'catalog';
         this.group.add(entry.object);
         this.catalogs.push(entry);
+        console.log("Added %s catalog with %d objects\n", type, cnt);
     }
 
     createStarTexture() {
@@ -540,16 +659,19 @@ export class Starfield {
         });
     }
 
-    addImageMesh(texture, ra, dec, arcsecondsPerPixel, rotation, catalogIndex, widthArcsec = null) {
+    _addImageMesh(texture, ra, dec, arcsecondsPerPixel, 
+                    rotation, catalogIndex, widthArcsec = null, 
+                    r = this.sphereRadius+Math.random()*0.2) {
+
         // Now that texture is loaded, we know its size
         const imageWidth = texture.image.width;
         const imageHeight = texture.image.height;
-        const r = this.sphereRadius-0.1; // radius of sphere - 0.1 to avoid z-fighting
 
         // Total size in arcseconds
         // Convert to radians
         let widthRad = 0;
         let heightRad = 0;
+        rotation  = rotation/180.0*Math.PI + Math.PI;
         if(widthArcsec == null) {
             widthRad = THREE.MathUtils.degToRad(imageWidth * arcsecondsPerPixel / 3600);
             heightRad = THREE.MathUtils.degToRad(imageHeight * arcsecondsPerPixel / 3600);
@@ -575,20 +697,18 @@ export class Starfield {
         segmentMesh.userData.index = catalogIndex;
         segmentMesh.userData.originalSize = {
             widthRad,
-            heightRad
+            heightRad,
+            rotation
         };
         segmentMesh.name = "image";
-        // Position
-        const [x, y, z] = AstroUtils.positionFromRADEC(ra, dec, this.group);
-        //segmentMesh.position.set(x, y, z);
+        
+        const [x, y, z] = AstroUtils.positionFromRADEC(ra, dec);
         segmentMesh.position.set(0, 0, 0);
 
-        // Rotate toward RA/Dec
-        const target = new THREE.Vector3(x, y, z);
-        segmentMesh.lookAt(target);
-
-        // Adjust if needed
-        segmentMesh.rotateZ(Math.PI-rotation);
+        // Position
+        // Rotate toward RA/Dec and in Z axis
+        segmentMesh.lookAt(x, y, z);
+        segmentMesh.rotateZ(rotation);
         
         this.group.add(segmentMesh);
 
@@ -598,12 +718,12 @@ export class Starfield {
         return new THREE.ShaderMaterial({
             uniforms: {
                 map: { value: texture },
-                brightness: { value: 1.0 },
+                brightness: { value: this.settings.imageBrightness },
                 gamma: { value: 1.0 },
                 transparency: { value: 1.0 },
                 mirror: { value: false },
                 showBorder: { value: false },
-                borderColor: { value: new THREE.Color(1, 0, 0) }, // Red
+                borderColor: { value: new THREE.Color(0.7, 0, 0) }, // Red
                 borderWidth: { value: 0.03 }, // In UV space (0 to 1)
             },
             vertexShader: `
@@ -645,7 +765,7 @@ export class Starfield {
             `,
             transparent: true,
             side: THREE.DoubleSide,
-            opacity: 0.5,
+            opacity: 0.7,
             alphaTest: 0.1,
             blending: THREE.NormalBlending            
         });
@@ -665,7 +785,7 @@ export class Starfield {
         this.starSizes = new Float32Array(starCount); // Array for per-star sizes
         for (let i = 0; i < starCount; i++) {
             const [raStr, decStr, mag] = this.starCatalog[i];           
-            const [x, y, z] = AstroUtils.positionFromRADEC(raStr, decStr, this.group, r);
+            const [x, y, z] = AstroUtils.positionFromRADEC(raStr, decStr, null, r);
             this.starPositions.set([x, y, z], i * 3);
             // Set size based on magnitude
             this.starSizes[i] = baseSize + sizeScale * (maxMag - mag);
