@@ -5,7 +5,7 @@
  * @returns {Promise<string>} - URL of the DSS image (GIF format)
  * @throws {Error} - If RA/Dec is invalid, server fails, or image is unavailable
  */
-export async function getImageDSS(ra, dec) {
+export async function getImageDSS(ra, dec, widthArcmin = 60, heightArcmin = 60, v = null) {
 
     // Validate inputs
     if (!validateRA(ra)) {
@@ -15,7 +15,7 @@ export async function getImageDSS(ra, dec) {
         throw new Error(`Invalid Dec format: ${dec}`);
     }
 
-    const url = getImageDSSUrl(ra, dec);
+    const url = getImageDSSUrl(ra, dec, widthArcmin, heightArcmin, v);
 
     console.log(`Fetching DSS image: ${url}`);
 
@@ -45,7 +45,7 @@ export async function getImageDSS(ra, dec) {
 }
 
 
-export function getImageDSSUrl(ra, dec, widthArcmin = 60, heightArcmin = 60) {
+export function getImageDSSUrl(ra, dec, widthArcmin = 60, heightArcmin = 60, v = null) {
 
 
     // Construct DSS query URL
@@ -59,7 +59,17 @@ export function getImageDSSUrl(ra, dec, widthArcmin = 60, heightArcmin = 60) {
         f: 'GIF',                  // Format
         c: 'none',                 // Compression
         //v: 'poss2ukstu_red'        // Survey (DSS2 Red)
+                // all = Use the best
+                // dss1 = Available 1st gen. survey (red in north, blue in south)
+                // poss1_blue = 1st gen. survey (blue)
+                // poss1_red = 1st gen. survey (red)
+                // poss2ukstu_red = 2nd gen. red (95%)
+                // poss2ukstu_blue = 2nd gen. blue (50%)
+                // poss2ukstu_ir = 2nd gen. infrared
+
     };
+
+    if(v!=null) params.v = v;
 
     const queryString = Object.entries(params)
         .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)

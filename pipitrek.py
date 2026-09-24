@@ -53,10 +53,6 @@ frame_timeout = 30 # seconds before timeout
 
 # PAGES
 
-@app.route('/control')
-def control():
-    return render_template('control.html')
-
 @app.route('/')
 def index():
     cameras = list_cameras()

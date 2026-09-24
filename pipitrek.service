@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/sleep 30
 ExecStart=/usr/bin/python3 /root/astro/pipitrek/pipitrek.py
 WorkingDirectory=/root/astro/pipitrek
 Restart=on-failure

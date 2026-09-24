@@ -60,11 +60,21 @@ class Autoguider:
 
         self.dec_guiding = False            # Declination guiding. Make sure that DEC does not disturb RA!!
         self.guiding = False                # Guiding status on/off
+
+        # Guiding methods - what autoguider does when error is detected in the star position
+        # "PID" - Proportional-Integral-Derivative control
+        # "REL" - Relative movement: change telescope speed in RA/DEC based on the detected error using telecsope.send_start_movement_speed
+        #         PipiTrek command !S
+        # "ABS" - Absolute movement: change telescope position (move telescope by the calculated error) using telescope command telescope.send_correction
+        #         PipiTrek command LXMove by time pulse
+        # "MON" - Monitor only, no actual guiding
         self.guide_methods = {
             "PID": self.guide_scope_pid,
             "REL": self.guide_scope_rel,
             "ABS": self.guide_scope_abs,
+            "MON": self.guide_scope_monitor,
         }
+
         self.guide_method = "PID"                 # guide method
         self.calibrating = False
         self.threshold = None               # Last threshold image
@@ -186,6 +196,9 @@ class Autoguider:
             print(self.last_status)
             self.write_track_log(self.last_status)
 
+    def guide_scope_monitor(self, ra_arcsec_error, dec_arcsec_error):
+        # Monitor only, no actual guiding
+        print(f"Monitoring RA error: {ra_arcsec_error}, DEC error: {dec_arcsec_error}")
 
     def guide_scope_abs(self, ra_arcsec_error, dec_arcsec_error):
         
@@ -320,7 +333,8 @@ class Autoguider:
         dy = round(float(final_mean_centroid[1]), 4)
         dx_rot, dy_rot = self.rotate_vector(dx, dy)
         telescope = Telescope()
-        ra_arcsec, dec_arcsec =self.pixels_to_arcseconds(dx_rot, dy_rot, self.pixel_scale, telescope.dec_deg)
+        declination = telescope.dec_deg if telescope.dec_deg is not None else 0
+        ra_arcsec, dec_arcsec =self.pixels_to_arcseconds(dx_rot, dy_rot, self.pixel_scale, declination)
         self.last_correction = {
             "ra_px": dx_rot, "dec_px": dy_rot,
             "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec,

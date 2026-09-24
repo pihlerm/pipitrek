@@ -45,8 +45,8 @@ class TelescopeServer:
         self.conn_active.set()
         telescope = Telescope()
         while self._running and self.conn_active.is_set():
-            ra_int = deg_to_stellarium_ra(telescope.ra_deg)
-            dec_int = deg_to_stellarium_dec(telescope.dec_deg)
+            ra_int = deg_to_stellarium_ra(telescope.ra_deg if telescope.ra_deg is not None else 0)
+            dec_int = deg_to_stellarium_dec(telescope.dec_deg if telescope.dec_deg is not None else 0)
             # Type 0 message: 24 bytes 
             msg = self.pack(ra_int, dec_int, time.time())
             try:
@@ -100,7 +100,7 @@ class TelescopeServer:
         if msg_type == 2 and size == 16:
             ra_deg = stellarium_to_deg(ra_int, is_ra=True)
             dec_deg = stellarium_to_deg(dec_int, is_ra=False)
-            print(f"Sync command received: RA={deg_to_lx200_ra(self.ra_deg)}, Dec={deg_to_lx200_dec(self.dec_deg)}")
+            print(f"Sync command received: RA={deg_to_lx200_ra(self.ra_deg or 0)}, Dec={deg_to_lx200_dec(self.dec_deg or 0)}")
 
     def handle_client_message(self, data):
         if len(data) < 8:

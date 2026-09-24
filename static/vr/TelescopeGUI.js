@@ -11,38 +11,58 @@ import * as THREE from 'three';
     height: 0.1,
     marginLeft: 0.02,
   });
+  
 
 
 export class TelescopeGUI {
+    static renderer = null;
+    static scene = null;
+    static camera = null;
+    static userRig = null;
+    static sim = null;
+    static starfield = null;
+    static telescope = null;
 
-    static async init(container, renderer, scene, camera, userRig) {
+    static async init(container, renderer, scene, camera, userRig, sim, starfield, telescope) {
         await DigitalBaconUI.init(container, renderer, scene, camera);
         DigitalBaconUI.InputHandler.enableXRControllerManagement(userRig);
+        TelescopeGUI.renderer = renderer;
+        TelescopeGUI.scene = scene;
+        TelescopeGUI.camera = camera;
+        TelescopeGUI.userRig = userRig;
+        TelescopeGUI.sim = sim;
+        TelescopeGUI.starfield = starfield;
+        TelescopeGUI.telescope = telescope;
+
     }
 
-    static createVisibilityGUI(scene, userRig, settings, starfield, sim, telescope) {
-        const gui = new TelescopeGUI(scene, userRig, settings, starfield, sim, telescope);
+    static update(frame)   {
+        DigitalBaconUI.update(frame);
+    }
+
+    static createVisibilityGUI(settings) {
+        const gui = new TelescopeGUI(settings);
         gui._makeVisibilityGUI();
         return gui;
     }
-    
-    update(frame)   {
-        DigitalBaconUI.update(frame);
+
+    static createQuestionGUI(settings, text, callback) {
+        const gui = new TelescopeGUI(settings);
+        gui._makeQuestionGUI(text, callback);
+        return gui;
     }
+
 
     show() {
         this.isShown = true;
 
-        const controller = this.sim.controllers.Left;
-        const camera = this.sim.camera; 
-
-        // Local offset in controller space
-        const offset = new THREE.Vector3(0, 0, -0.6); // 60cm in front of controller
+        const controller = TelescopeGUI.sim.controllers.Left;
+        const camera = TelescopeGUI.sim.camera; 
 
         // Add the GUI to userRig and place it at the calculated local position
-        this.userRig.add(this.body);
+        TelescopeGUI.userRig.add(this.body);
         if(controller) {
-          this.body.position.copy(offset.applyMatrix4(controller.matrix));
+          this.body.position.copy(this.offset.clone().applyMatrix4(controller.matrix));
         }
 
         // Make the GUI face the camera (also in userRig space)
@@ -59,8 +79,8 @@ export class TelescopeGUI {
 
     hide() {
         this.isShown = false;
-        this.userRig.remove(this.body);
-        this.sim.saveSettings();
+        TelescopeGUI.userRig.remove(this.body);
+        TelescopeGUI.sim.saveSettings();
     }
 
     toggle() {
@@ -69,19 +89,15 @@ export class TelescopeGUI {
 
 
 
-    constructor(scene, userRig, settings, starfield, sim, telescope) {
-
+    constructor(settings) {
         this.isShown = false;
-        this.scene = scene;
-        this.userRig = userRig;
         this.settings = settings;
-        this.starfield = starfield;
-        this.sim = sim;
-        this.telescope = telescope;
     }
 
     _makeVisibilityGUI(){
-          const starfield = this.starfield;
+          const starfield = TelescopeGUI.starfield;
+          // Local offset in controller space
+          this.offset = new THREE.Vector3(0, 0, -0.6); // 60cm in front of controller
 
           const body = new DigitalBaconUI.Body({
             borderRadius: 0.05,
@@ -269,7 +285,7 @@ export class TelescopeGUI {
               'Ground', this.settings.showGround,
               (value) => {
                 this.settings.showGround = value;
-                this.sim.ground.visible = value;
+                TelescopeGUI.sim.ground.visible = value;
               }
           );
           this.createRange(section2,
@@ -279,9 +295,9 @@ export class TelescopeGUI {
               }
           );
           this.createRange(section3,
-              '', this.sim.ground.material.opacity,
+              '', TelescopeGUI.sim.ground.material.opacity,
               (value) => {
-                this.sim.ground.material.opacity = value;
+                TelescopeGUI.sim.ground.material.opacity = value;
               }
           );
 
@@ -294,25 +310,25 @@ export class TelescopeGUI {
 
           this.createCheck(section1, 
               'Telescope', this.settings.showTelescope, 
-              (value) => {this.settings.showTelescope = value; this.telescope.setVisible(value);}
+              (value) => {this.settings.showTelescope = value; TelescopeGUI.telescope.setVisible(value);}
           );
 
           this.createCheck(section1, 
               'Music', this.settings.playMusic, 
               (value) => {
                 this.settings.playMusic = value;
-                if(!this.sim.music) return;
+                if(!TelescopeGUI.sim.music) return;
                 if(value) {
-                  this.sim.music.play();
+                  TelescopeGUI.sim.music.play();
                 } else {
-                  this.sim.music.stop();
+                  TelescopeGUI.sim.music.stop();
                 }
               }
           );
 
           this.createButton(section1, 'Save catalog',  
               () => {
-                this.sim.saveCatalog();
+                TelescopeGUI.sim.saveCatalog();
               }
           );
 
@@ -365,6 +381,146 @@ export class TelescopeGUI {
 
     }
 
+    _makeTelescopeGUI(){
+
+      // Local offset in controller space
+      this.offset = new THREE.Vector3(0, 1, -0.6);
+
+       const body = new DigitalBaconUI.Body({
+            borderRadius: 0.05,
+            borderWidth: 0.001,
+            backgroundVisible: false,
+            justifyContent: 'spaceBetween',
+            width: 1.5,
+            height: 1.5
+          });
+          const row1 = new DigitalBaconUI.Span({
+            borderTopLeftRadius: 0.05,
+            borderTopRightRadius: 0.05,
+            height: 1,
+            width: '100%',
+            justifyContent: 'center',
+            backgroundVisible: true,
+            materialColor: '#aaaaaa',
+          });
+          body.add(row1);
+          const text1 = new DigitalBaconUI.Text('Telescope control', {
+            fontSize: 0.08,
+            color: '#ffffff',
+          });
+          row1.add(text1);
+
+          const row2 = new DigitalBaconUI.Span({
+            height: 0.5,
+            width: '100%',
+            justifyContent: 'center',
+            backgroundVisible: true,
+            materialColor: '#aaaaaa',
+            borderRadius: 0.05,
+          });
+          body.add(row2);
+
+
+          const section1 = new DigitalBaconUI.Div({
+            alignItems: 'start',
+            padding: 0.0,
+            height: '100%',
+            width: '50%',
+          });
+          row2.add(section1);
+          const section2 = new DigitalBaconUI.Div({
+            alignItems: 'start',
+            padding: 0.0,
+            height: '100%',
+            width: '50%',
+          });
+          row2.add(section2);
+
+
+          this.createInputPanel(section1, 'RA', this.settings.RA);
+          this.createInputPanel(section1, 'DEC', this.settings.DEC);
+
+          
+
+          this.body = body;
+
+    }
+
+    _makeQuestionGUI(text, callback){
+
+          // Local offset in controller space
+          this.offset = new THREE.Vector3(0, 1, -0.6);
+
+          const body = new DigitalBaconUI.Body({
+            borderRadius: 0.05,
+            borderWidth: 0.001,
+            backgroundVisible: false,
+            justifyContent: 'spaceBetween',
+            width: 1.5,
+            height: 0.7
+          });
+          const row1 = new DigitalBaconUI.Span({
+            borderTopLeftRadius: 0.05,
+            borderTopRightRadius: 0.05,
+            height: 0.5,
+            width: '100%',
+            justifyContent: 'center',
+            backgroundVisible: true,
+            materialColor: '#aaaaaa',
+          });
+          body.add(row1);
+
+          const text1 = new DigitalBaconUI.Text(text, {
+            width: '90%',
+            fontSize: 0.08,
+            color: '#ffffff',
+          });
+          row1.add(text1);
+
+          const row2 = new DigitalBaconUI.Span({
+            height: 0.2,
+            width: '100%',
+            justifyContent: 'center',
+            backgroundVisible: true,
+            materialColor: '#aaaaaa',
+            borderBottomLeftRadius: 0.05,
+            borderBottomRightRadius: 0.05,
+          });
+          body.add(row2);
+
+
+          const section1 = new DigitalBaconUI.Div({
+            alignItems: 'center',
+            padding: 0.0,
+            height: '100%',
+            width: '50%',
+          });
+          row2.add(section1);
+          const section2 = new DigitalBaconUI.Div({
+            alignItems: 'center',
+            padding: 0.0,
+            height: '100%',
+            width: '50%',
+          });
+          row2.add(section2);
+
+          const btnYes = this.createButton(section1, 'YES',  0x1db954,
+              () => {
+                callback(true);
+              }
+          );
+          
+
+          this.createButton(section2, 'NO',  0xad1954,
+              () => {
+                callback(false);
+              }
+          );
+
+          this.body = body;
+
+    }
+
     createCheck(parent, label, value, onChangeCallback) {
       const element = new DigitalBaconUI.Checkbox();
       const span = new DigitalBaconUI.Span(spanStyle);
@@ -389,8 +545,8 @@ export class TelescopeGUI {
       return span;
     }
 
-    createButton(parent, label, onClickCallback) {
-      const button = new DigitalBaconUI.Div({ width: 0.45, materialColor: 0x1db954, backgroundVisible: true,});
+    createButton(parent, label, color, onClickCallback) {
+      const button = new DigitalBaconUI.Div({ width: 0.45, materialColor: color, backgroundVisible: true,});
       const span = new DigitalBaconUI.Span(spanStyle);
       const labelText = new DigitalBaconUI.Text(label, labelStyle);
       span.add(button);
@@ -399,4 +555,17 @@ export class TelescopeGUI {
       parent.add(span);
       return span;
     }
+
+    createInputPanel(parent, label, value) {
+      const element = new DigitalBaconUI.TextInput(labelStyle);
+      const span = new DigitalBaconUI.Span(spanStyle);
+      const labelText = new DigitalBaconUI.Text(label, labelStyle);
+      element.value = value;
+      span.add(labelText);
+      span.add(element);
+      parent.add(span);
+      return span;
+    }
+
+
 }    

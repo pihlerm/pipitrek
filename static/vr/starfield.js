@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as AstroUtils from './astroutils.js';
-
+import { KTX2Loader } from '../three/loaders/KTX2Loader.js';
 
 const starTypes = ['*'];
 const galaxyTypes = ['G','Gpair','GTrpl','GGroup'];
@@ -16,9 +16,10 @@ function filterByMagnitudeAndType(cat, types, minMagnitude) {
 
 export class Starfield {
 
-    constructor(group, settings, scene) {
+    constructor(group, settings, scene, renderer) {
         this.group = group;
         this.scene = scene;
+        this.renderer = renderer;
         this.settings = settings;
         this.catalogs = [];
         this.sphere = null;
@@ -180,7 +181,7 @@ export class Starfield {
 
         const catalogIndex = (index == null ? this.imageCatalog.length : index);
         if(index == null) this.imageCatalog.push(null);
-        const texture = await this.createImageTexture(img);
+        const texture =  await this.createImageTexture(img);
         
         const r = this.sphereRadius+Math.random()*0.2 + (name=='MW' ? 10 : 0);
 
@@ -641,6 +642,9 @@ export class Starfield {
     }
 
     async createImageTexture(img) {
+        
+        if(img.endsWith('.ktx2')) return this.createImageTextureKTX2(img);
+ 
         const textureLoader = new THREE.TextureLoader();
 
         return new Promise((resolve, reject) => {
@@ -658,6 +662,31 @@ export class Starfield {
             );
         });
     }
+
+
+    // to compress: https://subquantumtech.com/bu_6x6/ktx2_encode_test/
+    async createImageTextureKTX2(img) {
+
+        const ktx2Loader = new KTX2Loader();
+        ktx2Loader.setTranscoderPath('../static/three/libs/basis/'); // Path to basis_transcoder.js/wasm
+        ktx2Loader.detectSupport(this.renderer);
+
+        return new Promise((resolve, reject) => {
+            ktx2Loader.load(img, 
+                (texture) => {
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.minFilter = THREE.LinearFilter;
+                    texture.generateMipmaps = false;
+                    resolve(texture); // Resolve the promise with the loaded texture
+                }, 
+                undefined, 
+                (error) => {
+                    reject(error); // Reject the promise if an error occurs
+                }
+            );
+        });
+    }
+
 
     _addImageMesh(texture, ra, dec, arcsecondsPerPixel, 
                     rotation, catalogIndex, widthArcsec = null, 

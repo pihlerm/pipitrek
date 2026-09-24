@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {calculateLST, HoursMinutesSeconds, Degrees, parseRA, parseDec, positionFromRADEC, positionFromRADECrad } from './astroutils.js';
 
 export class Telescope {
-    constructor(scale, height, group) {
+    constructor(scale, height, group, screen=false) {
         this.westPier = false;          // True if telescope is on the west side of the pier
         this.telescopeScale = scale;      // Scale factor for telescope size
         this.telescopeFOV =2;           // FOV of the telescope camera
@@ -16,7 +16,9 @@ export class Telescope {
         this.raAngleTarget = 0;         // telescope target angle, changes during animation
         this.decAngleTarget = 0;        // telescope target angle, changes during animation
         this._addTelescope();
-        this._addProjectionScreen();
+        if(screen) {
+            this._addProjectionScreen();
+        }
         group.add(this.group);
         // Initial angles
         this.setAngles(this.raAngle, this.decAngle);
@@ -56,7 +58,7 @@ export class Telescope {
 
     setVisible(visible) {
         this.group.visible = visible;
-        this.projectionGroup.visible = visible;
+        if(this.projectionGroup) this.projectionGroup.visible = visible;
     }
 
     getFOV() {

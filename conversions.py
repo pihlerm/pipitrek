@@ -32,7 +32,9 @@ def deg_to_lx200_dec(deg):
     return f"{sign}{d:02d}*{m:02d}:{s:02d}"
 
 def lx200_to_ra_deg(ra_str):
-    """Convert LX200 RA string (HH:MM:SS) to degrees."""
+    """Convert LX200 RA string (HH:MM:SS) to degrees. Returns None if uninitialized (contains '?')."""
+    if '?' in ra_str:
+        return None
     try:
         h, m, s = map(int, ra_str.split(':'))
         return h * 15 + m * 15 / 60 + s * 15 / 3600
@@ -40,7 +42,9 @@ def lx200_to_ra_deg(ra_str):
         raise ValueError(f"Invalid RA format: {ra_str}")
 
 def lx200_to_dec_deg(dec_str):
-    """Convert LX200 DEC string (+DD*MM:SS or -DD*MM:SS) to degrees."""
+    """Convert LX200 DEC string (+DD*MM:SS or -DD*MM:SS) to degrees. Returns None if uninitialized (contains '?')."""
+    if '?' in dec_str:
+        return None
     try:
         sign = 1 if dec_str[0] == '+' else -1
         d, m, s = map(int, dec_str[1:].replace('*', ':').split(':'))

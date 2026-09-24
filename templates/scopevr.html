@@ -48,6 +48,7 @@
         const isLive = false;
 
         const telescopeSim = new TelescopeSim(container, canvas, true);
+        await telescopeSim.init();
         telescopeSim.addNGCs(ngcCatalog, 19);
         telescopeSim.addStarfield(starCatalog);
         telescopeSim.addMusic('../static/music/Vbazi.mp3');

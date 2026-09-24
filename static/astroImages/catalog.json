@@ -1,7 +1,8 @@
 [
 
 	{
-		"file":"MW2.jpg",
+		"file":"MW1_faded.ktx2",
+		"file2":"MW1_faded.png",
 		"name":"MW",
 		"ra" : "17:45:45",
 		"dec" : "-23*40:00",

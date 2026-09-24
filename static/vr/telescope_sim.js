@@ -18,9 +18,14 @@ import { getDefaultProperties } from './properties.js';
 export class TelescopeSim {
     constructor(container, canvas, vr=false, properties = null) {
 
-        this.settings = properties ? properties : this.loadSettings();
         this.container = container;
         this.canvas = canvas;
+        this.vr = vr;
+        this.settings = properties ? properties : this.loadSettings();
+    }
+
+    async init() {
+
         this.latitude = this.settings.latitude * Math.PI / 180,       // Rotates interactively
 		this.longitude = this.settings.longitude;                     // Keep in degrees
         this.currentLST = AstroUtils.calculateLST(this.longitude);
@@ -40,7 +45,7 @@ export class TelescopeSim {
         
         this.clock = new THREE.Clock();
 
-        this.addSceneAndLighting(canvas);
+        this.addSceneAndLighting(this.canvas);
         this.ground = addGround(0, this.scene);
         addSkyPoles(this.scene);
         
@@ -56,9 +61,9 @@ export class TelescopeSim {
         this.addControllers();
         //this.addStats();
 
-        if(vr) this.enableWebXR();
+        if(this.vr) this.enableWebXR();
 
-        this.starfield = new Starfield(this.starfieldGroup, this.settings, this.scene);
+        this.starfield = new Starfield(this.starfieldGroup, this.settings, this.scene, this.renderer);
 
         this.addClickDetection();
         //this.addCoordinateAxes(this.scene);
@@ -74,11 +79,30 @@ export class TelescopeSim {
         //    this.font = font;
         //});
 
-        TelescopeGUI.init(this.container, this.renderer, this.scene, this.camera, this.userRig);
-        this.telescopeGUI = TelescopeGUI.createVisibilityGUI(this.scene, this.userRig, this.settings, this.starfield, this, this.telescope);
+        await TelescopeGUI.init(this.container, this.renderer, this.scene, this.camera, this.userRig, this, this.starfield, this.telescope);
+        this.telescopeGUI = TelescopeGUI.createVisibilityGUI(this.settings);
         //this.addOrbitControls();
         
         this.settings.gravity = false;
+
+        this.askGUI = TelescopeGUI.createQuestionGUI(this.settings, 
+            "Are you sure you want to slew the real telescope?",
+            (val) => {
+                console.log("Answered ",val);
+            });
+
+        this.askGUI.show();
+        //this.telescopeGUI.show();
+        this.moveTo([0,0,0]);
+        this.askGUI.body.position.set(1, 0.0, 1);
+        const wp = new THREE.Vector3().setFromMatrixPosition(this.askGUI.body.matrixWorld);
+        this.camera.lookAt(wp);
+        this.askGUI.body.rotation.set(0, -Math.PI/2*1.5, 0);
+        //this.camera.rotateY(Math.PI * 0.5);
+        
+
+
+
 
         //this.telescopeGUI.show();
         //this.moveTo([0,0,0]);
@@ -161,6 +185,7 @@ export class TelescopeSim {
     
 
     resize(width, height) {
+        if(!this.camera || !this.renderer) return;
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
@@ -205,7 +230,7 @@ export class TelescopeSim {
             this.statsTexture.needsUpdate = true; // Mark for update
         }
 
-        if(this.telescopeGUI) this.telescopeGUI.update(frame);
+        TelescopeGUI.update(frame);
 
         this.telescope.renderScreen(this.renderer, this.scene);
         
@@ -789,8 +814,8 @@ export class TelescopeSim {
 
         // Scene setup
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 500);
-        //this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        //this.camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 500);
+        this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
         // Lighting
         this.ambientLight = new THREE.AmbientLight(0x404040, 0.4);
         this.scene.add(this.ambientLight);

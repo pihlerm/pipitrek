@@ -4,6 +4,18 @@
     <title>Autoguider Live Feed</title>
     <link rel="stylesheet" href="../static/style.css" />
     <script src="../static/chart.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "../static/three/three.module.min.js",
+                "OrbitControls": "../static/three/OrbitControls.js",
+                "DigitalBacon-UI": "../static/three/DigitalBacon-UI.min.js"
+            }
+        }
+    </script>
+    <script src="../static/inputmask.min.js"></script>
+    <script src="../static/wheel.js"></script>
+    <script src="../static/vr/starCatalog.js"></script>
 </head>
 <body onload="Load()" class="night-mode">
     <table class="main-table">
@@ -14,15 +26,14 @@
                     <div>
                         <button class="command-button active" id="video_button" onclick="showVideoFeed()">Video</button>
                         <button class="command-button" id="thresh_button" onclick="showThreshFeed()">Threshold</button>
-                        <button class="command-button" onclick="toggleNightMode()">Night Mode</button>
-                        <button class="command-button active" id="errors_button" onclick="showCorrectionsChart()">Errors</button>
-                        <button class="command-button" id="pec_button" onclick="showPECChart()">PEC</button>
-                        <button class="command-button" id="reset_button" onclick="resetChart()">Reset</button>
                     </div>
         
                     <!-- Right-aligned button and text -->
                     <div>
-                        <button class="command-button" onclick="shutdown()">Shutdown</button>
+                        <span id="indicator-setup" class="indicator-light" title="Run platesolve to initialize coordinate system">SETUP</span>
+                        <span id="indicator-tracking" class="indicator-light">TRACKING</span>
+                        <span id="indicator-guiding" class="indicator-light">GUIDING</span>
+                        <span id="indicator-camera" class="indicator-light">IMAGING</span>
                         <span>Autoguider 0.7</span>
                     </div>
                 </div>
@@ -32,6 +43,7 @@
                 <button class="command-button" id="autoguider_panel_button" onclick="showGuider()">Guider</button>            
                 <button class="command-button" id="camera_panel_button" onclick="showCamera()">Camera</button>            
                 <button class="command-button" id="analysis_panel_button" onclick="showAnalysis()">Analysis</button>            
+                <button class="command-button" id="pec_panel_button" onclick="showPEC()">PEC</button>            
                 <button class="command-button" id="terminal_frame_button" onclick="showTerminal()">Terminal</button>
             </td>
         </tr>
@@ -45,8 +57,187 @@
                 </div>
             </td>
             <td >
-                <iframe id="control_frame" src="{{ url_for('control') }}" scrolling="no"></iframe>
-                <iframe id="terminal_frame" src="{{ url_for('terminal') }}" class="hidden"></iframe>
+                <div id="control_frame">
+                    <div class="telescope-container">
+                        <div id="control-buttons">
+                        <table>
+                            <tr>
+                                <td colspan="5">
+                                    <div id="telescopeContainer">
+                                        <canvas id="telescopeCanvas"></canvas>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="width:50px;">
+                                    <button class="control-button" onclick="sendSpeed('G')">slow</button>
+                                </td>
+                                <td style="width:50px;">
+                                    <button class="control-button" onclick="sendDirection('n')">↑</button>
+                                </td>
+                                <td style="width:50px;">
+                                    <button class="control-button" onclick="sendSpeed('M')">med</button>
+                                </td>
+                                <td rowspan="2">
+                                    <canvas id="pec-wheel" width="80" height="80"></canvas>
+                                    <div style="height:24px;">
+                                        <input class="mini_num_input" type="text" id="pec-position" value="0">
+                                        <button class="mini-button" onclick="setPECPosition()">SET</button>
+                                    </div>
+                                </td>
+                                <td>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <button class="control-button" onclick="sendDirection('e')">←</button>
+                                </td>
+                                <td>
+                                    <button class="control-button" onclick="sendStop()">Stop</button>
+                                </td>
+                                <td>
+                                    <button class="control-button" onclick="sendDirection('w')">→</button>
+                                </td>
+                                <td>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <button class="control-button" onclick="sendSpeed('S')">fast</button>
+                                </td>
+                                <td>
+                                    <button class="control-button" onclick="sendDirection('s')">↓</button>
+                                </td>
+                                <td></td>
+                                <td>
+                                </td>
+                                <td>
+                                </td>
+                            </tr>
+
+                        </table>
+                    </div>
+
+                    <div id="command-buttons">
+
+                        <div class = 'boxy'>
+                            <div class = 'two_buttons'>
+                                <button class="command-button" onclick="getInfo()">Get Info</button>
+                                <button class="command-button" onclick="resetArduino()">Reset</button>
+                            </div>
+                        </div>
+                        <div class = 'boxy'>
+                            <div class = 'two_buttons'>
+                                <div style="width:120px;">
+                                    <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
+                                    <label for="tracking">Tracking</label><br>
+                                    <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)">
+                                    <label for="quiet">Quiet mode</label><br>
+                                    <input type="checkbox" id="joy-lock" onchange="setLocked(this.checked)">
+                                    <label for="joy-lock">Joy. Lock</label>
+                                </div>
+                                <div style="width:120px;">
+                                    <label>Pier:</label>
+                                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
+                                    <label for="pier_w">W</label>
+                                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
+                                    <label for="pier_e">E</label><br>
+                                    <button class="command-button" onclick="setPier('F')">MER. FLIP</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class = 'boxy'>
+                            <div class = 'two_buttons'>
+                                <div style="width:120px;">
+                                    RA<span id="ra_current">00:00:00</span>
+                                </div>
+                                <div style="width:120px;">
+                                    DEC<span id="dec_current">+00*00:00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class = 'boxy' id="goto-box" onmouseover="handleMouseOverGotoBox(event)" onmouseleave="handleMouseLeaveGotoBox(event)">
+                            <div class = 'two_buttons'>
+                                <div>
+                                    <label for="ra-input">RA</label>
+                                    <input class="two_buttons_input" type="text" id="ra-input" placeholder="+HH:MM:SS"  required>
+                                </div>
+                                <button class="command-button" onclick="submitSetTo()">SET to</button>
+                            </div>
+                            <div class = 'two_buttons'>
+                                <div>
+                                    <label for="dec-input">DE</label>
+                                    <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM:SS"  required>
+                                </div>
+                                <button class="command-button" onclick="submitGoto()">GOTO</button>
+                            </div>
+                        </div>
+
+                        <div class = 'boxy'>
+                            <div class = 'two_buttons'>
+                                <div>
+                                    Camera :
+                                    <input class="num_input" type="text" id="shots-input" placeholder="0">
+                                    <label for="shots-input">shots </label>
+                                </div>
+                                <div>
+                                    <input class="num_input" type="text" id="exposure-input" placeholder="30">
+                                    <label for="exposure-input">sec</label>
+                                </div>
+                            </div>
+                            <div class = 'two_buttons'>
+                                <button class="command-button" onclick="submitCamera()">SET</button>
+                                <button id="camera-shooting" class="command-button" onclick="startCamera()">START</button>
+                            </div>
+                        </div>
+
+                        <div class = 'boxy'>
+                            <div class = 'two_buttons'>
+                                <div>
+                                    <div>
+                                        Backlash comp
+                                    </div>
+                                    <div>
+                                        <button class="command-button" onclick="submitBacklash()">SET</button>
+                                    </div>
+                                </div>
+                                <div style="height:50px;">
+                                    <div>
+                                        <label for="bc_ra-input">RA</label>
+                                        <input class="two_buttons_input" type="text" id="bc_ra-input" >
+                                    </div>
+                                    <div>
+                                        <label for="bc_dec-input">DE</label>
+                                        <input class="two_buttons_input" type="text" id="bc_dec-input" >
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="upload-firmware" class="boxy">
+                            <form id="uploadForm" enctype="multipart/form-data" style="width:100%;">
+                                <input type="file" id="firmware" name="firmware" accept=".hex" style="width:98%;" onchange="handleFirmwareSelection()">
+                            </form>
+                            <div class = 'two_buttons'>
+                                <span style="width:120px; margin-top:4px;font-size:16px;">Firmware</span>
+                                <button class="command-button" type="button" id="upload-firmware-button" onclick="uploadFirmware()">Upload</button>
+                            </div>
+                        </div>
+
+                    </div>
+                    </div>
+                    <div>
+                        <div id="control-result-boxes" class = "flex1">
+                            <textarea id="control_result" placeholder="Result"></textarea>
+                            <textarea id="telescope-info"  placeholder="INFO"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div id="terminal_frame" class="hidden">
+                    <button class="command-button" onclick="shutdown()">Shutdown</button>
+                    <iframe id="terminal_iframe" src="{{ url_for('terminal') }}"></iframe>
+                </div>
                 <table id="autoguider_panel" class="parameters-table hidden">                   
                     <tr>
                         <td>
@@ -384,13 +575,489 @@
                     </tr>
                     
                 </table>
+                <table id="pec_panel" class="parameters-table hidden">
+
+                    <tr class = "controller-row">
+                        <td>
+                            READ THE  <button class="command-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">Instructions</button>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td>
+                            <label >Start PEC data capture:</label>
+                            <button class="command-button" title="start PEC data capture" onclick="startPECDataCapture()">Start</button>
+                            <label >Analyze PEC data:</label>
+                            <button class="command-button" title="analyze PEC data" onclick="analyzePECData()">Analyze</button>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="pec_mspr">Microsteps/rev (MSPR):</label></td>
+                        <td><input class="two_buttons_input" type="number" id="pec_mspr" value="12000" title="Number of microsteps the RA motor makes to turn the worm gear one full revolution."></td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="pec_rat">RA gear teeth (RAT):</label></td>
+                        <td><input class="two_buttons_input" type="number" id="pec_rat" value="144" title="Number of teeth on the main worm gear. Telescope turns 360/RAT degrees per worm revolution."></td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td>
+                            <button class="command-button" title="Get PEC table from arduino" onclick="receivePEC()">Get PEC</button>
+                            <button class="command-button" title="Send PEC table to arduino" onclick="sendPEC()">Send PEC</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div id="pec_table" class = "flex1">
+                                <textarea id="pec_table_text" rows="20" placeholder="Result"></textarea>
+                                <div id="pec_analysis_container">
+                                    <table id="pec_analysis_table">
+                                        <thead>
+                                            <tr><th>Pos</th><th>Avg&quot;</th><th>N</th><th>&Delta;</th></tr>
+                                        </thead>
+                                        <tbody id="pec_analysis_tbody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>                    
+                </table>
             </td>
         </tr>
     </table>
-   
-    <canvas id="correctionsChart" width="1900px" height="200px"></canvas>
-    <canvas id="pecChart" width="1900px" height="200px" style="display: none;"></canvas>
+
+    <div class="chart-container">
+        <div class="chart-controls">
+            <button class="command-button active" id="errors_button" onclick="showCorrectionsChart()">Errors</button>
+            <button class="command-button" id="pec_button" onclick="showPECChart()">PEC</button>
+            <button class="command-button" id="reset_button" onclick="resetChart()">Reset</button>
+        </div>
+        <div class="chart-canvases">
+            <canvas id="correctionsChart" width="1760px" height="200px"></canvas>
+            <canvas id="pecChart" width="1760px" height="200px" style="display: none;"></canvas>
+        </div>
+    </div>
+
+    <div id="pec-instructions-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pec-instructions-title">
+        <div class="modal-content">
+            <button class="modal-close" type="button" aria-label="Close instructions" onclick="hidePECInstructions()">&times;</button>
+            <h2 id="pec-instructions-title">PEC Analysis Instructions</h2>
+            <p>To perform PEC (periodic error correction) analysis, do the following steps:</p>
+            <ol>
+                <li>Telescope setup and polar alignment.</li>
+                <li>Point the telescope to near ecliptic and near vertical. Put pier on E side.</li>
+                <li>Start the telescope, stop tracking. Perform camera orientation calibration (Calibrate button on Guider tab).</li>
+                <li>Manually turn the RA worm gear so that the marking is at zero.</li>
+                <li>Select a single star to track for PEC analysis. The star should be bright and isolated near center, but not too bright.</li>
+                <li>Start the PEC analysis by clicking the &quot;Start&quot; button.</li>
+                <li>Analysis will perform several full turns of the main worm gear. Each turn takes approx 10 minutes.</li>
+                <li>During the analysis, avoid touching the telescope or changing its orientation. Do NOT turn on tracking.</li>
+                <li>Analysis will start by setting the Pier to E (make sure it is correctly set). Tracking will be turned off. A zero PEC table will be uploaded to arduino.</li>
+                <li>Once data capture is complete, click the &quot;Analyze&quot; button. This will calculate necessary corrections for the PEC table.</li>
+                <li>Apply the calculated corrections to the PEC table on the Arduino PipiTrek.</li>
+            </ol>
+        </div>
 </body>
+<script type="module">
+    import { TelescopeSim } from '/static/vr/telescope_sim_novr.js';
+
+    const controlCanvas = document.getElementById('telescopeCanvas');
+    const controlContainer = document.getElementById('telescopeContainer');
+    window.telescopeSim = new TelescopeSim(controlContainer, controlCanvas);
+    
+    telescopeSim.init(); // Initialize the telescope simulation before adding click detection
+
+    window.addEventListener('resize', () => {
+        telescopeSim.resize(controlContainer.clientWidth, controlContainer.clientHeight);
+    });
+
+    telescopeSim.resize(controlContainer.clientWidth, controlContainer.clientHeight);
+</script>
+<script>
+
+    const PEC_wheel = make_wheel();
+    const gotoBox = document.getElementById('goto-box');
+
+    var blockUpdate = false;
+    function handleMouseOverGotoBox(event) {
+        const ra = document.getElementById('ra-input').value.trim();
+        const dec = document.getElementById('dec-input').value.trim();
+        telescopeSim.pointTelescope(ra, dec, true);
+        blockUpdate = true;
+        console.log("Mouse over GOTO box, blocking updates.");
+    }
+
+    function handleMouseLeaveGotoBox(event) {
+        console.log("handleMouseLeaveGotoBox");
+
+        // Check if the mouse has truly left the parent div
+        if (!gotoBox.contains(event.relatedTarget)) {
+            console.log("Mouse has left the GOTO box.");
+            blockUpdate = false;
+        }
+    }
+
+    function handleFirmwareSelection() {
+        const firmwareInput = document.getElementById('firmware');
+        const uploadButton = document.getElementById('upload-firmware-button');
+
+        if (firmwareInput.files.length > 0) {
+            uploadButton.classList.add('red'); // Add the 'red' class
+        } else {
+            uploadButton.classList.remove('red'); // Remove the 'red' class if no file is selected
+        }
+    }
+
+    function scopeAppendToResult(message) {
+        const resultTextarea = document.getElementById('control_result');
+        resultTextarea.value += message + '\n';
+        resultTextarea.scrollTop = resultTextarea.scrollHeight; // Auto-scroll to the bottom
+    }
+
+    function setInfo(message) {
+        const resultTextarea = document.getElementById('telescope-info');
+        resultTextarea.value = message;
+    }
+
+    function handleSlewingEffect(slewing) {
+        const image = document.getElementById('pipitrekImage');
+        if(!image) return; // Check if the image element exists
+        if (slewing) {
+            image.classList.add('psychedelic'); // Add the effect
+        } else {
+            image.classList.remove('psychedelic'); // Remove the effect
+        }
+    }
+
+    const telescope_ws = new WebSocket('wss://' + window.location.host + '/telescope_socket');
+
+    telescope_ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        scopeAppendToResult(event.data);
+        if (data.function === "slew_request") {
+            //const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
+            //if (confirm(message)) {
+                // If the user confirms, send the slew command
+                //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
+                document.getElementById('ra-input').value = data.ra;
+                document.getElementById('dec-input').value = data.dec;
+                scopeAppendToResult('Slew request applied.');
+            //} else {
+            //    scopeAppendToResult('Slew request declined.');
+            //}
+        }
+    };
+
+    telescope_ws.onclose = function() {
+        scopeAppendToResult("Websocket closed.")
+    };
+
+    function sendDirection(direction) {
+        scopeSubmit('/control_move',
+            `direction=${direction}`
+        );
+    }
+
+    function sendSpeed(speed) {
+        scopeSubmit('/control_speed',
+            `speed=${speed}`
+        );
+    }
+
+    function sendStop() {
+        scopeSubmit('/control_stop',
+            `direction=`
+        );
+    }
+
+    function uploadFirmware() {
+        const form = document.getElementById('uploadForm');
+        const formData = new FormData(form);
+        scopeAppendToResult('Starting firmware upload. Please do not disconnect telescope.');
+        fetch('/command_upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            scopeAppendToResult('Upload Success: ' + JSON.stringify(data, null, 2));
+            document.getElementById('firmware').files.length = 0; // Clear the file input
+            document.getElementById('upload-firmware-button').classList.remove('red');
+        })
+        .catch((error) => {
+            scopeAppendToResult('Error: ' + error);
+        });
+    }
+
+    function resetArduino() {
+        if (confirm("Are you sure you want to reset the Arduino?")) {
+            scopeSubmit('/command_reset', '');
+        } else {
+            scopeAppendToResult('Arduino reset canceled.');
+        }
+    }
+
+    function getInfo() {
+        fetch('/command_info', {
+            method: 'GET'
+        })
+        .then(response => response.json())
+        .then(data => {
+            setInfo(data.info)
+        })
+        .catch((error) => {
+            scopeAppendToResult('Error: ' + error);
+        });
+    }
+
+    function updateScopeInfo() {
+        fetch('/scope_info')
+            .then(response => response.json())
+            .then(data => {
+                if(data.text) setInfo(data["text"])
+
+                const setupIndicator = document.getElementById('indicator-setup');
+                if (setupIndicator) {
+                    const needsSetup = !!(data.coordinates &&
+                        (data.coordinates.ra.includes('?') || data.coordinates.dec.includes('?')));
+                    setupIndicator.classList.toggle('flash-red', needsSetup);
+                }
+
+                if(data.pier) {
+                    document.getElementById('pier_w').checked = (data.pier === 'W');
+                    document.getElementById('pier_e').checked = (data.pier === 'E');
+                    telescopeSim.setPier(data.pier=='W');
+                }
+
+                document.getElementById('tracking').checked = data.tracking;
+                document.getElementById('joy-lock').checked = data.locked;
+
+                document.getElementById('quiet').checked = (data.quiet);
+                btnCamStart = document.getElementById('camera-shooting');
+                const cameraIndicator = document.getElementById('indicator-camera');
+                if(data.camera) {
+                    const isShooting = data.camera.state === 'S';
+                    if(isShooting) {
+                        btnCamStart.innerText = 'STOP';
+                        btnCamStart.style.backgroundColor = 'lightcoral'; // Change to light red
+                    } else {
+                        btnCamStart.innerText = 'START';
+                        btnCamStart.style.backgroundColor = ''; // Reset to default
+                    }
+                    if (cameraIndicator) cameraIndicator.classList.toggle('on-green', isShooting);
+                }
+                if(data.pec) PEC_wheel.setPECPositon(data.pec.progress);
+                if(data.coordinates) {
+                    document.getElementById('ra_current').textContent = data.coordinates.ra;
+                    document.getElementById('dec_current').textContent = data.coordinates.dec;
+                    if(!blockUpdate) telescopeSim.pointTelescope(data.coordinates.ra, data.coordinates.dec);
+                }
+
+                if(data.bc) {
+                    document.getElementById('bc_ra-input').textContent = data.bc.ra;
+                    document.getElementById('bc_dec-input').textContent = data.bc.dec;
+                }
+
+                if (data.slewing !== undefined) {
+                    handleSlewingEffect(data.slewing);
+                }
+
+                const trackingIndicator = document.getElementById('indicator-tracking');
+                if (trackingIndicator) trackingIndicator.classList.toggle('on', !!data.tracking);
+            })
+        .catch(error => scopeAppendToResult('Error:', error));
+    }
+
+    setInterval(updateScopeInfo, 1000);
+
+    function setPier(pier) {
+        scopeSubmitSetting("pier", pier);
+    }
+
+    function setTracking(isTracking) {
+        scopeSubmitSetting("tracking", isTracking);
+    }
+
+    function setQuiet(isQuiet) {
+        scopeSubmitSetting("quiet", isQuiet);
+    }
+
+    function setLocked(isLocked) {
+        scopeSubmitSetting("locked", isLocked);
+    }
+
+    function setPECPosition() {
+        scopeSubmitSetting("pec_position", PEC_wheel.getPECPosition());
+    }
+
+    function submitCamera() {
+        const shots = document.getElementById('shots-input').value.trim();
+        const exposure = document.getElementById('exposure-input').value.trim();
+        scopeSubmitJSON('/set_camera',
+            { shots: shots, exposure: exposure }
+        );
+    }
+
+    function startCamera() {
+        btnCamStart = document.getElementById('camera-shooting');
+        scopeSubmitJSON('/command_camera',
+            {action: btnCamStart.innerText}
+        );
+    }
+
+    function submitBacklash() {
+        const ra = document.getElementById('bc_ra-input').value.trim();
+        const dec = document.getElementById('bc_dec-input').value.trim();
+        scopeSubmitJSON('/set_backlash',
+            { ra: ra, dec: dec }
+        );
+    }
+
+    function submitGoto() {
+        const ra = document.getElementById('ra-input').value.trim();
+        const dec = document.getElementById('dec-input').value.trim();
+
+        if (!validateRA(ra) || !validateDEC(dec)) {
+            scopeAppendToResult('Error: Invalid RA or DEC format.');
+            return;
+        }
+        scopeSubmitJSON('/command_goto',
+            { ra: ra, dec: dec }
+        );
+    }
+
+    function submitSetTo() {
+        const ra = document.getElementById('ra-input').value.trim();
+        const dec = document.getElementById('dec-input').value.trim();
+
+        if (!validateRA(ra) || !validateDEC(dec)) {
+            scopeAppendToResult('Error: Invalid RA or DEC format.');
+            return;
+        }
+        scopeSubmitJSON('/command_set_to',
+            { ra: ra, dec: dec }
+        );
+    }
+
+    function validateRA(ra) {
+        const raPattern = /^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$/;
+        return raPattern.test(ra);
+    }
+
+    function validateDEC(dec) {
+        const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]:[0-5][0-9]$/;
+        return decPattern.test(dec);
+    }
+
+    // Apply input mask for RA
+    Inputmask({
+        mask: "23:59:59",
+        placeholder: "HH:MM:SS",
+        definitions: {
+            '2': { validator: "[0-2]" },
+            '3': { validator: "[0-9]" },
+            '5': { validator: "[0-5]" },
+            '9': { validator: "[0-9]" },
+        }
+    }).mask(document.getElementById('ra-input'));
+
+    // Apply input mask for DEC
+    Inputmask({
+        mask: "[+|-]99\\*59:59",
+        placeholder: "+DD*MM:SS",
+        definitions: {
+            '5': { validator: "[0-5]" },
+            '9': { validator: "[0-9]" },
+        }
+    }).mask(document.getElementById('dec-input'));
+
+
+    function scopeSubmitSetting(name, value) {
+        scopeSubmit(`/set_${name}`,`${name}=${value}`);
+    }
+
+    function scopeSubmit(name, body) {
+        fetch(name, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body
+        })
+        .then(response => {
+            if (!response.ok) {
+                // Throw an error to trigger the .catch block
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json(); // Parse the JSON response
+        })
+        .then(data => {
+            scopeAppendToResult('Success: ' + JSON.stringify(data));
+        })
+        .catch(error => scopeAppendToResult('Error:', error.message));
+    }
+
+    function scopeSubmitJSON(name, obj) {
+
+        fetch(name, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(obj)
+        })
+        .then(response => {
+            if (!response.ok) {
+                // Throw an error to trigger the .catch block
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json(); // Parse the JSON response
+        })
+        .then(data => {
+            scopeAppendToResult('Success: ' + JSON.stringify(data));
+        })
+        .catch(error => scopeAppendToResult('Error:', error.message));
+    }
+
+    function updateInputBackgrounds() {
+        const raInput = document.getElementById('ra-input');
+        const decInput = document.getElementById('dec-input');
+        const raCurrentVal = parseRA(document.getElementById('ra_current').textContent.trim());
+        const decCurrentVal = parseDec(document.getElementById('dec_current').textContent.trim());
+        const raInputVal = parseRA(raInput.value.trim());
+        const decInputVal = parseDec(decInput.value.trim());
+
+        // Check if RA input value differs from RA current value
+        if (Math.abs(raInputVal - raCurrentVal) > 2/3600) {
+            raInput.style.backgroundColor = 'lightcoral'; // Light red background
+        } else {
+            raInput.style.backgroundColor = ''; // Reset background
+        }
+
+        // Check if DEC input value differs from DEC current value
+        if (Math.abs(decInputVal - decCurrentVal) > 2/3600) {
+            decInput.style.backgroundColor = 'lightcoral'; // Light red background
+        } else {
+            decInput.style.backgroundColor = ''; // Reset background
+        }
+    }
+    setInterval(updateInputBackgrounds, 1000); // Update every second
+
+    function parseRA(raStr) {
+        const [hours, minutes, seconds] = raStr.split(':').map(Number);
+        return hours + minutes / 60 + seconds / 3600;
+    }
+
+    function parseDec(decStr) {
+        const match = decStr.match(/([+-]?\d+)\*(\d+):(\d+)/);
+        if (!match) return 0;
+        const degrees = parseInt(match[1]);
+        const minutes = parseInt(match[2]);
+        const seconds = parseInt(match[3]);
+        const sign = degrees >= 0 ? 1 : -1;
+        return degrees + sign * (minutes / 60 + seconds / 3600);
+    }
+
+</script>
 <script src="../static/loupe.js"></script>
 <script>
     const videoFeed = document.getElementById('video_feed_canvas');
@@ -610,7 +1277,15 @@
         document.getElementById('guiding').checked = data.guiding;
         document.getElementById('dec_guiding').checked = data.dec_guiding;
         document.getElementById('save_frames').checked = data.save_frames;
-        
+
+        const guidingIndicator = document.getElementById('indicator-guiding');
+        if (guidingIndicator) {
+            const isGuiding = !!data.guiding;
+            const noLock = isGuiding && !data.star_locked;
+            guidingIndicator.classList.toggle('on', isGuiding && !noLock);
+            guidingIndicator.classList.toggle('on-red', noLock);
+        }
+
         document.getElementById('guide_pulse').value = data.guide_pulse;
         document.getElementById('guide_pulse_value').textContent = data.guide_pulse;
         document.getElementById('guide_interval').value = data.guide_interval;
@@ -773,7 +1448,46 @@
             pecChart.update();
         }
 
+        savePECdata(data);
         calculateRMS();
+    }
+
+    function savePECdata(data) {
+        // Save PEC data capture sample: pec position, RA error and timestamp
+        if (pecCaptureActive && data.pec_position !== undefined && data.last_correction.ra_arcsec !== undefined) {
+            const pos = Math.round(Number(data.pec_position));
+            if (!isNaN(pos) && pos >= 0 && pos <= 99) {
+
+                // The "starting interval" is whichever interval contains the position when capture began.
+                if (pecTrackedIntervalStart === null) {
+                    // We want to fully capture the first interval buckets, so return if we're not at the start of an interval.
+                    if(pos % PEC_BUCKETS_PER_INTERVAL !== 0) return;
+                    pecTrackedIntervalStart = pos;
+                    pecCaptureDataLastBucket = pecTrackedIntervalStart;
+                    resetChart();
+                }
+
+                var bucket = null;
+                if (pos >= pecTrackedIntervalStart && pecCaptureDataBuckets >= 100) {
+                    bucket = pecCaptureDataOverlap[pos-pecTrackedIntervalStart];
+                } else {
+                    bucket = pecCaptureData[pos];
+                }
+                bucket.sum += data.last_correction.ra_arcsec;
+                bucket.count += 1;
+                bucket.lastTimestamp = Date.now();
+                if(pos !== pecCaptureDataLastBucket) {
+                    pecCaptureDataBuckets += pos>pecCaptureDataLastBucket ? pos-pecCaptureDataLastBucket : pos+1;
+                    pecCaptureDataLastBucket = pos;
+                }
+
+                if (pecCaptureDataBuckets >= 105) {
+                    finishPECDataCapture();
+                }
+
+                renderPECAnalysisTable();
+            }
+        }   
     }
 
     function resetChart() {
@@ -790,6 +1504,172 @@
 
         console.log('Charts have been reset.');
     }
+
+    // PEC data capture: 100 buckets (pec position 0-99), each accumulating RA error samples
+    let pecCaptureActive = false;
+    let pecCaptureData = null;
+
+    // Tracks the "starting interval" (whichever interval contains the position when capture began)
+    // and measures it twice (once per lap) so row 0's baseline offset can be derived from the
+    // difference between the two measurements.
+    let pecTrackedIntervalStart = null;
+    let pecCaptureDataOverlap = null;
+    let pecCaptureDataLastBucket = 0;
+    let pecCaptureDataBuckets = 0;
+
+    const PEC_BUCKETS_PER_INTERVAL = 5; // 100 positions / 20 intervals
+
+
+    function startPECDataCapture() {
+        pecCaptureData = Array.from({ length: 100 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+        pecCaptureDataOverlap = Array.from({ length: 10 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+        pecTrackedIntervalStart = null;
+        pecCaptureDataBuckets = 0;
+        pecCaptureDataLastBucket = 0;
+        pecCaptureActive = true;
+        renderPECAnalysisTable();
+
+        // Reset the telescope to a zero PEC table before capturing, so measured errors aren't skewed
+        // by a previously applied correction.
+        const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
+        const intervals = 20;
+        const microstepsPerInterval = mspr / intervals;
+        const zeroRows = ['0,0'];
+        for (let i = 1; i <= intervals; i++) {
+            zeroRows.push(`${Math.round(i * microstepsPerInterval)},0`);
+        }
+        document.getElementById('pec_table_text').value = zeroRows.join('\n');
+        sendPEC();
+    }
+
+    // Called automatically once the starting interval has been measured twice.
+    function finishPECDataCapture() {
+        pecCaptureActive = false;
+        renderPECAnalysisTable();
+        generatePECCorrectionTable();
+        alert('PEC analysis complete. Correction table generated.');
+    }
+
+    function analyzePECData() {
+        pecCaptureActive = false;
+        renderPECAnalysisTable();
+        generatePECCorrectionTable();
+    }
+
+    // Build the PEC correction table from the captured RA error data.
+    // Row 0 is special: first column is literal 0, second column is a baseline offset
+    // (microseconds/microstep) added by the firmware to every interval. It's derived from
+    // measuring the starting interval's error twice (once per lap); the difference between
+    // the two measurements is the drift accumulated over one full circle.
+    // Rows 1-20: first column is the upper bound (in microsteps) of that interval
+    // (MSPR/20, 2*MSPR/20, ..., MSPR for the last, 21st row). Second column is that
+    // interval's correction (microseconds/microstep), with the offset subtracted out
+    // since the firmware re-adds it when the table is applied.
+    function generatePECCorrectionTable() {
+        const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
+        const rat = parseFloat(document.getElementById('pec_rat').value) || 144;
+
+        const intervals = 20;
+        const bucketsPerInterval = PEC_BUCKETS_PER_INTERVAL; // 5 captured PEC positions per interval
+        const microstepsPerInterval = mspr / intervals;
+
+        const siderealDaySeconds = 86164.0905;
+
+        // Nominal angle per microstep shrinks with declination away from the celestial equator (cos(dec))
+        const decDeg = parseDec(document.getElementById('dec_current').textContent.trim());
+        const decRad = (isNaN(decDeg) ? 0 : decDeg) * (Math.PI / 180);
+        // Nominal angle (arcsec) covered by a single microstep at the equator: (360/RAT)/MSPR degrees * 3600
+        const nominalArcsecPerMicrostep = (1296000 / (rat * mspr)) * Math.cos(decRad);
+        // Nominal microseconds per microstep for correct sidereal tracking
+        const baseMicrosecondsPerMicrostep = (siderealDaySeconds * 1e6) / (rat * mspr);
+
+        // Average RA error (arcsec) sampled every 5 captured positions (21 boundary points, 0..100 wrapping to 0)
+        const boundaryError = [];
+        for (let k = 0; k <= intervals; k++) {
+            const bucket = pecCaptureData[(k * bucketsPerInterval) % 100];
+            if(bucket.count == 0) bucket=pecCaptureData[(k * bucketsPerInterval+1) % 100]
+            boundaryError.push(bucket.count > 0 ? bucket.sum / bucket.count : 0);
+        }
+
+        // Row 0 offset: difference between the starting interval's error measured on lap 1 vs lap 2
+        const rev0Delta = pecCaptureData[pecTrackedIntervalStart].count>0 ? pecCaptureData[pecTrackedIntervalStart].sum / pecCaptureData[pecTrackedIntervalStart].count : 0 ;
+        const rev1Delta = pecCaptureDataOverlap[0].count>0 ? pecCaptureDataOverlap[0].sum / pecCaptureDataOverlap[0].count : 0 ;
+        const fullCircleErrorArcsec = rev0Delta - rev1Delta;
+        const offsetMicrostepsEquivalent = fullCircleErrorArcsec / nominalArcsecPerMicrostep;
+        const offset = (offsetMicrostepsEquivalent * baseMicrosecondsPerMicrostep) / mspr;
+
+        const rows = [`0,${Math.round(offset)}`];
+        for (let i = 1; i <= intervals; i++) {
+            const deltaArcsec = boundaryError[i - 1] - boundaryError[i];
+            const microstepsEquivalent = deltaArcsec / nominalArcsecPerMicrostep;
+            const totalCorrectionUs = microstepsEquivalent * baseMicrosecondsPerMicrostep;
+            const correctionPerMicrostep = (totalCorrectionUs / microstepsPerInterval) - offset;
+            const boundarySteps = Math.round(i * microstepsPerInterval);
+            rows.push(`${boundarySteps},${Math.round(correctionPerMicrostep)}`);
+        }
+
+        document.getElementById('pec_table_text').value = rows.join('\n');
+    }
+
+    function renderPECAnalysisTable() {
+        const tbody = document.getElementById('pec_analysis_tbody');
+        if (!tbody) return;
+
+        const rows = [];
+        for (let pos = 0; pos < 100; pos++) {
+            const bucket = pecCaptureData[pos];
+            const avg = bucket.count > 0 ? bucket.sum / bucket.count : null;
+
+            const prevPos = pos === 0 ? 99 : pos - 1;
+            const prevBucket = pecCaptureData[prevPos];
+            const prevAvg = prevBucket.count > 0 ? prevBucket.sum / prevBucket.count : null;
+            const delta = (avg !== null && prevAvg !== null) ? avg - prevAvg : null;
+
+            rows.push(`<tr><td>${pos}</td><td>${avg !== null ? avg.toFixed(2) : '-'}</td><td>${bucket.count}</td><td>${delta !== null ? delta.toFixed(2) : '-'}</td></tr>`);
+        }
+        tbody.innerHTML = rows.join('');
+    }
+
+
+        function receivePEC() {
+            fetch('/command_receivePEC', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                const pecTableText = document.getElementById('pec_table_text');
+                if (data.status === 'success') {
+                    const pecTable = data.pec_table;
+                    const formattedTable = pecTable.map((value, index) => {
+                        return index % 2 === 0 ? `${value},` : `${value}\n`;
+                    }).join('');
+                    pecTableText.value = formattedTable;
+                } else {
+                    pecTableText.value = 'Error: ' + data.message;
+                }
+            })
+            .catch((error) => {
+                document.getElementById('pec_table_text').value = 'Error: ' + error;
+            });
+        }
+
+        function sendPEC() {
+            const pecTableText = document.getElementById('pec_table_text').value;
+            const pecTableLines = pecTableText.split('\n');
+            const pecTable = [];
+
+            pecTableLines.forEach(line => {
+                const [x, y] = line.split(',').map(Number);
+                if (!isNaN(x) && !isNaN(y)) {
+                    pecTable.push(x, y);
+                }
+            });
+
+            submitJSON('/command_sendPEC',
+                { pec_table: pecTable }
+            );
+        }
+
 
     function showCorrectionsChart() {
         document.getElementById('correctionsChart').style.display = 'block';
@@ -1097,6 +1977,7 @@
         document.getElementById('camera_panel').classList.add('hidden');
         document.getElementById('terminal_frame').classList.add('hidden');
         document.getElementById('analysis_panel').classList.add('hidden');
+        document.getElementById('pec_panel').classList.add('hidden');
         document.getElementById(panel).classList.remove('hidden');
 
         document.getElementById('control_frame_button').classList.remove('active');
@@ -1104,6 +1985,7 @@
         document.getElementById('camera_panel_button').classList.remove('active');
         document.getElementById('terminal_frame_button').classList.remove('active');
         document.getElementById('analysis_panel_button').classList.remove('active');
+        document.getElementById('pec_panel_button').classList.remove('active');
         document.getElementById(panel + '_button').classList.add('active');        
     }
     function showControl() {
@@ -1121,6 +2003,23 @@
     function showAnalysis() {
         showPanel('analysis_panel');
     }
+    function showPEC() {
+        showPanel('pec_panel');
+    }
+
+    function showPECInstructions() {
+        document.getElementById('pec-instructions-modal').classList.remove('hidden');
+    }
+
+    function hidePECInstructions() {
+        document.getElementById('pec-instructions-modal').classList.add('hidden');
+    }
+
+    document.getElementById('pec-instructions-modal').addEventListener('click', function(event) {
+        if (event.target === this) {
+            hidePECInstructions();
+        }
+    });
     
 
     function saveFrame() {
