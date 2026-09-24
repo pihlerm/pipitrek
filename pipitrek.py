@@ -792,7 +792,7 @@ def plateSolve():
         frame = camera.frame
         if frame is not None and frame.size > 0:
             # Save the frame as an image file
-            save_path = os.path.join(os.getcwd(), 'saved_frame.png')
+            save_path = os.path.join(os.getcwd(), filename)
             cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
             print(f"Frame saved to {save_path}")
         else:
@@ -817,6 +817,49 @@ def plateSolve():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
+def _run_orientation():
+    if camera is not None and camera.running:
+        frame = camera.frame
+        if frame is not None and frame.size > 0:
+            # Save the frame as an image file
+            save_path = os.path.join(os.getcwd(), 'saved_frame.png')
+            cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
+            print(f"Frame saved to {save_path}")
+        else:
+            return {"status": "error", "message": "No valid frame available"}, 400
+    else:
+        return {"status": "error", "message": "Camera is not running"}, 503
+    
+    platesolver = PlateSolver()
+    try:
+        ra, dec, rot, scale = platesolver.solve('saved_frame.png')
+        raStr = deg_to_lx200_ra(float(ra))
+        decStr = deg_to_lx200_dec(float(dec))
+        retval = {
+            'status': 'ok',
+            'ra' : raStr,
+            'dec' : decStr,
+            'rotation' : rot,
+            'scale' : scale
+        }
+        telescope.send_set_to(raStr, decStr)
+        if -180 <= rot <= 180:
+            autoguider.rotation_angle = rot
+
+        return retval, 200
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}, 400
+
+
+@app.route('/orient', methods=['POST'])
+def orient():
+    retval, status = _run_orientation()
+    return jsonify(retval), status
+
+
+def orient_for_bridge():
+    retval, _ = _run_orientation()
+    return json.dumps(retval).encode('utf-8')
 
 # Shutdown APPLICATION
 @app.route('/shutdown', methods=['POST'])
@@ -923,6 +966,7 @@ if __name__ == '__main__':
     telescope = Telescope()
     time.sleep(2) # wait arduino
     all_settings.set_telescope_settings(telescope)
+    telescope.set_orientation_callback(orient_for_bridge)
     telescope.start_bridge()
     print("telescope started.")
 

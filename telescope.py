@@ -45,6 +45,7 @@ class Telescope:
             self.quiet = False
             self._thread = None
             self.slew_request = None
+            self.orientation_callback = None
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
@@ -118,6 +119,9 @@ class Telescope:
         self._thread = Thread(target=self.run_serial_bridge)
         self._thread.start()
 
+    def set_orientation_callback(self, callback):
+        self.orientation_callback = callback
+
     def stop_bridge(self):
         if self._thread is None:
             print("telescope bridge already stopped...")
@@ -169,15 +173,22 @@ class Telescope:
                 if bt.in_waiting() > 0:  # Check if there’s any data waiting
                     data = bt.read(bt.in_waiting())  # Read all available bytes
                     if data:                         
-                        self.write_scope(data)  # Write it to scope
+                        str = data.decode()
+                        if(str.startswith("!O#")):
+                            print("Orientation command received from BT serial")
+                            if self.orientation_callback is not None:
+                                result = self.orientation_callback()
+                                bt.write(result)
+                        else:
+                            self.write_scope(data)  # Write it to scope
 
                 with self.lock:
                     if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
                         data = self.read_scope()  # Read all available bytes                        
                         if data:  # Ensure data was read                        
                             bt.write(data)       # will write if open
-                            print(f"telescope bridge: {data}")
-#                           tcp.write(data)  # will write if open
+                            #print(f"telescope bridge: {data}")
+#                           #tcp.write(data)  # will write if open
                 
                 # Brief sleep to avoid high CPU usage
                 time.sleep(0.05)  # 50ms delay

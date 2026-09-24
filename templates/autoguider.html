@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Autoguider Live Feed</title>
-    <link rel="stylesheet" href="../static/style.css" />
+    <link rel="stylesheet" href="../static/style2.css" />
     <script src="../static/chart.js"></script>
     <script type="importmap">
         {
@@ -494,6 +494,17 @@
                 <table id="analysis_panel" class="parameters-table hidden">
 
                     <tr class = "controller-row">
+                        <td colspan="2">
+                            <h2>Image Analysis</h2>
+                        </td>
+                    </tr>
+
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            Detect stars using <a href="https://photutils.readthedocs.io/en/stable/api/photutils.detection.DAOStarFinder.html" target="_blank">DAOStarFinder</a> then estimate star SNR using Photutils and astropy.
+                        </td>
+                    </tr>                    
+                    <tr class = "controller-row">
                         <td>
                             <div class="two_buttons">
                                 <button class="command-button" onclick="analyze()" title="Star field SNR analysis">Analyze</button>
@@ -550,19 +561,20 @@
                         </td>
                     </tr>
                     <tr class = "controller-row">
-                        <td colspan="2">
+                        <td colspan="3">
                             <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
                     </tr>
                     <tr class = "controller-row">
-                        <td>
-                            <label >Platesolve:</label>
-                            <button class="command-button" title="plate solve saved image" onclick="plateSolve()">Solve</button>
+                        <td colspan="2">
+                            <label><b>Platesolve:</b> take a camera snapshot, determine ra/dec, rotation and pixel size.</label>
                         </td>
+                    </tr>
+                    <tr class = "controller-row">
                         <td>
                             <div class = 'two_buttons'>
-                                    RA:<input class="two_buttons_input" type="text" id="ra-solved">
-                                    DE:<input class="two_buttons_input" type="text" id="dec-solved">
+                                <button class="command-button" title="plate solve current image" onclick="plateSolve()">Solve</button>
+                                <button class="command-button" title="plate solve and set parameters" onclick="plateSolve(true)">Solve & Set</button>
                             </div>
                         </td>
                     </tr>
@@ -578,16 +590,10 @@
                 <table id="pec_panel" class="parameters-table hidden">
 
                     <tr class = "controller-row">
-                        <td>
-                            READ THE  <button class="command-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">Instructions</button>
-                        </td>
-                    </tr>
-                    <tr class = "controller-row">
-                        <td>
-                            <label >Start PEC data capture:</label>
-                            <button class="command-button" title="start PEC data capture" onclick="startPECDataCapture()">Start</button>
-                            <label >Analyze PEC data:</label>
-                            <button class="command-button" title="analyze PEC data" onclick="analyzePECData()">Analyze</button>
+                        <td colspan="2">
+                            <h2>PEC Analysis</h2>
+                            READ<button class="command-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">Instructions</button> BEFORE YOU
+                            <button class="command-button" title="Start PEC analysis procedure. Takes 10 minutes!" onclick="startPECDataCapture()">Start</button>                            
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -647,20 +653,22 @@
             <h2 id="pec-instructions-title">PEC Analysis Instructions</h2>
             <p>To perform PEC (periodic error correction) analysis, do the following steps:</p>
             <ol>
-                <li>Telescope setup and polar alignment.</li>
-                <li>Point the telescope to near ecliptic and near vertical. Put pier on E side.</li>
-                <li>Start the telescope, stop tracking. Perform camera orientation calibration (Calibrate button on Guider tab).</li>
-                <li>Manually turn the RA worm gear so that the marking is at zero.</li>
-                <li>Select a single star to track for PEC analysis. The star should be bright and isolated near center, but not too bright.</li>
-                <li>Start the PEC analysis by clicking the &quot;Start&quot; button.</li>
-                <li>Analysis will perform several full turns of the main worm gear. Each turn takes approx 10 minutes.</li>
+                <li>Set up the telescope, <b>polar align</b>. <b>Do not yet start telescope!</b></li>
+                <li>Point the telescope to near astronomical equator and near vertical. Put <b>pier on E side</b>.</li>
+                <li>Manually turn the RA worm gear so that the <b>marking is at zero</b>.</li>
+                <li>Start the telescope. Perform camera <b>b>orientation calibration</b> (Calibrate button on Guider tab).</li>
+                <li><b>Select a single star</b> to track for PEC analysis. The star should be bright and isolated near center, but not too bright.</li>
+                <li>Start the PEC analysis by clicking the <b>Start</b> button.</li>
+                <li>Analysis will perform one full turn of the main worm gear (approx 10 minutes).</li>
                 <li>During the analysis, avoid touching the telescope or changing its orientation. Do NOT turn on tracking.</li>
-                <li>Analysis will start by setting the Pier to E (make sure it is correctly set). Tracking will be turned off. A zero PEC table will be uploaded to arduino.</li>
-                <li>Once data capture is complete, click the &quot;Analyze&quot; button. This will calculate necessary corrections for the PEC table.</li>
-                <li>Apply the calculated corrections to the PEC table on the Arduino PipiTrek.</li>
+                <li>Once data capture is complete, it will automatically generate PEC table.</li>
+                <li>If all is OK, upload the calculated corrections to the PEC table to firmware on the Arduino PipiTrek.</li>
             </ol>
         </div>
 </body>
+
+<script type="module" src="../static/conversions.js"></script>
+
 <script type="module">
     import { TelescopeSim } from '/static/vr/telescope_sim_novr.js';
 
@@ -732,28 +740,32 @@
         }
     }
 
-    const telescope_ws = new WebSocket('wss://' + window.location.host + '/telescope_socket');
+    let telescope_ws;
+    // opened after 'load' so it doesn't compete with the initial page resource requests
+    window.addEventListener('load', function() {
+        telescope_ws = new WebSocket('wss://' + window.location.host + '/telescope_socket');
 
-    telescope_ws.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        scopeAppendToResult(event.data);
-        if (data.function === "slew_request") {
-            //const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
-            //if (confirm(message)) {
-                // If the user confirms, send the slew command
-                //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
-                document.getElementById('ra-input').value = data.ra;
-                document.getElementById('dec-input').value = data.dec;
-                scopeAppendToResult('Slew request applied.');
-            //} else {
-            //    scopeAppendToResult('Slew request declined.');
-            //}
-        }
-    };
+        telescope_ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            scopeAppendToResult(event.data);
+            if (data.function === "slew_request") {
+                //const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
+                //if (confirm(message)) {
+                    // If the user confirms, send the slew command
+                    //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
+                    document.getElementById('ra-input').value = data.ra;
+                    document.getElementById('dec-input').value = data.dec;
+                    scopeAppendToResult('Slew request applied.');
+                //} else {
+                //    scopeAppendToResult('Slew request declined.');
+                //}
+            }
+        };
 
-    telescope_ws.onclose = function() {
-        scopeAppendToResult("Websocket closed.")
-    };
+        telescope_ws.onclose = function() {
+            scopeAppendToResult("Websocket closed.")
+        };
+    });
 
     function sendDirection(direction) {
         scopeSubmit('/control_move',
@@ -847,7 +859,7 @@
                         btnCamStart.innerText = 'START';
                         btnCamStart.style.backgroundColor = ''; // Reset to default
                     }
-                    if (cameraIndicator) cameraIndicator.classList.toggle('on-green', isShooting);
+                    if (cameraIndicator) cameraIndicator.classList.toggle('flash-green', isShooting);
                 }
                 if(data.pec) PEC_wheel.setPECPositon(data.pec.progress);
                 if(data.coordinates) {
@@ -942,15 +954,6 @@
         );
     }
 
-    function validateRA(ra) {
-        const raPattern = /^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$/;
-        return raPattern.test(ra);
-    }
-
-    function validateDEC(dec) {
-        const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]:[0-5][0-9]$/;
-        return decPattern.test(dec);
-    }
 
     // Apply input mask for RA
     Inputmask({
@@ -1042,26 +1045,13 @@
     }
     setInterval(updateInputBackgrounds, 1000); // Update every second
 
-    function parseRA(raStr) {
-        const [hours, minutes, seconds] = raStr.split(':').map(Number);
-        return hours + minutes / 60 + seconds / 3600;
-    }
 
-    function parseDec(decStr) {
-        const match = decStr.match(/([+-]?\d+)\*(\d+):(\d+)/);
-        if (!match) return 0;
-        const degrees = parseInt(match[1]);
-        const minutes = parseInt(match[2]);
-        const seconds = parseInt(match[3]);
-        const sign = degrees >= 0 ? 1 : -1;
-        return degrees + sign * (minutes / 60 + seconds / 3600);
-    }
 
 </script>
-<script src="../static/loupe.js"></script>
 <script>
     const videoFeed = document.getElementById('video_feed_canvas');
     const full_feed_canvas = document.getElementById('full_feed_canvas');
+    const loupeModule = import('../static/loupe.js');
     const resultTextarea = document.getElementById('result');
 
     let correctionsChart;
@@ -1162,15 +1152,19 @@
     }
 
 
-    const ws = new WebSocket('wss://' + window.location.host + '/autoguider_socket');
-    
-    ws.onmessage = function(event) {
-        processCorrections(JSON.parse(event.data));
-    };
+    let ws;
+    // opened after 'load' so it doesn't compete with the initial page resource requests
+    window.addEventListener('load', function() {
+        ws = new WebSocket('wss://' + window.location.host + '/autoguider_socket');
 
-    ws.onclose = function() {
-        console.error("Websocket closed.")
-    };
+        ws.onmessage = function(event) {
+            processCorrections(JSON.parse(event.data));
+        };
+
+        ws.onclose = function() {
+            console.error("Websocket closed.")
+        };
+    });
     
 
 
@@ -1188,7 +1182,9 @@
                 full_feed_canvas.width = img.width;
                 full_feed_canvas.height = img.height;
                 full_ctx.drawImage(img, 0, 0, img.width, img.height);
-                updateLoupe();
+                loupeModule
+                   .then(({ updateLoupe }) => updateLoupe())
+                    .catch(error => console.error('Unable to update loupe:', error));
             };
             img.src = 'data:image/jpeg;base64,' + event.data;
         };
@@ -1550,11 +1546,6 @@
         alert('PEC analysis complete. Correction table generated.');
     }
 
-    function analyzePECData() {
-        pecCaptureActive = false;
-        renderPECAnalysisTable();
-        generatePECCorrectionTable();
-    }
 
     // Build the PEC correction table from the captured RA error data.
     // Row 0 is special: first column is literal 0, second column is a baseline offset
@@ -2071,20 +2062,23 @@
     }
 
     
-    function plateSolve() {
-        submitJSON('/plateSolve', { "filename" : "saved_frame.png", "capture" : true })
+    function plateSolve(setto=false) {
+        let cmd = setto ? '/orient' : '/plateSolve';
+        submitJSON(cmd, { "filename" : "saved_frame.png", "capture" : true })
         .then(response => response.json())
         .then(data => {
             appendToResult(JSON.stringify(data, null, 2)); // Append the result to the textarea
             if(data.status === 'ok') {
-                document.getElementById('ra-solved').value = data.ra;
-                document.getElementById('dec-solved').value = data.dec;
+                // note: slew request to ra/dec is generated automatically by python server code
                 document.getElementById('rotation_angle').value = data.rotation.toFixed(3);
                 document.getElementById('rotation_angle_value').textContent = data.rotation.toFixed(3);
-                submitRotationAngle();
                 document.getElementById('pixel_scale').value = data.scale.toFixed(1);
                 document.getElementById('pixel_scale_value').textContent = data.scale.toFixed(1);
-                submitPixelScale();
+                if(setto) {
+                    submitRotationAngle();
+                    submitPixelScale();
+                    SubmitSetTo();
+                }
             }
         })
         .catch(error => console.error('Error:', error));
