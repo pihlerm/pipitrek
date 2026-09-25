@@ -1,6 +1,4 @@
 
-import { parseRA, parseDec, printRA, printDEC } from './conversions.js';
-
 const mainCanvas = document.getElementById('canvas');
 const loupe = document.getElementById('loupe');
 const loupeCtx = loupe.getContext('2d');
@@ -46,7 +44,7 @@ function formatLoupeCoordinates() {
 }
 
 
-export function updateLoupe() {
+function updateLoupe() {
 
     // Clear the loupe canvas
     loupeCtx.clearRect(0, 0, loupe.width, loupe.height);

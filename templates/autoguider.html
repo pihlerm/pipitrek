@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Autoguider Live Feed</title>
-    <link rel="stylesheet" href="../static/style2.css" />
+    <link rel="stylesheet" href="../static/style.css" />
     <script src="../static/chart.js"></script>
     <script type="importmap">
         {
@@ -16,6 +16,7 @@
     <script src="../static/inputmask.min.js"></script>
     <script src="../static/wheel.js"></script>
     <script src="../static/vr/starCatalog.js"></script>
+    <script src="../static/conversions.js"></script>
 </head>
 <body onload="Load()" class="night-mode">
     <table class="main-table">
@@ -667,7 +668,6 @@
         </div>
 </body>
 
-<script type="module" src="../static/conversions.js"></script>
 
 <script type="module">
     import { TelescopeSim } from '/static/vr/telescope_sim_novr.js';
@@ -836,6 +836,7 @@
                     const needsSetup = !!(data.coordinates &&
                         (data.coordinates.ra.includes('?') || data.coordinates.dec.includes('?')));
                     setupIndicator.classList.toggle('flash-red', needsSetup);
+                    setupIndicator.classList.toggle('on', !needsSetup);
                 }
 
                 if(data.pier) {
@@ -954,7 +955,6 @@
         );
     }
 
-
     // Apply input mask for RA
     Inputmask({
         mask: "23:59:59",
@@ -1044,14 +1044,11 @@
         }
     }
     setInterval(updateInputBackgrounds, 1000); // Update every second
-
-
-
 </script>
+<script src="../static/loupe.js"></script>
 <script>
     const videoFeed = document.getElementById('video_feed_canvas');
     const full_feed_canvas = document.getElementById('full_feed_canvas');
-    const loupeModule = import('../static/loupe.js');
     const resultTextarea = document.getElementById('result');
 
     let correctionsChart;
@@ -1182,9 +1179,7 @@
                 full_feed_canvas.width = img.width;
                 full_feed_canvas.height = img.height;
                 full_ctx.drawImage(img, 0, 0, img.width, img.height);
-                loupeModule
-                   .then(({ updateLoupe }) => updateLoupe())
-                    .catch(error => console.error('Unable to update loupe:', error));
+                updateLoupe();
             };
             img.src = 'data:image/jpeg;base64,' + event.data;
         };
@@ -1516,15 +1511,7 @@
     const PEC_BUCKETS_PER_INTERVAL = 5; // 100 positions / 20 intervals
 
 
-    function startPECDataCapture() {
-        pecCaptureData = Array.from({ length: 100 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
-        pecCaptureDataOverlap = Array.from({ length: 10 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
-        pecTrackedIntervalStart = null;
-        pecCaptureDataBuckets = 0;
-        pecCaptureDataLastBucket = 0;
-        pecCaptureActive = true;
-        renderPECAnalysisTable();
-
+    function createZeroPECTable() {
         // Reset the telescope to a zero PEC table before capturing, so measured errors aren't skewed
         // by a previously applied correction.
         const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
@@ -1535,15 +1522,29 @@
             zeroRows.push(`${Math.round(i * microstepsPerInterval)},0`);
         }
         document.getElementById('pec_table_text').value = zeroRows.join('\n');
-        sendPEC();
+        //sendPEC();
+    }
+
+    function startPECDataCapture() {
+        pecCaptureData = Array.from({ length: 100 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+        pecCaptureDataOverlap = Array.from({ length: 10 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+        pecTrackedIntervalStart = null;
+        pecCaptureDataBuckets = 0;
+        pecCaptureDataLastBucket = 0;
+        pecCaptureActive = true;
+        renderPECAnalysisTable();
+
+        // Get PEC, then parse it. We will iterate over that
+
     }
 
     // Called automatically once the starting interval has been measured twice.
     function finishPECDataCapture() {
         pecCaptureActive = false;
         renderPECAnalysisTable();
-        generatePECCorrectionTable();
-        alert('PEC analysis complete. Correction table generated.');
+        generatePECCorrectionTable().then(() => {
+            alert('PEC analysis complete. Correction table generated.');
+        });
     }
 
 
@@ -1556,50 +1557,90 @@
     // (MSPR/20, 2*MSPR/20, ..., MSPR for the last, 21st row). Second column is that
     // interval's correction (microseconds/microstep), with the offset subtracted out
     // since the firmware re-adds it when the table is applied.
+    // Corrections are added on top of the table currently stored on the arduino, so
+    // repeated PEC runs refine the table instead of discarding previous corrections.
+    // New corrections are multiplied by attenuation_factor before being added to the previous table.
+    
+
+    // TODO: subtract the constant factor (offset) from the errors before calculating differences.
+    // divide full circle error by number of intervals, then subtract per_interval_error*interval_index from each error.
+    // otherwise the last interval will have a huge error compared to the others.
+    const attenuationFactor = 0.5;
+
     function generatePECCorrectionTable() {
-        const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
-        const rat = parseFloat(document.getElementById('pec_rat').value) || 144;
+        return fetch('/command_receivePEC')
+            .then(response => response.json())
+            .then(data => (data.status === 'success' && Array.isArray(data.pec_table)) ? data.pec_table : [])
+            .catch(error => {
+                console.error('Failed to fetch previous PEC table, treating it as zero:', error);
+                return [];
+            })
+            .then(previousPecTable => {
+                // previousPecTable is flat [steps0, value0, steps1, value1, ...]; index by row (0..intervals)
+                const previousValues = [];
+                for (let i = 0; i < previousPecTable.length; i += 2) {
+                    previousValues.push(Number(previousPecTable[i + 1]) || 0);
+                }
 
-        const intervals = 20;
-        const bucketsPerInterval = PEC_BUCKETS_PER_INTERVAL; // 5 captured PEC positions per interval
-        const microstepsPerInterval = mspr / intervals;
+                const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
+                const rat = parseFloat(document.getElementById('pec_rat').value) || 144;
 
-        const siderealDaySeconds = 86164.0905;
+                const intervals = 20;
+                const bucketsPerInterval = PEC_BUCKETS_PER_INTERVAL; // 5 captured PEC positions per interval
+                const microstepsPerInterval = mspr / intervals;
 
-        // Nominal angle per microstep shrinks with declination away from the celestial equator (cos(dec))
-        const decDeg = parseDec(document.getElementById('dec_current').textContent.trim());
-        const decRad = (isNaN(decDeg) ? 0 : decDeg) * (Math.PI / 180);
-        // Nominal angle (arcsec) covered by a single microstep at the equator: (360/RAT)/MSPR degrees * 3600
-        const nominalArcsecPerMicrostep = (1296000 / (rat * mspr)) * Math.cos(decRad);
-        // Nominal microseconds per microstep for correct sidereal tracking
-        const baseMicrosecondsPerMicrostep = (siderealDaySeconds * 1e6) / (rat * mspr);
+                const siderealDaySeconds = 86164.0905;
 
-        // Average RA error (arcsec) sampled every 5 captured positions (21 boundary points, 0..100 wrapping to 0)
-        const boundaryError = [];
-        for (let k = 0; k <= intervals; k++) {
-            const bucket = pecCaptureData[(k * bucketsPerInterval) % 100];
-            if(bucket.count == 0) bucket=pecCaptureData[(k * bucketsPerInterval+1) % 100]
-            boundaryError.push(bucket.count > 0 ? bucket.sum / bucket.count : 0);
-        }
+                // Nominal angle per microstep shrinks with declination away from the celestial equator (cos(dec))
+                const decDeg = parseDec(document.getElementById('dec_current').textContent.trim());
+                const decRad = (isNaN(decDeg) ? 0 : decDeg) * (Math.PI / 180);
+                // Nominal angle (arcsec) covered by a single microstep at the equator: (360/RAT)/MSPR degrees * 3600
+                const nominalArcsecPerMicrostep = (1296000 / (rat * mspr)) * Math.cos(decRad);
+                // Nominal microseconds per microstep for correct sidereal tracking
+                const baseMicrosecondsPerMicrostep = (siderealDaySeconds * 1e6) / (rat * mspr);
 
-        // Row 0 offset: difference between the starting interval's error measured on lap 1 vs lap 2
-        const rev0Delta = pecCaptureData[pecTrackedIntervalStart].count>0 ? pecCaptureData[pecTrackedIntervalStart].sum / pecCaptureData[pecTrackedIntervalStart].count : 0 ;
-        const rev1Delta = pecCaptureDataOverlap[0].count>0 ? pecCaptureDataOverlap[0].sum / pecCaptureDataOverlap[0].count : 0 ;
-        const fullCircleErrorArcsec = rev0Delta - rev1Delta;
-        const offsetMicrostepsEquivalent = fullCircleErrorArcsec / nominalArcsecPerMicrostep;
-        const offset = (offsetMicrostepsEquivalent * baseMicrosecondsPerMicrostep) / mspr;
+                // Row 0 offset: difference between the starting interval's error measured on lap 1 vs lap 2
+                let offsetError = 0;
+                let offsetErrorCnt = 0;
+                for (let i = 0; i < 5; i++) {
+                    if(pecCaptureData[pecTrackedIntervalStart+i].count>0 && pecCaptureDataOverlap[i].count>0) {
+                        offsetError += (pecCaptureData[pecTrackedIntervalStart+i].sum / pecCaptureData[pecTrackedIntervalStart+i].count) - (pecCaptureDataOverlap[i].sum / pecCaptureDataOverlap[i].count);
+                        offsetErrorCnt++;
+                    }
+                }
+                offsetError = offsetErrorCnt > 0 ? offsetError / offsetErrorCnt : 0;
+                offsetErrorPerInterval = offsetError / intervals;
 
-        const rows = [`0,${Math.round(offset)}`];
-        for (let i = 1; i <= intervals; i++) {
-            const deltaArcsec = boundaryError[i - 1] - boundaryError[i];
-            const microstepsEquivalent = deltaArcsec / nominalArcsecPerMicrostep;
-            const totalCorrectionUs = microstepsEquivalent * baseMicrosecondsPerMicrostep;
-            const correctionPerMicrostep = (totalCorrectionUs / microstepsPerInterval) - offset;
-            const boundarySteps = Math.round(i * microstepsPerInterval);
-            rows.push(`${boundarySteps},${Math.round(correctionPerMicrostep)}`);
-        }
+                // Average RA error (arcsec) sampled every 5 captured positions (21 boundary points, 0..100 wrapping to 0)
+                const boundaryError = [];
+                const firstInterval = pecTrackedIntervalStart/5;
 
-        document.getElementById('pec_table_text').value = rows.join('\n');
+                for (let k = 0; k <= intervals; k++) {
+                    const bucket = pecCaptureData[(k * bucketsPerInterval) % 100];
+                    if(bucket.count == 0) bucket=pecCaptureData[(k * bucketsPerInterval+1) % 100];
+                    let err = bucket.count > 0 ? bucket.sum / bucket.count : 0;
+                    let intervals_between = k > firstInterval ? k - firstInterval : k - firstInterval+intervals;
+                    err = err - offsetErrorPerInterval * intervals_between;
+                    boundaryError.push(err);
+                }
+
+
+                const fullCircleErrorArcsec = offsetErrorCnt > 0 ? offsetError / offsetErrorCnt : 0;
+                const offsetMicrostepsEquivalent = fullCircleErrorArcsec / nominalArcsecPerMicrostep;
+                const offset = (offsetMicrostepsEquivalent * baseMicrosecondsPerMicrostep) / mspr * attenuationFactor;
+
+                const rows = [`0,${Math.round(offset + (previousValues[0] || 0))}`];
+                for (let i = 1; i <= intervals; i++) {
+                    const deltaArcsec = boundaryError[i - 1] - boundaryError[i];
+                    const microstepsEquivalent = deltaArcsec / nominalArcsecPerMicrostep;
+                    const totalCorrectionUs = microstepsEquivalent * baseMicrosecondsPerMicrostep;
+                    const correctionPerMicrostep = (totalCorrectionUs / microstepsPerInterval)*attenuationFactor;
+                    const boundarySteps = Math.round(i * microstepsPerInterval);
+                    rows.push(`${boundarySteps},${Math.round(correctionPerMicrostep + (previousValues[i] || 0))}`);
+                }
+
+                document.getElementById('pec_table_text').value = rows.join('\n');
+            });
     }
 
     function renderPECAnalysisTable() {

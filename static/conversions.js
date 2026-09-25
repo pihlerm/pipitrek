@@ -5,12 +5,12 @@
         return X;		
     }
 
-    export function validateRA(ra) {
+    function validateRA(ra) {
         const raPattern = /^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$/;
         return raPattern.test(ra);
     }
 
-    export function validateDEC(dec) {
+    function validateDEC(dec) {
         const decPattern = /^[+-][0-9][0-9]\*[0-5][0-9]:[0-5][0-9]$/;
         return decPattern.test(dec);
     }
@@ -22,12 +22,12 @@
      * @return {string} - The string representation of the decimal time value.
      */
 
-    export function parseRA(raStr) {
+    function parseRA(raStr) {
         const [hours, minutes, seconds] = raStr.split(':').map(Number);
         return hours + minutes / 60 + seconds / 3600;
     }
     
-    export function printRA (time) {
+    function printRA (time) {
         var h = Math.floor(time);
         var min = Math.floor(60.0*frac(time));
         var secs = Math.round(60.0*(60.0*frac(time)-min)*10.0)/10.0;
@@ -45,7 +45,7 @@
      * @return {string} - The string representation of the decimal degree value.
      */
 
-    export function printDEC(degrees) {
+    function printDEC(degrees) {
         const sign = degrees < 0 ? -1 : 1;
         const absDeg = Math.abs(degrees);
 
@@ -62,7 +62,7 @@
     }
 
 
-    export function parseDec(decStr) {
+    function parseDec(decStr) {
         const match = decStr.match(/([+-]?\d+)\*(\d+):(\d+)/);
         if (!match) return 0;
         const degrees = parseInt(match[1]);
@@ -71,12 +71,3 @@
         const sign = degrees >= 0 ? 1 : -1;
         return degrees + sign * (minutes / 60 + seconds / 3600);
     }
-
-    Object.assign(window, {
-        validateRA,
-        validateDEC,
-        parseRA,
-        parseDec,
-        printRA,
-        printDEC
-    });
