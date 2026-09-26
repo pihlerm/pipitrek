@@ -17,6 +17,8 @@
     <script src="../static/wheel.js"></script>
     <script src="../static/vr/starCatalog.js"></script>
     <script src="../static/conversions.js"></script>
+    <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
+    <script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
 </head>
 <body onload="Load()" class="night-mode">
     <table class="main-table">
@@ -25,27 +27,28 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                     <!-- Left-aligned buttons -->
                     <div>
-                        <button class="command-button active" id="video_button" onclick="showVideoFeed()">Video</button>
-                        <button class="command-button" id="thresh_button" onclick="showThreshFeed()">Threshold</button>
+                        <button class="command-button active" id="video_button" title="Show guide camera video feed" onclick="showVideoFeed()">Guide CAM</button>
+                        <button class="command-button" id="map_button" title="Show Aladin Lite sky map" onclick="showMapFeed()">Sky Map</button>
                     </div>
         
                     <!-- Right-aligned button and text -->
                     <div>
-                        <span id="indicator-setup" class="indicator-light" title="Run platesolve to initialize coordinate system">SETUP</span>
-                        <span id="indicator-tracking" class="indicator-light">TRACKING</span>
-                        <span id="indicator-guiding" class="indicator-light">GUIDING</span>
-                        <span id="indicator-camera" class="indicator-light">IMAGING</span>
-                        <span>Autoguider 0.7</span>
+                        <span id="indicator-setup" class="indicator-light" title="If red, run platesolve to initialize coordinate system">SETUP</span>
+                        <span id="indicator-tracking" class="indicator-light" title="Indicates if the telescope is actively tracking">TRACKING</span>
+                        <span id="indicator-guiding" class="indicator-light" title="Indicates if the autoguider is actively guiding">GUIDING</span>
+                        <span id="indicator-camera" class="indicator-light" title="Indicates if the camera is actively imaging">IMAGING</span>
+                        <span>PipiTrek Autoguider 0.99</span>
                     </div>
                 </div>
             </td>
             <td>
-                <button class="command-button active" id="control_frame_button" onclick="showControl()">Control</button>
-                <button class="command-button" id="autoguider_panel_button" onclick="showGuider()">Guider</button>            
-                <button class="command-button" id="camera_panel_button" onclick="showCamera()">Camera</button>            
-                <button class="command-button" id="analysis_panel_button" onclick="showAnalysis()">Analysis</button>            
-                <button class="command-button" id="pec_panel_button" onclick="showPEC()">PEC</button>            
-                <button class="command-button" id="terminal_frame_button" onclick="showTerminal()">Terminal</button>
+                <button class="command-button active" id="control_frame_button" onclick="showControl()" title="Telescope control panel">Control</button>
+                <button class="command-button" id="autoguider_panel_button" onclick="showGuider()" title="Autoguider panel">Guider</button>            
+                <button class="command-button" id="camera_panel_button" onclick="showCamera()" title="Guide camera settings">Camera</button>            
+                <button class="command-button" id="skymap_panel_button" onclick="showSkymapPanel()" title="Aladin Lite sky map">Sky Map</button>
+                <button class="command-button" id="analysis_panel_button" onclick="showAnalysis()" title="Show analysis panel">Analysis</button>            
+                <button class="command-button" id="pec_panel_button" onclick="showPEC()" title="Show PEC analysis panel">PEC</button>            
+                <button class="command-button" id="terminal_frame_button" onclick="showTerminal()" title="Show Linux terminal panel">Terminal</button>
             </td>
         </tr>
         <tr>
@@ -53,8 +56,9 @@
                 <div id="video_container" width="1280">
                     <canvas id="video_feed_canvas" width="1280" height="720"></canvas>
                     <canvas id="full_feed_canvas" style="display: none"></canvas>
-                    <canvas id="canvas" width="1280" height="720"></canvas>
+                    <canvas id="overlayCanvas" width="1280" height="720"></canvas>
                     <canvas id="loupe" width="400" height="300" style="position: absolute; display: none; border: 1px solid #555;"></canvas>
+                    <div id="aladin_map_container" class="hidden" style="width: 1280px; height: 720px;"></div>
                 </div>
             </td>
             <td >
@@ -71,19 +75,19 @@
                             </tr>
                             <tr>
                                 <td style="width:50px;">
-                                    <button class="control-button" onclick="sendSpeed('G')">slow</button>
+                                    <button class="control-button" onclick="sendSpeed('G')" title="Set slow speed">slow</button>
                                 </td>
                                 <td style="width:50px;">
-                                    <button class="control-button" onclick="sendDirection('n')">↑</button>
+                                    <button class="control-button" onclick="sendDirection('n')" title="Move telescope DEC north">↑</button>
                                 </td>
                                 <td style="width:50px;">
-                                    <button class="control-button" onclick="sendSpeed('M')">med</button>
+                                    <button class="control-button" onclick="sendSpeed('M')" title="Set medium speed">med</button>
                                 </td>
                                 <td rowspan="2">
                                     <canvas id="pec-wheel" width="80" height="80"></canvas>
                                     <div style="height:24px;">
                                         <input class="mini_num_input" type="text" id="pec-position" value="0">
-                                        <button class="mini-button" onclick="setPECPosition()">SET</button>
+                                        <button class="mini-button" onclick="setPECPosition()" title="Send PEC position to telescope">SET</button>
                                     </div>
                                 </td>
                                 <td>
@@ -91,23 +95,23 @@
                             </tr>
                             <tr>
                                 <td>
-                                    <button class="control-button" onclick="sendDirection('e')">←</button>
+                                    <button class="control-button" onclick="sendDirection('e')" title="Move telescope RA east">←</button>
                                 </td>
                                 <td>
-                                    <button class="control-button" onclick="sendStop()">Stop</button>
+                                    <button class="control-button" onclick="sendStop()" title="Stop telescope movement">Stop</button>
                                 </td>
                                 <td>
-                                    <button class="control-button" onclick="sendDirection('w')">→</button>
+                                    <button class="control-button" onclick="sendDirection('w')" title="Move telescope RA west">→</button>
                                 </td>
                                 <td>
                                 </td>
                             </tr>
                             <tr>
                                 <td>
-                                    <button class="control-button" onclick="sendSpeed('S')">fast</button>
+                                    <button class="control-button" onclick="sendSpeed('S')" title="Set fast speed">fast</button>
                                 </td>
                                 <td>
-                                    <button class="control-button" onclick="sendDirection('s')">↓</button>
+                                    <button class="control-button" onclick="sendDirection('s')" title="Move telescope DEC south">↓</button>
                                 </td>
                                 <td></td>
                                 <td>
@@ -123,27 +127,27 @@
 
                         <div class = 'boxy'>
                             <div class = 'two_buttons'>
-                                <button class="command-button" onclick="getInfo()">Get Info</button>
-                                <button class="command-button" onclick="resetArduino()">Reset</button>
+                                <button class="command-button" onclick="getInfo()" title="Request info from Arduino telescope controller">Get Info</button>
+                                <button class="command-button" onclick="resetArduino()" title="Reset the Arduino telescope controller. Position will be LOST!">Reset</button>
                             </div>
                         </div>
                         <div class = 'boxy'>
                             <div class = 'two_buttons'>
                                 <div style="width:120px;">
-                                    <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked>
+                                    <input type="checkbox" id="tracking" onchange="setTracking(this.checked)" checked title="Enable or disable telescope tracking">
                                     <label for="tracking">Tracking</label><br>
-                                    <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)">
+                                    <input type="checkbox" id="quiet" onchange="setQuiet(this.checked)" title="Quiet mode will not periodically poll the arduino controller, so information on RA/DEC will NOT be updated.">
                                     <label for="quiet">Quiet mode</label><br>
-                                    <input type="checkbox" id="joy-lock" onchange="setLocked(this.checked)">
+                                    <input type="checkbox" id="joy-lock" onchange="setLocked(this.checked)" title="Lock or unlock the joystick control on telescope.">
                                     <label for="joy-lock">Joy. Lock</label>
                                 </div>
                                 <div style="width:120px;">
                                     <label>Pier:</label>
-                                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)">
+                                    <input type="radio" id="pier_w" name="pier" value="W" onchange="setPier(this.value)" title="Set pier to West">
                                     <label for="pier_w">W</label>
-                                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)">
+                                    <input type="radio" id="pier_e" name="pier" value="E" onchange="setPier(this.value)" title="Set pier to East">
                                     <label for="pier_e">E</label><br>
-                                    <button class="command-button" onclick="setPier('F')">MER. FLIP</button>
+                                    <button class="command-button" onclick="setPier('F')" title="Perform meridian flip. Caution! make sure telescope will not hit the mount or other obstacles.">MER. FLIP</button>
                                 </div>
                             </div>
                         </div>
@@ -151,10 +155,10 @@
                         <div class = 'boxy'>
                             <div class = 'two_buttons'>
                                 <div style="width:120px;">
-                                    RA<span id="ra_current">00:00:00</span>
+                                    RA<span id="ra_current" title="Current telescope position RA">00:00:00</span>
                                 </div>
                                 <div style="width:120px;">
-                                    DEC<span id="dec_current">+00*00:00</span>
+                                    DEC<span id="dec_current" title="Current telescope position DEC">+00*00:00</span>
                                 </div>
                             </div>
                         </div>
@@ -165,14 +169,14 @@
                                     <label for="ra-input">RA</label>
                                     <input class="two_buttons_input" type="text" id="ra-input" placeholder="+HH:MM:SS"  required>
                                 </div>
-                                <button class="command-button" onclick="submitSetTo()">SET to</button>
+                                <button class="command-button" onclick="submitSetTo()" title="Set the telescope position to be this RA/DEC.">SET to</button>
                             </div>
                             <div class = 'two_buttons'>
                                 <div>
                                     <label for="dec-input">DE</label>
                                     <input class="two_buttons_input" type="text" id="dec-input" placeholder="+DD*MM:SS"  required>
                                 </div>
-                                <button class="command-button" onclick="submitGoto()">GOTO</button>
+                                <button class="command-button" onclick="submitGoto()" title="Move the telescope to the specified RA/DEC coordinates. Caution: make sure the telescope will not hit the mount or other obstacles.">GOTO</button>
                             </div>
                         </div>
 
@@ -189,8 +193,8 @@
                                 </div>
                             </div>
                             <div class = 'two_buttons'>
-                                <button class="command-button" onclick="submitCamera()">SET</button>
-                                <button id="camera-shooting" class="command-button" onclick="startCamera()">START</button>
+                                <button class="command-button" onclick="submitCamera()" title="Set the camera parameters.">SET</button>
+                                <button id="camera-shooting" class="command-button" onclick="startCamera()" title="Start imaging camera.">START</button>
                             </div>
                         </div>
 
@@ -239,8 +243,14 @@
                     <button class="command-button" onclick="shutdown()">Shutdown</button>
                     <iframe id="terminal_iframe" src="{{ url_for('terminal') }}"></iframe>
                 </div>
+                
                 <table id="autoguider_panel" class="parameters-table hidden">                   
-                    <tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <h2>Autoguider controls</h2>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
                         <td>
                             <span id="star-lock-state" class="no-lock">NO LOCK</span><br>
                             <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input><br>
@@ -259,14 +269,28 @@
                         </td>
                         
                     </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
 
                     <tr class = "controller-row">
                         <td>
-                            <button class="command-button" onclick="acquire()" title="Acquire a star for tracking">Acquire</button>
+                            <input type="checkbox" id="guider_select_stars" onchange="setGuiderSelectStars(this.checked)" title="Enable selection of stars for guiding. Ctrl+click to add, Shift+click to remove, click to select for guiding.">
+                            <label for="guider_select_stars">Select Stars mode</label>
                         </td>
                         <td>
-                            <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>
-                            <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation. Best use on stationary target with tracking disabled.">Backlash c.</button>
+                            <button class="command-button" onclick="resetCentroids()" title="Reset centroids to current star positions">Re-center</button>
+                        </td>
+                        <td>
+                            <button class="command-button" onclick="acquire()" title="Acquire the brightest star for tracking">Acquire</button>
+                        </td>
+                    </tr>
+
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -327,12 +351,18 @@
                             <input type="range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="{{ rotation_angle }}" step="1" oninput="submitRotationAngle()">
                             <span id="rotation_angle_value">{{ rotation_angle }}</span>
                         </td>
+                        <td>
+                            <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>                            
+                        </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="threshold">Threshold:</label></td>
                         <td>
                             <input type="range" id="threshold" name="threshold" min="0" max="255" value="{{ threshold }}" onchange="submitThreshold()">
                             <span id="threshold_value">{{ threshold }}</span>
+                        </td>
+                        <td>
+                            <button class="command-button" id="thresh_button" title="Show threshold video feed" onclick="showThreshFeed()">View</button>
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -492,6 +522,85 @@
 
                 </table>
 
+                <table id="skymap_panel" class="parameters-table hidden">
+                    <tr class = "controller-row">
+                        <td colspan="1">
+                            <button class="command-button" onclick="useMapCenter()" title="Copy the sky map's current view center into the GOTO RA/DE fields">GOTO</button>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="skymap_chip_size">Chip size:</label></td>
+                        <td>
+                            <select id="skymap_chip_size" onchange="updateSkymapChipUI()">
+                                <option value="telrad">Telrad</option>
+                                <option value="fullframe">Full Frame</option>
+                                <option value="apsc" selected>APS-C</option>
+                                <option value="microFourThirds">4/3"</option>
+                                <option value="oneInch">1"</option>
+                                <option value="imx291">imx291</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </td>
+                        <td>
+                            <input class="two_buttons_input" style="width:50px;" type="text" id="skymap_chip_width" value="23.5" onchange="updateTelescopeFovOverlay()"> x
+                            <input class="two_buttons_input" style="width:50px;" type="text" id="skymap_chip_height" value="15.6" onchange="updateTelescopeFovOverlay()">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row" id="skymap_focal_length_row">
+                        <td><label for="skymap_focal_length">Focal length (mm):</label></td>
+                        <td>
+                            <select id="skymap_telescope" onchange="updateSkymapFocalLengthUI()">
+                                <option value="1000">Rubinar 1000</option>
+                                <option value="1370">GSO RC 6"</option>
+                                <option value="750">750mm</option>
+                                <option value="200">Jupiter21M</option>
+                                <option value="190">SV106 50mm</option>                                
+                            </select>
+                        </td>
+                        <td>
+                            <input class="two_buttons_input" type="text" id="skymap_focal_length" value="1000" onchange="updateTelescopeFovOverlay()">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row" id="skymap_fov_row">
+                        <td><label>FOV (deg):</label></td>
+                        <td>
+                            <input class="two_buttons_input" style="width:60px;" type="text" id="skymap_fov_width" readonly> x
+                            <input class="two_buttons_input" style="width:60px;" type="text" id="skymap_fov_height" readonly>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <input type="checkbox" id="skymap_rotate_mode_button" checked onchange="setSkymapRotateMode(this.checked)" title="ON: rotate the whole sky map to match the camera. OFF: keep the map north-up and rotate just the FOV rectangle">
+                            <label for="skymap_rotate_mode_button">Rotate Map to Camera</label>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <input type="checkbox" id="skymap_horizon_button" onchange="setSkymapHorizon(this.checked)">
+                            <label for="skymap_horizon_button">Local Horizon</label>
+                            <input type="checkbox" id="skymap_grid_button" onchange="setSkymapGrid(this.checked)">
+                            <label for="skymap_grid_button">Equatorial Grid</label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="2">
+                            <div id="skymap-spacer" class = "flex1">
+                                
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+
                 <table id="analysis_panel" class="parameters-table hidden">
 
                     <tr class = "controller-row">
@@ -611,6 +720,21 @@
                         </td>
                     </tr>
                     <tr class = "controller-row">
+                        <td colspan="2">
+                            <h2>Backlash Calibration</h2>
+                            Calibrate backlash of RA/DEC drive mechanisms. Performs small movements of the telescope to measure and compensate for mechanical play.
+                            Must select a star before performing backlash calibration.
+                            Best use on stationary point "at infinity" with tracking disabled.
+                            <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation.">Calibrate</button>
+                        </td>
+                    </tr>
+
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
                         <td>
                             <button class="command-button" title="Get PEC table from arduino" onclick="receivePEC()">Get PEC</button>
                             <button class="command-button" title="Send PEC table to arduino" onclick="sendPEC()">Send PEC</button>
@@ -619,7 +743,7 @@
                     <tr>
                         <td>
                             <div id="pec_table" class = "flex1">
-                                <textarea id="pec_table_text" rows="20" placeholder="Result"></textarea>
+                                <textarea id="pec_table_text" rows="25" placeholder="Result"></textarea>
                                 <div id="pec_analysis_container">
                                     <table id="pec_analysis_table">
                                         <thead>
@@ -671,6 +795,8 @@
 
 <script type="module">
     import { TelescopeSim } from '/static/vr/telescope_sim_novr.js';
+    import { calculateLST } from '/static/vr/astroutils.js';
+    window.calculateLST = calculateLST;
 
     const controlCanvas = document.getElementById('telescopeCanvas');
     const controlContainer = document.getElementById('telescopeContainer');
@@ -867,6 +993,10 @@
                     document.getElementById('ra_current').textContent = data.coordinates.ra;
                     document.getElementById('dec_current').textContent = data.coordinates.dec;
                     if(!blockUpdate) telescopeSim.pointTelescope(data.coordinates.ra, data.coordinates.dec);
+                    if(!data.coordinates.ra.includes('?') && !data.coordinates.dec.includes('?')) {
+                        updateTelescopeFovOverlay();
+                        updateHorizonOverlay();
+                    }
                 }
 
                 if(data.bc) {
@@ -1138,6 +1268,7 @@
         updateCorrections();
         startVideoFeed();
         loadCameraProperties();
+        updateSkymapChipUI();
     }
 
     function appendToResult(message) {
@@ -1175,7 +1306,7 @@
         video_feed_ws.onmessage = function(event) {
             const img = new Image();
             img.onload = function() {
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, overlayCanvas.width, overlayCanvas.height);
                 full_feed_canvas.width = img.width;
                 full_feed_canvas.height = img.height;
                 full_ctx.drawImage(img, 0, 0, img.width, img.height);
@@ -1251,6 +1382,7 @@
 
         document.getElementById('rotation_angle').value = data.rotation_angle.toFixed(3);
         document.getElementById('rotation_angle_value').textContent = data.rotation_angle.toFixed(3);
+        updateSkyMapRotation(data.rotation_angle);
 
         document.getElementById('pixel_scale').value = data.pixel_scale;
         document.getElementById('pixel_scale_value').textContent = data.pixel_scale;
@@ -1358,9 +1490,9 @@
             detailFeed.alt = "Not Available";
         }
 
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const ctx = overlayCanvas.getContext('2d');
+        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
         const width = data.width;
         const height = data.height;
@@ -1370,7 +1502,7 @@
             data.tracked_centroids.forEach(centroid => {
                 if(centroid) {
                     ctx.beginPath();
-                    ctx.arc(centroid[0]/width * canvas.width, centroid[1]/height * canvas.height, 8, 0, 2 * Math.PI);
+                    ctx.arc(centroid[0]/width * overlayCanvas.width, centroid[1]/height * overlayCanvas.height, 8, 0, 2 * Math.PI);
                     ctx.stroke();
                 }
             });
@@ -1381,7 +1513,7 @@
             data.current_centroids.forEach(centroid => {
                 if(centroid) {
                     ctx.beginPath();
-                    ctx.arc(centroid[0]/width * canvas.width, centroid[1]/height * canvas.height, 10, 0, 2 * Math.PI);
+                    ctx.arc(centroid[0]/width * overlayCanvas.width, centroid[1]/height * overlayCanvas.height, 10, 0, 2 * Math.PI);
                     ctx.stroke();
                 }
             });
@@ -1663,44 +1795,44 @@
     }
 
 
-        function receivePEC() {
-            fetch('/command_receivePEC', {
-                method: 'GET'
-            })
-            .then(response => response.json())
-            .then(data => {
-                const pecTableText = document.getElementById('pec_table_text');
-                if (data.status === 'success') {
-                    const pecTable = data.pec_table;
-                    const formattedTable = pecTable.map((value, index) => {
-                        return index % 2 === 0 ? `${value},` : `${value}\n`;
-                    }).join('');
-                    pecTableText.value = formattedTable;
-                } else {
-                    pecTableText.value = 'Error: ' + data.message;
-                }
-            })
-            .catch((error) => {
-                document.getElementById('pec_table_text').value = 'Error: ' + error;
-            });
-        }
+    function receivePEC() {
+        fetch('/command_receivePEC', {
+            method: 'GET'
+        })
+        .then(response => response.json())
+        .then(data => {
+            const pecTableText = document.getElementById('pec_table_text');
+            if (data.status === 'success') {
+                const pecTable = data.pec_table;
+                const formattedTable = pecTable.map((value, index) => {
+                    return index % 2 === 0 ? `${value},` : `${value}\n`;
+                }).join('');
+                pecTableText.value = formattedTable;
+            } else {
+                pecTableText.value = 'Error: ' + data.message;
+            }
+        })
+        .catch((error) => {
+            document.getElementById('pec_table_text').value = 'Error: ' + error;
+        });
+    }
 
-        function sendPEC() {
-            const pecTableText = document.getElementById('pec_table_text').value;
-            const pecTableLines = pecTableText.split('\n');
-            const pecTable = [];
+    function sendPEC() {
+        const pecTableText = document.getElementById('pec_table_text').value;
+        const pecTableLines = pecTableText.split('\n');
+        const pecTable = [];
 
-            pecTableLines.forEach(line => {
-                const [x, y] = line.split(',').map(Number);
-                if (!isNaN(x) && !isNaN(y)) {
-                    pecTable.push(x, y);
-                }
-            });
+        pecTableLines.forEach(line => {
+            const [x, y] = line.split(',').map(Number);
+            if (!isNaN(x) && !isNaN(y)) {
+                pecTable.push(x, y);
+            }
+        });
 
-            submitJSON('/command_sendPEC',
-                { pec_table: pecTable }
-            );
-        }
+        submitJSON('/command_sendPEC',
+            { pec_table: pecTable }
+        );
+    }
 
 
     function showCorrectionsChart() {
@@ -1741,10 +1873,10 @@
     }
 
     function drawAxes(rotation_angle) {
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const ctx = overlayCanvas.getContext('2d');
+        const centerX = overlayCanvas.width / 2;
+        const centerY = overlayCanvas.height / 2;
         const length = 150; // Length of the axes
 
         // Convert rotation angle to radians
@@ -1942,6 +2074,16 @@
         })
     }
 
+    function setGuiderSelectStars(isEnabled) {
+        overlayCanvas.style.cursor = isEnabled ? 'crosshair' : 'default';
+        if(!isEnabled) {
+            // reset centroids when done with star selection 
+            // during longer selection, centroids already selected might move relative to stars
+            // this way, all centroids are synchronized with the current star positions
+            resetCentroids();
+        }
+    }
+
     function setGuiding(isGuiding) {
       submitSetting("guiding", isGuiding);
     }
@@ -1954,19 +2096,37 @@
             .then(response => console.log('Acquisition triggered'))
             .catch(error => console.error('Acquisition error:', error));
     }
+    
+    function resetCentroids() {
+        fetch('/reset_centroids', { method: 'POST' })
+            .then(response => console.log('Centroids reset to current star positions'))
+            .catch(error => console.error('Reset centroids error:', error));
+    }
 
     function calibrate(with_backlash) {
         fetch('/calibrate', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
             body: `with_backlash=${with_backlash}`
-        })        
-        .then(response => console.log('Calibration triggered'))
-        .catch(error => console.error('Calibration error:', error));
+        })                
+        .then(response => response.text())
+        .then(data => {
+            document.getElementById('pec_table_text').value = data;
+        })
+        .catch(error => {
+            document.getElementById('pec_table_text').value = 'Error: ' + error;
+        });
     }
 
+    /* Selection of stars to track/guide by.
+       Ctrl+click - add star to tracking list
+       Shift+click - remove star from tracking list
+       Click without modifiers - select star for guiding, clearing list of tracked stars
+    */
+    document.getElementById("overlayCanvas").addEventListener('click', function(event) {
+        
+        if(!document.getElementById('guider_select_stars').checked) return;
 
-    document.getElementById("canvas").addEventListener('click', function(event) {
         const rect = this.getBoundingClientRect();
         const x = (event.clientX - rect.left)/rect.width; // X relative to image
         const y = (event.clientY - rect.top)/rect.height;  // Y relative to image
@@ -1986,20 +2146,266 @@
 
     function showVideoFeed() {
         
-        document.getElementById('canvas').classList.remove('hidden');
+        document.getElementById('overlayCanvas').classList.remove('hidden');
+        document.getElementById('video_feed_canvas').classList.remove('hidden');
+        document.getElementById('aladin_map_container').classList.add('hidden');
         stopThreshFeed();
         startVideoFeed();
 
         document.getElementById('video_button').classList.add('active');
         document.getElementById('thresh_button').classList.remove('active');
+        document.getElementById('map_button').classList.remove('active');
     }
 
     function showThreshFeed() {
-        document.getElementById('canvas').classList.remove('hidden');
+        if(document.getElementById('thresh_button').classList.contains('active')) {
+            showVideoFeed();
+            return;
+        }
+        document.getElementById('overlayCanvas').classList.remove('hidden');
+        document.getElementById('video_feed_canvas').classList.remove('hidden');
+        document.getElementById('aladin_map_container').classList.add('hidden');
         stopVideoFeed();
         startThreshFeed();
         document.getElementById('video_button').classList.remove('active');
         document.getElementById('thresh_button').classList.add('active');
+        document.getElementById('map_button').classList.remove('active');
+    }
+
+    var skyMap = null;
+    var telescopeOverlay = null;
+    var horizonOverlay = null;
+    var skymapRotateView = true;
+    var skymapShowHorizon = false;
+    var skymapShowGrid = false;
+    function showMapFeed() {
+        document.getElementById('overlayCanvas').classList.add('hidden');
+        document.getElementById('video_feed_canvas').classList.add('hidden');
+        document.getElementById('aladin_map_container').classList.remove('hidden');
+        stopVideoFeed();
+        stopThreshFeed();
+
+        document.getElementById('video_button').classList.remove('active');
+        document.getElementById('thresh_button').classList.remove('active');
+        document.getElementById('map_button').classList.add('active');
+
+        const raDeg = parseRA(document.getElementById('ra_current').textContent.trim()) * 15;
+        const decDeg = parseDec(document.getElementById('dec_current').textContent.trim());
+
+        A.init.then(() => {
+            if (!skyMap) {
+                skyMap = A.aladin('#aladin_map_container', {
+                    survey: 'P/DSS2/color',
+                    fov: 1,
+                    target: `${raDeg} ${decDeg}`,
+                    showFullscreenControl: false,
+                    showLayersControl: true,
+                    showGotoControl: true,
+                });
+                telescopeOverlay = A.graphicOverlay({color: 'red', lineWidth: 2});
+                skyMap.addOverlay(telescopeOverlay);
+                horizonOverlay = A.graphicOverlay({color: 'orange', lineWidth: 2});
+                skyMap.addOverlay(horizonOverlay);
+                updateTelescopeFovOverlay();
+                updateSkyMapRotation(parseFloat(document.getElementById('rotation_angle').value));
+            } else {
+                skyMap.gotoRaDec(raDeg, decDeg);
+            }
+        });
+    }
+
+    // Matches the sky map orientation to the camera's RA(W)/DEC(N) axes drawn by drawAxes(),
+    // unless the user chose to keep the map north-up (skymapRotateView = false).
+    // Aladin's setRotation() ignores an exact 0 (treated as falsy), so nudge it slightly instead.
+    function updateSkyMapRotation(angleDeg) {
+        if (!skyMap) return;
+        skyMap.setRotation(skymapRotateView ? (angleDeg || 0.0001) : 0.0001);
+    }
+
+    function setSkymapRotateMode(isOn) {
+        skymapRotateView = isOn;
+        updateSkyMapRotation(parseFloat(document.getElementById('rotation_angle').value));
+        updateTelescopeFovOverlay();
+    }
+
+    function setSkymapGrid(isOn) {
+        skymapShowGrid = isOn;
+        if (!skyMap) return;
+        if (skymapShowGrid) skyMap.showCooGrid(); else skyMap.hideCooGrid();
+    }
+
+    function setSkymapHorizon(isOn) {
+        skymapShowHorizon = isOn;
+        updateHorizonOverlay();
+    }
+
+    // Standard sensor dimensions in mm (width x height). Telrad and Custom are handled separately.
+    const SKYMAP_CHIP_SIZES = {
+        fullframe: { w: 36, h: 24 },
+        apsc: { w: 23.5, h: 15.6 },
+        microFourThirds: { w: 17.3, h: 13 },
+        oneInch: { w: 13.2, h: 8.8 },
+        imx291: { w: 5.64, h: 3.18 },
+        telrad: { w: 0, h: 0 },
+        custom: { w: 10, h: 10 }
+    };
+
+    function updateSkymapChipUI() {
+        const chip = document.getElementById('skymap_chip_size').value;
+        const dims = SKYMAP_CHIP_SIZES[chip];
+        document.getElementById('skymap_chip_width').value = dims.w;
+        document.getElementById('skymap_chip_height').value = dims.h;
+        updateTelescopeFovOverlay();
+    }
+    function updateSkymapFocalLengthUI() {
+        const telescopeFL = document.getElementById('skymap_telescope').value;
+        document.getElementById('skymap_focal_length').value=telescopeFL;
+        updateTelescopeFovOverlay();
+    }
+
+    // Returns null for Telrad (fixed angular size, independent of optics).
+    function getSkymapFovDeg() {
+        const chip = document.getElementById('skymap_chip_size').value;
+        if (chip === 'telrad') return null;
+
+        const focalLength = parseFloat(document.getElementById('skymap_focal_length').value);
+        const dims = { w: parseFloat(document.getElementById('skymap_chip_width').value), 
+                       h: parseFloat(document.getElementById('skymap_chip_height').value) };
+
+        if (!dims || !focalLength || !dims.w || !dims.h) return null;
+
+        const toDeg = (mm) => 2 * Math.atan(mm / (2 * focalLength)) * (180 / Math.PI);
+        return { width: toDeg(dims.w), height: toDeg(dims.h) };
+    }
+
+    // Builds rectangle corners in pixel space (so edges stay screen-horizontal/vertical
+    // regardless of projection curvature) then converts them back to world coordinates.
+    // extraRotationDeg rotates the box within the view - used to draw the camera's true
+    // orientation when the sky map itself is kept north-up (skymapRotateView = false).
+    function computeFovRectangleCorners(raDeg, decDeg, widthDeg, heightDeg, extraRotationDeg) {
+        const centerPx = skyMap.world2pix(raDeg, decDeg);
+        if (!centerPx) return null;
+
+        const size = skyMap.getSize();
+        const viewFov = skyMap.getFov();
+        const halfWpx = (widthDeg / 2) * (size[0] / viewFov[0]);
+        const halfHpx = (heightDeg / 2) * (size[1] / viewFov[1]);
+        const [cx, cy] = centerPx;
+        const rad = (extraRotationDeg || 0) * Math.PI / 180;
+        const cosA = Math.cos(rad), sinA = Math.sin(rad);
+        const rotate = (dx, dy) => [dx * cosA - dy * sinA, dx * sinA + dy * cosA];
+
+        const corners = [
+            [-halfWpx, -halfHpx],
+            [halfWpx, -halfHpx],
+            [halfWpx, halfHpx],
+            [-halfWpx, halfHpx],
+        ].map(([dx, dy]) => {
+            const [rdx, rdy] = rotate(dx, dy);
+            return skyMap.pix2world(cx + rdx, cy + rdy);
+        });
+
+        return corners.every(p => p) ? corners : null;
+    }
+
+    // Draws the telescope's current pointing as a Telrad-style circle set or a camera FOV rectangle.
+    function updateTelescopeFovOverlay() {
+        const raDeg = parseRA(document.getElementById('ra_current').textContent.trim()) * 15;
+        const decDeg = parseDec(document.getElementById('dec_current').textContent.trim());
+
+        const fov = getSkymapFovDeg();
+        if (fov) {
+            document.getElementById('skymap_fov_width').value = fov.width.toFixed(2);
+            document.getElementById('skymap_fov_height').value = fov.height.toFixed(2);
+        }
+
+        if (!telescopeOverlay) return;
+        telescopeOverlay.removeAll();
+
+        if (fov) {
+            // Map already carries the rotation (skymapRotateView) -> box stays axis-aligned;
+            // otherwise the map is north-up and the box itself carries the camera rotation.
+            const extraRotationDeg = skymapRotateView ? 0 : parseFloat(document.getElementById('rotation_angle').value) || 0;
+            const corners = computeFovRectangleCorners(raDeg, decDeg, fov.width, fov.height, extraRotationDeg);
+            if (corners) telescopeOverlay.add(A.polygon(corners, { color: 'red' }));
+        } else {
+            // Telrad reticle: 0.5°, 2° and 4° diameter circles.
+            [0.25, 1, 2].forEach(radiusDeg => {
+                telescopeOverlay.add(A.circle(raDeg, decDeg, radiusDeg, { color: 'red' }));
+            });
+        }
+    }
+
+    // Local horizon (altitude=0 great circle) from the site's lat/long (shared with the 3D telescope sim)
+    // and current Local Sidereal Time. Traced as a polyline through 72 azimuth steps.
+    function computeHorizonPoints(latDeg, lstHours, steps) {
+        const latRad = latDeg * Math.PI / 180;
+        const lstDeg = lstHours * 15;
+        const points = [];
+        for (let i = 0; i <= steps; i++) {
+            const azRad = (2 * Math.PI / steps) * (i % steps);
+            const sinDec = Math.cos(latRad) * Math.cos(azRad);
+            const dec = Math.asin(Math.max(-1, Math.min(1, sinDec)));
+            const cosDec = Math.cos(dec);
+            let hourAngleDeg = 0;
+            if (Math.abs(cosDec) > 1e-9) {
+                const sinH = -Math.sin(azRad) / cosDec;
+                const cosH = -Math.sin(latRad) * Math.sin(dec) / (Math.cos(latRad) * cosDec);
+                hourAngleDeg = Math.atan2(sinH, cosH) * 180 / Math.PI;
+            }
+            const raDeg = ((lstDeg - hourAngleDeg) % 360 + 360) % 360;
+            points.push([raDeg, dec * 180 / Math.PI]);
+        }
+        return points;
+    }
+
+    function updateHorizonOverlay() {
+        if (!horizonOverlay) return;
+        horizonOverlay.removeAll();
+        if (!skymapShowHorizon || !window.telescopeSim) return;
+
+        const latDeg = telescopeSim.latitude * 180 / Math.PI;
+        const lstHours = calculateLST(telescopeSim.longitude);
+        const points = computeHorizonPoints(latDeg, lstHours, 72);
+        horizonOverlay.add(A.polyline(points, { color: 'orange', lineWidth: 2 }));
+    }
+
+
+
+    // Zero-padded "HH:MM:SS"/"+DD*MM:SS" formatting matching validateRA/validateDEC, with carry handling for rounded seconds.
+    function formatRAFromDeg(raDeg) {
+        let hours = ((raDeg / 15) % 24 + 24) % 24;
+        let h = Math.floor(hours);
+        let m = Math.floor((hours - h) * 60);
+        let s = Math.round(((hours - h) * 60 - m) * 60);
+        if (s >= 60) { s -= 60; m += 1; }
+        if (m >= 60) { m -= 60; h += 1; }
+        h = h % 24;
+        const pad = (v) => String(v).padStart(2, '0');
+        return `${pad(h)}:${pad(m)}:${pad(s)}`;
+    }
+
+    function formatDecFromDeg(decDeg) {
+        const sign = decDeg < 0 ? '-' : '+';
+        const abs = Math.abs(decDeg);
+        let d = Math.floor(abs);
+        let m = Math.floor((abs - d) * 60);
+        let s = Math.round(((abs - d) * 60 - m) * 60);
+        if (s >= 60) { s -= 60; m += 1; }
+        if (m >= 60) { m -= 60; d += 1; }
+        const pad = (v) => String(v).padStart(2, '0');
+        return `${sign}${pad(d)}*${pad(m)}:${pad(s)}`;
+    }
+
+    function useMapCenter() {
+        if (!skyMap) return;
+        // getRaDec() can lag behind interactive panning; compute the center pixel's world
+        // coordinates directly so we always read the actual view center, not the last mouse position.
+        const size = skyMap.getSize();
+        const [raDeg, decDeg] = skyMap.pix2world(size[0] / 2, size[1] / 2);
+        document.getElementById('ra-input').value = formatRAFromDeg(raDeg);
+        document.getElementById('dec-input').value = formatDecFromDeg(decDeg);
+        updateInputBackgrounds();
     }
 
 
@@ -2010,6 +2416,7 @@
         document.getElementById('terminal_frame').classList.add('hidden');
         document.getElementById('analysis_panel').classList.add('hidden');
         document.getElementById('pec_panel').classList.add('hidden');
+        document.getElementById('skymap_panel').classList.add('hidden');
         document.getElementById(panel).classList.remove('hidden');
 
         document.getElementById('control_frame_button').classList.remove('active');
@@ -2018,6 +2425,7 @@
         document.getElementById('terminal_frame_button').classList.remove('active');
         document.getElementById('analysis_panel_button').classList.remove('active');
         document.getElementById('pec_panel_button').classList.remove('active');
+        document.getElementById('skymap_panel_button').classList.remove('active');
         document.getElementById(panel + '_button').classList.add('active');        
     }
     function showControl() {
@@ -2037,6 +2445,9 @@
     }
     function showPEC() {
         showPanel('pec_panel');
+    }
+    function showSkymapPanel() {
+        showPanel('skymap_panel');
     }
 
     function showPECInstructions() {
@@ -2155,8 +2566,8 @@
     }
 
     function drawAnalysisCircles() {
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const ctx = overlayCanvas.getContext('2d');
 
         if(!currentAnalysis) {
             return; // No data to draw
@@ -2164,8 +2575,8 @@
      
         // Loop through each record in the data
         currentAnalysis.forEach(record => {
-            const x = record.xrel * canvas.width; // Relative x position
-            const y = record.yrel * canvas.height; // Relative y position
+            const x = record.xrel * overlayCanvas.width; // Relative x position
+            const y = record.yrel * overlayCanvas.height; // Relative y position
             const radius = 4; // Circle radius
 
             // Draw the circle
@@ -2184,13 +2595,6 @@
             ctx.fillText(`SNR: ${record.snr.toFixed(2)}`, x + radius + 5, y - radius + 45);
         });
     }
-
-    function toggleNightMode() {
-        const body = document.body;
-        body.classList.toggle('night-mode'); // Toggle the 'night-mode' class
-    }
-
-
 
     function loadCameraProperties() {
         fetch('/get_camera_properties')

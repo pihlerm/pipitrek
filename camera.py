@@ -300,7 +300,6 @@ class Camera:
             #print(f"Processing time {process_time:.2f}s")
             #print(f"Capturing time {capture_time:.2f}s")
             #print("")
-            time.sleep(0.01)  # yield the GIL so other threads (e.g. HTTP requests) aren't starved
 
     def apply_gamma_correction(self, image, gamma=1.5):
         inv_gamma = 1.0 / gamma

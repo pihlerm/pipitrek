@@ -78,6 +78,10 @@ iframe {
     box-sizing: border-box;
 }
 
+#terminal_frame {
+    height: 700px;
+}
+
 #terminal_frame .command-button {
     display: block;
     margin-bottom: 4px;
@@ -433,16 +437,23 @@ iframe {
     image-rendering: crisp-edges; /* Fallback for some browsers */
 }
 
-#canvas {
+#overlayCanvas {
     position: absolute;
     top: 0;
     left: 0;
     z-index: 10;
-    cursor: crosshair;
 }
 #video_container {
     position: relative;
     display: inline-block;
+    width: 1280px;
+    height: 720px;
+}
+#aladin_map_container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 5;
 }
 
 #result {
@@ -491,7 +502,7 @@ iframe {
 
 #pec_analysis_container {
     flex: 1 1 auto;
-    max-height: 420px;
+    max-height: 380px;
     overflow-y: auto;
     border: 1px solid #555555;
     box-sizing: border-box;

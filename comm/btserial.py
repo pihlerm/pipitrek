@@ -23,7 +23,7 @@ class BTSerial:
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
-            port='/dev/ttyAML1',
+            port='/dev/ttyAML6',
             baudrate=9600,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,

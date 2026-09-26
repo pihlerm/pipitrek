@@ -33,6 +33,10 @@ log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
 shutdown_event = Event()
 
 app = Flask(__name__)
+# Reload templates from disk on every request instead of caching the compiled version,
+# so edits to files like autoguider.html show up without restarting the process.
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
 sock = Sock(app)
 
 # Global variable to track the current process for terminal
@@ -759,6 +763,14 @@ def remove_tracked_star():
     else:
         print(f"No star found at ({x*camera.width}, {y*camera.height})")
         return jsonify({'status': 'error', 'message': f"No tracked star at ({x}, {y})"}), 503
+
+@app.route('/reset_centroids', methods=['POST'])
+def reset_centroids():
+
+    autoguider.reset_centroids()
+    print(f"Centroids reset to current star positions")
+    return jsonify({'status': 'success', 'message': f"Centroids reset to current star positions"}), 200
+
 
 @app.route('/calibrate', methods=['POST'])
 def calibrate():

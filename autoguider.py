@@ -497,6 +497,10 @@ class Autoguider:
         else:
             print("No frame to save.")
 
+    # reset centroids to current star positions
+    def reset_centroids(self):
+        self.tracked_centroids = self.current_centroids.copy()
+
     def run_autoguider(self):
         
         if self.camera is None or not self.camera.is_initialized():

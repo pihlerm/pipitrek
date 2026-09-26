@@ -1,5 +1,5 @@
 
-const mainCanvas = document.getElementById('canvas');
+const mainCanvas = document.getElementById('overlayCanvas');
 const loupe = document.getElementById('loupe');
 const loupeCtx = loupe.getContext('2d');
 var loupeScale = 3; // Magnification factor
