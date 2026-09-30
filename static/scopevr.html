@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Equatorial Telescope VR</title>
-    <link rel="stylesheet" href="../static/style.css" />
+    <link rel="stylesheet" href="style.css" />
     <script type="importmap">
         {
             "imports": {
-                "three": "../static/three/three.module.min.js",
-                "OrbitControls": "../static/three/OrbitControls.js",
-                "DigitalBacon-UI": "../static/three/DigitalBacon-UI.min.js"
+                "three": "./three/three.module.min.js",
+                "OrbitControls": "./three/OrbitControls.js",
+                "DigitalBacon-UI": "./three/DigitalBacon-UI.min.js"
             }
         }</script>
 </head>
@@ -30,13 +30,13 @@
     <div id="telescopeContainer" style="position: absolute;width:100vw;height:100vh;top:0;left:0;overflow: hidden;z-index: -1;">
         <canvas id="telescopeCanvas"></canvas>
     </div>
-    <script src="../static/vr/starCatalog.js"></script>
-    <script src="../static/vr/ngcCatalog.js"></script>
+    <script src="./vr/starCatalog.js"></script>
+    <script src="./vr/ngcCatalog.js"></script>
     
     
     <script type="module">
-        import { TelescopeSim } from '../static/vr/telescope_sim.js';
-        import * as AstroUtils from '../static/vr/astroutils.js';
+        import { TelescopeSim } from './vr/telescope_sim.js';
+        import * as AstroUtils from './vr/astroutils.js';
 
         // Initialize telescope simulation
         const canvas = document.getElementById('telescopeCanvas');

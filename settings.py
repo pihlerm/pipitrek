@@ -13,17 +13,21 @@ class Settings:
         self.settings = {}
 
     def update_autoguider_settings(self, autoguider: Autoguider):
-        self.settings["max_drift"] = autoguider.max_drift
+        self.settings["max_drift_ra"] = autoguider.max_drift_ra
+        self.settings["max_drift_dec"] = autoguider.max_drift_dec
         self.settings["star_size"] = autoguider.star_size
         self.settings["gray_threshold"] = autoguider.gray_threshold
         self.settings["rotation_angle"] = autoguider.rotation_angle
         self.settings["pixel_scale"] = autoguider.pixel_scale
         self.settings["guide_interval"] = autoguider.guide_interval
         self.settings["guide_pulse"] = autoguider.guide_pulse
-        self.settings["dec_guiding"] = autoguider.dec_guiding
+        self.settings["guide_method_ra"] = autoguider.guide_method_ra
+        self.settings["guide_method_dec"] = autoguider.guide_method_dec
+        self.settings["max_star_size"] = autoguider.max_star_size
+        self.settings["auto_threshold"] = autoguider.auto_threshold
         self.settings["pid"] =  { "ra" : {},"dec": {}}
         self.settings["pid"]["ra"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
-        self.settings["pid"]["dec"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
+        self.settings["pid"]["dec"] = { "p":autoguider.dec_pid.Kp, "i": autoguider.dec_pid.Ki, "d": autoguider.dec_pid.Kd }
         
 
     def update_camera_settings(self, camera: Camera):
@@ -51,10 +55,14 @@ class Settings:
             # Float settings
             autoguider.pixel_scale = float(self.settings.get("pixel_scale", 3.5))
             autoguider.rotation_angle = float(self.settings.get("rotation_angle", 0.0))
-            autoguider.max_drift = float(self.settings.get("max_drift", 5.0))
+            autoguider.max_drift_ra = float(self.settings.get("max_drift_ra", 5.0))
+            autoguider.max_drift_dec = float(self.settings.get("max_drift_dec", 5.0))
             autoguider.guide_interval = float(self.settings.get("guide_interval", 1.0))
-            autoguider.dec_guiding = bool(self.settings.get("dec_guiding", False))
             autoguider.output_dir = self.settings.get("output_dir")
+            autoguider.guide_method_ra = self.settings.get("guide_method_ra", 1.0)
+            autoguider.guide_method_dec = self.settings.get("guide_method_dec", 1.0)
+            autoguider.max_star_size = int(self.settings.get("max_star_size", 200))
+            autoguider.auto_threshold = bool(self.settings.get("auto_threshold", True))
 
             pid_settings = self.settings.get("pid")
             if pid_settings is not None:

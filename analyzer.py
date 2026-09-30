@@ -1,6 +1,10 @@
 import cv2
 import numpy as np
-from photutils import CircularAperture, CircularAnnulus, aperture_photometry
+
+from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photometry
+#older opencv-style import for photutils - for odroid!
+#from photutils import CircularAperture, CircularAnnulus, aperture_photometry
+
 from photutils.detection import DAOStarFinder
 from photutils.background import MedianBackground
 from astropy.stats import sigma_clipped_stats
@@ -22,6 +26,58 @@ class Analyzer:
         if not hasattr(self, '_initialized'):
             self._initialized = True
 
+
+    # Find optimal gray_threshold by sweeping from high (few detections) to low (more,
+    # eventually noise-dominated) and picking the threshold at the edge of the stable
+    # "plateau" region, i.e. the most sensitive threshold before contour count starts
+    # spiking due to noise.
+    def auto_threshold(self, frame, smooth=True, gray_threshold=128, star_size=2, max_star_size=None,
+                        thresh_low=10, thresh_high=250, thresh_step=5,
+                        smooth_window=3, spike_ratio=1.2, spike_diff=10, min_stable_steps=3):
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+
+        thresholds = list(range(thresh_high, thresh_low - 1, -thresh_step))
+        counts = []
+        for t in thresholds:
+            _, thresh_img = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY)
+            contours, _ = cv2.findContours(thresh_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            n = sum(1 for c in contours
+                    if cv2.contourArea(c) > star_size and (max_star_size is None or cv2.contourArea(c) <= max_star_size))
+            counts.append(n)
+
+        counts = np.array(counts, dtype=np.float64)
+        if not np.any(counts):
+            # Nothing detected at any threshold, fall back to the caller-provided default
+            return gray_threshold
+
+
+        # Smooth to reduce single-step jitter from noise before analyzing plateau stability
+        if smooth and smooth_window > 1 and len(counts) >= smooth_window:
+            kernel = np.ones(smooth_window) / smooth_window
+            smoothed = np.convolve(counts, kernel, mode='same')
+        else:
+            smoothed = counts
+
+        # Walk from high threshold to low, tracking runs of near-flat (stable) contour counts.
+        # best_idx advances while the region stays stable; once a sustained spike is seen
+        # (contour count jumping, i.e. noise taking over), stop at the last stable point.
+        best_idx = 0
+        stable_run = 0
+        for i in range(1, len(smoothed)):
+            prev = max(smoothed[i - 1], 1.0)
+            ratio = smoothed[i] / prev
+            if ratio <= spike_ratio and ratio > 0.9 and (smoothed[i] - smoothed[i - 1]) <= spike_diff:
+                stable_run += 1
+                if stable_run >= min_stable_steps:
+                    best_idx = i
+            else:
+                stable_run = 0
+
+        # back off a little to avoid the spike itself
+        best_idx = max(0, best_idx)
+        return min(int(thresholds[best_idx]), 255)
+
 #       How It Works
 #       Initial Centroid:
 #       Uses cv2.findContours() and cv2.moments() on the thresholded image to find the unweighted centroid of the largest or nearest star (same as your original code).
@@ -38,7 +94,7 @@ class Analyzer:
 #       Adds the crop’s top-left corner (x0, y0) to the weighted centroid (cx_weighted, cy_weighted) to get full-image coordinates (cx_full, cy_full).
 #       Returns as a tuple of floats for sub-pixel precision.
 
-    def detect_stars(self, frame, search_near=None, gray_threshold=128, star_size=2, max_distance=10):
+    def detect_stars(self, frame, search_near=None, gray_threshold=128, star_size=2, max_distance=10, max_stars=1, max_star_size=None):
         result = []
         enhanced_with_profile = None
         thresh = None
@@ -53,24 +109,34 @@ class Analyzer:
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             if search_near is None:
-                # Find the largest contour if no search_near provided
-                centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=None, gray_threshold=gray_threshold, star_size=star_size,max_distance=max_distance)
-                result.append(centroid)
+                # No search_near provided: take the max_stars largest contours by area, excluding oversized ones
+                candidates = [c for c in contours if max_star_size is None or cv2.contourArea(c) <= max_star_size]
+                largest_contours = sorted(candidates, key=cv2.contourArea, reverse=True)[:max_stars]
+                for contour in largest_contours:
+                    if enhanced_with_profile is None:
+                        centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=None, contour=contour, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance, max_star_size=max_star_size)
+                    else:
+                        centroid, _, _, _ = self._detect_star(frame, thresh, gray, contours, search_near=None, contour=contour, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance, max_star_size=max_star_size)
+                    if centroid is not None:
+                        result.append(centroid)
             else:
                 for near in search_near:
                     if enhanced_with_profile is None:
-                        centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance)
+                        centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance, max_star_size=max_star_size)
                     else:
-                        centroid, _, _, _ = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance)
-                    result.append(centroid)
+                        centroid, _, _, _ = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance, max_star_size=max_star_size)
+                    if centroid is not None:
+                        result.append(centroid)
         
         return result, enhanced_with_profile, thresh, focus_metric
 
-    def _detect_star(self, frame, thresh, gray, contours, search_near=None, gray_threshold=128, star_size=2, max_distance=10):
+    def _detect_star(self, frame, thresh, gray, contours, search_near=None, contour=None, gray_threshold=128, star_size=2, max_distance=10, max_stars=1,max_star_size=None):
         
         # Find the largest or nearest contour with size > star_size
         largest = None
-        if search_near is not None:
+        if contour is not None:
+            largest = contour
+        elif search_near is not None:
             # Calculate all distances first
             distance_data = []
             search_near = np.array(search_near)
@@ -86,7 +152,7 @@ class Analyzer:
                 # Check areas in order until we find one > star_size
                 for distance, contour in distance_data:
                     area = cv2.contourArea(contour)
-                    if area > star_size and distance < max_distance:
+                    if area > star_size and distance < max_distance and (max_star_size is None or area <= max_star_size):
                         largest = contour
                         break
         else:

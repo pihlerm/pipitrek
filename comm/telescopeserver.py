@@ -92,7 +92,7 @@ class TelescopeServer:
             #print(f"size: {size}, msg_type: {msg_type}, ra_int: {ra_int}, dec_int: {dec_int}")
             ra_deg = stellarium_to_deg(ra_int, is_ra=True)
             dec_deg = stellarium_to_deg(dec_int, is_ra=False)
-            print(f"Goto command received: RA={deg_to_lx200_ra(ra_deg)}, Dec={deg_to_lx200_dec(dec_deg)}")
+            print(f"Slew request received: RA={deg_to_lx200_ra(ra_deg)}, Dec={deg_to_lx200_dec(dec_deg)}")
             self.slew_request = (deg_to_lx200_ra(ra_deg),deg_to_lx200_dec(dec_deg))
 
     def handle_sync(self, data):

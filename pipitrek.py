@@ -1,3 +1,5 @@
+from asyncio import tasks
+
 from flask import Flask, request, redirect, url_for, render_template, Response, jsonify, send_file
 from analyzer import Analyzer
 from autoguider import Autoguider
@@ -5,6 +7,8 @@ from camera import Camera
 from comm.telescopeserver import TelescopeServer
 from platesolver import PlateSolver
 from threading import Thread, Event
+from conversions import deg_to_lx200_ra, deg_to_lx200_dec
+from telescope_task_scheduler import TelescopeTaskScheduler
 import time
 import numpy as np
 from telescope import *
@@ -22,6 +26,7 @@ import re
 import json
 import base64
 import ssl
+from telescope_task import PlateSolveTask, TelescopeImagingTask, TelescopeInitializePositionTask, TelescopeMeridianFlipTask, TelescopeParkTask, TelescopeSlewingTask, TelescopeStartAutoguiderTask, TelescopeStopAutoguiderTask
 from v412_ctl import list_cameras
 
 # Disable Flask request logging
@@ -40,7 +45,7 @@ app.jinja_env.auto_reload = True
 sock = Sock(app)
 
 # Global variable to track the current process for terminal
-global autoguider, autoguider_sett, autoguider_thread
+global autoguider, autoguider_sett, autoguider_thread, telescope_task_scheduler
 current_process = None
 autoguider = None
 autoguider_sett  = None
@@ -50,26 +55,17 @@ telescope = None
 camera = None
 telescopeserver = None
 global_server = None
+telescope_task_scheduler = None
 
 video_interval = 0.5 # interval for generating video frames
 frame_timeout = 30 # seconds before timeout
 
-
 # PAGES
-
-@app.route('/')
-def index():
-    cameras = list_cameras()
-    return render_template('autoguider.html', cameras=cameras)
-    
+   
 @app.route('/terminal')
 def terminal():
     return render_template('terminal.html')
 
-
-@app.route('/scopevr')
-def scopevr():
-    return render_template('scopevr.html')
 
 # SOCKETS
 
@@ -312,6 +308,7 @@ def set_backlash():
     telescope.send_backlash_comp_dec(int(dec))
     return jsonify({'status': 'success', 'message': f'Backlash set'})
 
+
 @app.route('/command_slew_request', methods=['POST'])
 def command_slew_request():
     data = request.json
@@ -394,6 +391,7 @@ def command_receivePEC():
 def command_sendPEC():
     data = request.json
     pec_table = data.get('pec_table', [])
+    print(f"Received PEC table: {pec_table}")
     if pec_table and isinstance(pec_table, list):
         ret = telescope.send_pec_table(pec_table)
         return jsonify({"status": "success", "message": ret})
@@ -413,6 +411,20 @@ def set_pec_position():
         return jsonify({'status': 'success', 'message': f'PEC pos set to {rounded_position}'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/set_pec_enabled', methods=['POST'])
+def set_pec_enabled():
+    try:
+        enable = request.form.get('enable', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+        if enable is None:
+            raise ValueError("PEC enable flag is missing or invalid")
+        
+        telescope.send_PEC_enabled(enable)
+        return jsonify({'status': 'success', 'message': f'PEC set to {enable}'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 
 @app.route('/command_upload', methods=['POST'])
 def control_upload():
@@ -456,8 +468,18 @@ def command_goto():
     ra = data.get('ra')
     dec = data.get('dec')
     print(f"GOTO command received: RA={ra}, DEC={dec}")
-    telescope.send_go_to(ra,dec)
-    return jsonify({'status': 'success', 'message': f'GOTO to RA={ra}, DEC={dec}'})
+    ret = TelescopeSlewingTask(telescope, ra, dec).execute()
+    return jsonify(ret)
+
+@app.route('/command_goto_direct', methods=['POST'])
+def command_goto_direct():
+    data = request.json
+    ra = data.get('ra')
+    dec = data.get('dec')
+    print(f"DIRECT GOTO command received: RA={ra}, DEC={dec}")
+    ret = telescope.send_go_to(ra, dec)
+    print(f"DIRECTLY Moving to segment: RA={ra}, DEC={dec}, PIER={segment_pier}")
+    return jsonify(ret)
 
 @app.route('/command_set_to', methods=['POST'])
 def command_set_to():
@@ -466,10 +488,86 @@ def command_set_to():
     dec = data.get('dec')
     print(f"SET TO command received: RA={ra}, DEC={dec}")
     telescope.send_set_to(ra,dec)
+    telescope.send_lst()
     return jsonify({'status': 'success', 'message': f'SET TO RA={ra}, DEC={dec}'})
 
 
+
+### Task scheduler endpoints
+@app.route('/start_scheduler', methods=['POST'])
+def start_scheduler_endpoint():
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+    
+    if telescope_task_scheduler.start():
+        return jsonify({'status': 'ok', 'message': 'Scheduler started'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Failed to start scheduler'})
+
+@app.route('/stop_scheduler', methods=['POST'])
+def stop_scheduler_endpoint():
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+    
+    telescope_task_scheduler.stop();    
+    return jsonify({'status': 'ok', 'message': 'Scheduler stopped'})
+
+@app.route('/task_list_status', methods=['GET'])
+def task_list_status_endpoint():
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503   
+    
+    return jsonify(telescope_task_scheduler.get_task_list_status())
+
+@app.route('/get_task_list', methods=['GET'])
+def get_task_list_endpoint():
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+    
+    return jsonify(telescope_task_scheduler.get_task_list())
+
+@app.route('/add_tasks', methods=['POST'])
+def add_tasks_endpoint():
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+
+    tasks = request.json
+    if not isinstance(tasks, list) or not tasks:
+        return jsonify({'status': 'error', 'message': 'Expected a non-empty JSON array of tasks'}), 400
+
+    telescope_task_scheduler.add_to_task_list(tasks)
+    return jsonify({'status': 'ok', 'message': f'Added {len(tasks)} task(s)'})
+
+@app.route('/remove_task/<int:task_id>', methods=['POST', 'DELETE'])
+def remove_task_endpoint(task_id):
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+
+    if not telescope_task_scheduler.remove_from_task_list(task_id):
+        return jsonify({'status': 'error', 'message': 'Task not found'}), 409
+
+    return jsonify({'status': 'ok', 'message': f'Removed task {task_id}'})
+
+@app.route('/get_task/<int:task_id>', methods=['GET'])
+def get_task_endpoint(task_id):
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+
+    task = telescope_task_scheduler.get_task(task_id)
+    if task is None:
+        return jsonify({'status': 'error', 'message': 'Task not found'}), 404
+
+    return jsonify({'status': 'ok', 'task': task})
+
+
+
 # CAMERA
+
+@app.route('/get_camera_list')
+def get_camera_list():
+    return jsonify(list_cameras())
+
+
 @app.route('/save_frame', methods=['POST'])
 def save_frame():
     if camera is not None and camera.running:
@@ -604,14 +702,16 @@ def form_properties():
         "current_centroids": autoguider.current_centroids,
         "pec_position": telescope.scope_info["pec"]["progress"],
         "save_frames" : autoguider.save_frames,
-        "max_drift": autoguider.max_drift,
+        "max_drift_ra": autoguider.max_drift_ra,
+        "max_drift_dec": autoguider.max_drift_dec,
         "star_size": autoguider.star_size,
         "gray_threshold": autoguider.gray_threshold,
+        "auto_threshold": autoguider.auto_threshold,
         "rotation_angle": autoguider.rotation_angle,
         "pixel_scale": autoguider.pixel_scale,
-        "guide_method": autoguider.guide_method,
+        "guide_method_ra": autoguider.guide_method_ra,
+        "guide_method_dec": autoguider.guide_method_dec,
         "guiding": autoguider.guiding,
-        "dec_guiding": autoguider.dec_guiding,
         "guide_interval": autoguider.guide_interval,
         "guide_pulse": autoguider.guide_pulse,
         "last_correction": autoguider.last_correction,
@@ -631,9 +731,12 @@ def form_properties():
         "resolution": { "width":width, "height":height },
         "video_mode": cam_mode,
         "camera_color": camera_color,
-        "pid_p": autoguider.ra_pid.Kp,
-        "pid_i": autoguider.ra_pid.Ki,
-        "pid_d": autoguider.ra_pid.Kd
+        "ra_pid_p": autoguider.ra_pid.Kp,
+        "ra_pid_i": autoguider.ra_pid.Ki,
+        "ra_pid_d": autoguider.ra_pid.Kd,
+        "dec_pid_p": autoguider.dec_pid.Kp,
+        "dec_pid_i": autoguider.dec_pid.Ki,
+        "dec_pid_d": autoguider.dec_pid.Kd
     }
     # Encode the centroid_image as Base64
     if autoguider.centroid_image is not None:
@@ -653,28 +756,42 @@ def get_autoguider_properties():
 @app.route('/set_pid', methods=['POST'])
 def set_pid():
     data = request.json
-    autoguider.ra_pid.Kp = float(data.get('pid_p', 0.5))
-    autoguider.dec_pid.Kp = float(data.get('pid_p', 0.5))
+    autoguider.ra_pid.Kp = float(data.get('ra_pid_p', 0.5))
+    autoguider.dec_pid.Kp = float(data.get('dec_pid_p', 0.5))
 
-    autoguider.ra_pid.Ki = float(data.get('pid_i', 0.1))
-    autoguider.dec_pid.Ki = float(data.get('pid_i', 0.1))
+    autoguider.ra_pid.Ki = float(data.get('ra_pid_i', 0.1))
+    autoguider.dec_pid.Ki = float(data.get('dec_pid_i', 0.1))
     
-    autoguider.ra_pid.Kd = float(data.get('pid_d', 0.2))
-    autoguider.dec_pid.Kd = float(data.get('pid_d', 0.2))
+    autoguider.ra_pid.Kd = float(data.get('ra_pid_d', 0.2))
+    autoguider.dec_pid.Kd = float(data.get('dec_pid_d', 0.2))
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_threshold', methods=['POST'])
 def set_threshold():
     new_threshold = request.form.get('threshold', type=int, default=autoguider.gray_threshold)
+    auto_threshold = request.form.get('auto_threshold', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
     if 0 <= new_threshold <= 255:
         autoguider.gray_threshold = new_threshold
+    autoguider.auto_threshold = auto_threshold
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_auto_threshold', methods=['POST'])
+def set_auto_threshold():
+    auto_threshold = request.form.get('auto_threshold', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
+    autoguider.auto_threshold = auto_threshold
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_max_drift', methods=['POST'])
 def set_max_drift():
-    new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift)
+    new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift_ra)
+    axis = request.form.get('axis', type=str, default='ra')
     if 0 <= new_max_drift <= 50:
-        autoguider.max_drift = new_max_drift
+        if axis == 'ra':
+            autoguider.max_drift_ra = new_max_drift
+            print(f"set max drift RA to {new_max_drift} and is {autoguider.max_drift_ra}")
+        elif axis == 'dec':
+            autoguider.max_drift_dec = new_max_drift
+            print(f"set max drift DEC to {new_max_drift} and is {autoguider.max_drift_dec}")
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_star_size', methods=['POST'])
@@ -701,7 +818,11 @@ def set_guide_interval():
 @app.route('/set_guide_method', methods=['POST'])
 def set_guide_method():
     guide_method = request.form.get('guide_method', type=str, default='PID')
-    autoguider.guide_method = guide_method
+    axis = request.form.get('axis', type=str, default='ra')
+    if axis == 'ra':
+        autoguider.guide_method_ra = guide_method
+    elif axis == 'dec':
+        autoguider.guide_method_dec = guide_method
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_guide_pulse', methods=['POST'])
@@ -717,18 +838,21 @@ def set_guiding():
     autoguider.enable_guiding(guiding)
     return jsonify({"status": "success"}), 200
 
-@app.route('/set_dec_guiding', methods=['POST'])
-def set_dec_guiding():
-    dec_guiding = request.form.get('dec_guiding', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-    autoguider.enable_dec_guiding(dec_guiding)
-    return jsonify({"status": "success"}), 200
-
 @app.route('/set_save_frames', methods=['POST'])
 def set_save_frames():
     save_frames = request.form.get('save_frames', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
     autoguider.save_frames = save_frames
     return jsonify({"status": "success"}), 200
 
+@app.route('/auto_add_tracked_stars', methods=['POST'])
+def auto_add_tracked_stars():
+    number_to_add = request.form.get('number_to_add', type=int, default=5)
+    centroids = autoguider.auto_add_tracked_stars(number_to_add)
+    if centroids is not None:
+        return jsonify({'status': 'success', 'message': f"Added {len(centroids)} tracked stars"}), 200
+    else:
+        return jsonify({'status': 'error', 'message': f"No tracked stars added"}), 503
+    
 @app.route('/acquire', methods=['POST'])
 def acquire():
     if camera is None:
@@ -800,107 +924,65 @@ def analyze():
 def plateSolve():   
     filename = request.json.get('filename')
     capture = request.json.get('capture')
-    if capture and camera is not None and camera.running:
-        frame = camera.frame
-        if frame is not None and frame.size > 0:
-            # Save the frame as an image file
-            save_path = os.path.join(os.getcwd(), filename)
-            cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
-            print(f"Frame saved to {save_path}")
-        else:
-            return jsonify({"status": "error", "message": "No valid frame available"}), 400
-    else:
-        return jsonify({"status": "error", "message": "Camera is not running"}), 503
-    
-    platesolver = PlateSolver()
-    try:
-        ra, dec, rot, scale = platesolver.solve(filename)
-        raStr = deg_to_lx200_ra(float(ra))
-        decStr = deg_to_lx200_dec(float(dec))
-        retval = {
-            'status': 'ok',
-            'ra' : raStr,
-            'dec' : decStr,
-            'rotation' : rot,
-            'scale' : scale
-        }
-        telescope.slew_request = (raStr, decStr)
-        return jsonify(retval), 200
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 400
-
-def _run_orientation():
-    if camera is not None and camera.running:
-        frame = camera.frame
-        if frame is not None and frame.size > 0:
-            # Save the frame as an image file
-            save_path = os.path.join(os.getcwd(), 'saved_frame.png')
-            cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
-            print(f"Frame saved to {save_path}")
-        else:
-            return {"status": "error", "message": "No valid frame available"}, 400
-    else:
-        return {"status": "error", "message": "Camera is not running"}, 503
-    
-    platesolver = PlateSolver()
-    try:
-        ra, dec, rot, scale = platesolver.solve('saved_frame.png')
-        raStr = deg_to_lx200_ra(float(ra))
-        decStr = deg_to_lx200_dec(float(dec))
-        retval = {
-            'status': 'ok',
-            'ra' : raStr,
-            'dec' : decStr,
-            'rotation' : rot,
-            'scale' : scale
-        }
-        telescope.send_set_to(raStr, decStr)
-        if -180 <= rot <= 180:
-            autoguider.rotation_angle = rot
-
-        return retval, 200
-    except Exception as e:
-        return {'status': 'error', 'message': str(e)}, 400
+    result = PlateSolveTask(telescope, camera, filename, capture).execute()
+    return jsonify(result),     result.get('status') == 'error' and 503 or 200
 
 
 @app.route('/orient', methods=['POST'])
 def orient():
-    retval, status = _run_orientation()
+    if camera is None or not camera.running:
+        return jsonify({"status": "error", "message": "Camera is not running"}) , 503
+    retval = TelescopeInitializePositionTask(telescope, camera, autoguider).execute()
+    status = retval.get('status') == 'error' and 503 or 200
     return jsonify(retval), status
 
 
-def orient_for_bridge():
-    retval, _ = _run_orientation()
-    return json.dumps(retval).encode('utf-8')
 
 # Shutdown APPLICATION
 @app.route('/shutdown', methods=['POST'])
 def shutdown():
-    """Gracefully shut down the Flask app and perform cleanup."""
+    """Gracefully shut down the Flask app and perform cleanup. Optionally powers off the host afterwards."""
     if request.method != 'POST':
         return jsonify({"error": "Method not allowed"}), 405
 
-    print("Shutdown requested via /shutdown")
+    body = request.get_json(silent=True) or {}
+    poweroff = bool(body.get('poweroff', False))
+
+    print(f"Shutdown requested via /shutdown (poweroff={poweroff})")
     shutdown_event.set()  # Signal threads to stop
 
     cleanup()
+
+    def _exit_process():
+        time.sleep(1)
+        if poweroff:
+            print("Powering off Linux host...")
+            os.system("poweroff")
+        os._exit(0)
+
     # Attempt Werkzeug shutdown
     func = request.environ.get('werkzeug.server.shutdown')
     if func is not None:
         func()
         print("Werkzeug server shutdown initiated")
-        return jsonify({"message": "Server shutting down"}), 200
     else:
         print("Not running with Werkzeug server, forcing shutdown")
-        # Fallback: Force exit after cleanup
-        Thread(target=lambda: [time.sleep(1), os._exit(0)]).start()
-        return jsonify({"message": "Shutdown initiated, forcing exit"}), 200
+
+    # Always force the process (and optionally the host) down after cleanup, since make_server doesn't expose werkzeug.server.shutdown
+    Thread(target=_exit_process).start()
+    message = "Server shutting down" + (" and powering off" if poweroff else "")
+    return jsonify({"message": message}), 200
 
 
 def cleanup():
     try:        
         print("Stopping TCP telescope server..")
         telescopeserver.stop()
+        
+        print("Stopping telescope task scheduler..")
+        if telescope_task_scheduler is not None:
+            telescope_task_scheduler.stop()
+            telescope_task_scheduler.save_task_list("task_list.json")
     
         print("Stopping autoguider..")
         all_settings.update_autoguider_settings(autoguider)
@@ -978,7 +1060,6 @@ if __name__ == '__main__':
     telescope = Telescope()
     time.sleep(2) # wait arduino
     all_settings.set_telescope_settings(telescope)
-    telescope.set_orientation_callback(orient_for_bridge)
     telescope.start_bridge()
     print("telescope started.")
 
@@ -1000,6 +1081,11 @@ if __name__ == '__main__':
     autoguider_thread = Thread(target=autoguider.run_autoguider)
     autoguider_thread.start()
     print("autoguider set up.")
+
+    print("Starting telescope task scheduler..")
+    telescope_task_scheduler = TelescopeTaskScheduler(camera, telescope, autoguider)
+    # must be started by user
+    # telescope_task_scheduler.start()  
 
     # TCP telescope server
     telescopeserver = TelescopeServer()

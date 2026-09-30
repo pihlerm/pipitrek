@@ -62,6 +62,10 @@ class LXSetDec(TelescopeCommand):
     def __init__(self, dec):
         super().__init__(f":Sd{dec}#",True, lx200_ok)
 
+class LXSetLST(TelescopeCommand):
+    def __init__(self, lst):
+        super().__init__(f":SS{lst}#",True, lx200_ok)
+
 class LXGetRa(TelescopeCommand):
     def __init__(self):
         super().__init__(f":GR#",True, contains_hash)
@@ -149,6 +153,22 @@ class PTCStartMove(PipiTelescopeCommand):
         str = f"!S{rasign}{abs(ra):02d}{decsign}{abs(dec):02d}#"
         super().__init__(str)
 
+class PTCStartMoveRA(PipiTelescopeCommand):
+    def __init__(self, ra):
+        # Ensure integer
+        ra = int(ra)
+        rasign = '+' if ra>=0 else '-'
+        str = f"!SR{rasign}{abs(ra):02d}#"
+        super().__init__(str)
+
+class PTCStartMoveDEC(PipiTelescopeCommand):
+    def __init__(self, dec):
+        # Ensure integer
+        dec = int(dec)
+        decsign = '+' if dec>=0 else '-'
+        str = f"!SD{decsign}{abs(dec):02d}#"
+        super().__init__(str)
+
 class PTCGetPEC(PipiTelescopeCommand):
     def __init__(self):
         super().__init__(f"!PO#")
@@ -181,6 +201,13 @@ class PTCSetPECPos(PipiTelescopeCommand):
 class PTCGetPECPos(PipiTelescopeCommand):
     def __init__(self):
         super().__init__(f"!PG#")
+
+class PTCEnablePEC(PipiTelescopeCommand):
+    def __init__(self, enable):
+        if enable:
+            super().__init__(f"!PE#")
+        else:
+            super().__init__(f"!PD#")
 
 class PTCSetTracking(PipiTelescopeCommand):
     def __init__(self, tracking):

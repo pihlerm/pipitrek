@@ -1,4 +1,5 @@
 import math
+import time
 
 # RA/Dec conversion helpers
 def deg_to_stellarium_ra(deg):
@@ -51,3 +52,35 @@ def lx200_to_dec_deg(dec_str):
         return sign * (d + m / 60 + s / 3600)
     except ValueError:
         raise ValueError(f"Invalid DEC format: {dec_str}")
+
+
+def calculate_lst(longitude_deg):
+    now = time.gmtime()  # UTC time
+    JD = get_julian_date(now)
+    T = (JD - 2451545.0) / 36525.0
+
+    # Calculate Greenwich Mean Sidereal Time (GMST) in degrees
+    GMST = 280.46061837 + 360.98564736629 * (JD - 2451545) + 0.000387933 * T * T - (T * T * T) / 38710000
+
+    # Normalize to 0–360
+    GMST = (GMST % 360 + 360) % 360
+
+    # Local Sidereal Time
+    LST = GMST + longitude_deg
+
+    # Normalize to 0–360
+    LST = (LST % 360 + 360) % 360
+
+    # Convert to hours
+    return LST / 15
+
+def get_julian_date(now):
+    year, month, day, hour, minute, second = now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec
+    if month <= 2:
+        year -= 1
+        month += 12
+    A = year // 100
+    B = 2 - A + A // 4
+    JD = int(365.25 * (year + 4716)) + int(30.6001 * (month + 1)) + day + B - 1524.5
+    JD += (hour + minute / 60 + second / 3600) / 24
+    return JD

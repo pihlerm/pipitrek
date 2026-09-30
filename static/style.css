@@ -1,6 +1,6 @@
-/*td, th, tr {
-    border: 1px solid black; 
-}*/
+:root {
+    --loupe-cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48' fill='none' stroke-linecap='round' stroke-linejoin='round'><g stroke='white' stroke-width='3'><circle cx='22' cy='22' r='14'></circle><line x1='42' y1='42' x2='32' y2='32'></line></g><g stroke='black' stroke-width='1'><circle cx='22' cy='22' r='14'></circle><line x1='42' y1='42' x2='32' y2='32'></line></g></svg>") 22 22, auto;
+}
 
 @font-face {
     font-family: 'Unbounded';
@@ -14,6 +14,10 @@ body {
     font-family: 'Unbounded';
     font-size: 12px;
     overflow: hidden;
+}
+
+h2 {
+    margin-block: 0.0em;
 }
 
 body.night-mode {
@@ -63,6 +67,20 @@ input {
 
 input[type="range"] {
     width: 200px; /* Adjust as needed */
+}
+
+input[type="range"]:not(.slider-unlocked) {
+    opacity: 0.55;
+    cursor: pointer;
+}
+
+input[type="range"].slider-unlocked {
+    opacity: 1;
+    cursor: grab;
+}
+
+input[type="range"].slider-unlocked:active {
+    cursor: grabbing;
 }
 
 iframe {
@@ -121,6 +139,12 @@ iframe {
 
 .modal-content p {
     margin-top: 0;
+}
+
+.output-text {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .modal-close {
@@ -206,12 +230,21 @@ iframe {
     background-color: rgb(94, 18, 18);
     color: white; /* Optional: Change text color for better contrast */
 }
+.mini-button.active {
+    background-color: rgb(8, 100, 8); /* Active state background color */
+    color: white; /* Active state text color */
+    font-weight: bold;
+}
 
 .command-button {
     width: 112px;
     height: 22px;
     margin: 2px 0px 2px 5px;
     font-size: 14px;
+}
+.command-button[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 .command-button:active {
     background-color: rgb(94, 18, 18);
@@ -296,6 +329,105 @@ iframe {
     align-items: flex-start;
     gap: 1px;
     border: 2px solid #626262;
+}
+
+#task_list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+    max-width: 640px;
+    height: 600px;
+    overflow-y: auto;
+}
+
+.task-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 2px solid #626262;
+    padding: 6px;
+}
+
+.task-item-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.task-status-icon {
+    font-size: 16px;
+    line-height: 1;
+    width: 20px;
+    flex: 0 0 20px;
+    text-align: center;
+    cursor: help;
+}
+
+.task-result-balloon {
+    position: fixed;
+    z-index: 1000;
+    max-width: 320px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #2b2b2b;
+    color: #e0e0e0;
+    border: 1px solid #626262;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.task-status-time {
+    font-size: 8px;
+    line-height: 1;
+    width: 140px;
+    flex: 0 0 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-status-id {
+    font-size: 14px;
+    width: 20px;
+    flex: 0 0 20px;
+}
+
+.task-status-type {
+    width: 140px;
+    flex: 0 0 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-item-header .mini-button {
+    margin-left: auto;
+    flex: 0 0 38px;
+}
+
+.task-status-icon.task-status-running {
+    display: inline-block;
+    animation: taskStatusSpin 1s linear infinite;
+}
+
+@keyframes taskStatusSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.task-item-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.task-item-field label {
+    width: 110px;
 }
 
 
@@ -442,6 +574,13 @@ iframe {
     top: 0;
     left: 0;
     z-index: 10;
+    cursor: var(--loupe-cursor);
+}
+#video_feed_canvas {
+    cursor: var(--loupe-cursor);
+}
+#loupe {
+    z-index: 20;
 }
 #video_container {
     position: relative;
@@ -495,8 +634,8 @@ iframe {
 }
 
 #pec_table_text {
-    width: 320px;
-    flex: 0 0 320px;
+    width: 200px;
+    flex: 0 0 200px;
     box-sizing: border-box;
 }
 

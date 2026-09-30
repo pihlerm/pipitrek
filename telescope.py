@@ -1,5 +1,6 @@
 
 from threading import RLock, Thread
+from turtle import position
 import serial
 import time
 import subprocess
@@ -10,6 +11,7 @@ from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
 from telescope_commands import *
 from conversions import *
+from telescope_task import TelescopeInitializePositionTask
 
 class Telescope:
     _instance = None
@@ -42,10 +44,169 @@ class Telescope:
             self.ra_deg = 0     # telescope ra in degrees
             self.dec_deg = 0    # telescope declination in degrees
 
+            self.set_location(46.0569, 14.5058)
+
             self.quiet = False
             self._thread = None
             self.slew_request = None
-            self.orientation_callback = None
+
+    def set_location(self, latitude_deg, longitude_deg):
+        self.latitude_deg = latitude_deg
+        self.longitude_deg = longitude_deg
+        self.send_lst()  # Initialize telescope LST based on current longitude and time
+
+
+    # Split a telescope move into allowed segments considering meridian flips
+    def split_move(self, start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg,pier):
+        is_allowed, needs_flip = self.check_move(start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg,pier)
+        if not is_allowed:
+            return None
+
+        if not needs_flip:
+            return [(end_ra_deg, end_dec_deg, pier)]
+
+        flip_pier = "E" if pier == "W" else "W"
+        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        vertical_ra_deg = (self.local_lst_hours * 15) % 360
+        midpoint_dec_deg = (start_dec_deg + end_dec_deg) / 2
+
+        for waypoint_pier in (pier, flip_pier):
+            local_ra_deg, local_dec_deg = self.calculate_local_orientation(
+                vertical_ra_deg, midpoint_dec_deg, waypoint_pier
+            )
+            if not self.is_orientation_allowed(local_ra_deg, local_dec_deg, waypoint_pier):
+                return None
+
+        return [
+            (vertical_ra_deg, midpoint_dec_deg, pier),
+            (end_ra_deg, end_dec_deg, flip_pier)
+        ]
+
+    
+    # check if move is allowed based on current and target celestial coordinates
+    # move may require a meridian flip depending on the start and end positions
+    # Returns a tuple (is_allowed, needs_flip)
+
+    def check_move(self, start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg, start_pier):
+
+        if not self.is_above_horizon(end_ra_deg, end_dec_deg):
+            print(f"Target position RA={end_ra_deg}, DEC={end_dec_deg} is below the horizon")
+            return False, False
+        
+        start_local_ra_deg, start_local_dec_deg = self.calculate_local_orientation(start_ra_deg, start_dec_deg, start_pier)
+        if not self.is_orientation_allowed(start_local_ra_deg, start_local_dec_deg, start_pier):
+            print(f"Start orientation not allowed for local_ra: {start_local_ra_deg}, local_dec: {start_local_dec_deg}, pier: {start_pier}")
+            return False,False
+        
+        flip = self.does_move_need_meridian_flip(start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg, start_pier)
+        end_pier = ("E" if start_pier == "W" else "W") if flip else start_pier
+
+        end_local_ra_deg, end_local_dec_deg = self.calculate_local_orientation(end_ra_deg, end_dec_deg, end_pier)
+
+        if not self.is_orientation_allowed(end_local_ra_deg, end_local_dec_deg, end_pier):
+            print(f"End orientation not allowed for local_ra: {end_local_ra_deg}, local_dec: {end_local_dec_deg}, pier: {end_pier}")
+            return False, True
+
+        return True,flip
+
+    # Check if move needs a meridian flip
+    # Input is in celestial coordinate system, degrees for RA and Dec, and pier is "E" or "W"
+    def does_move_need_meridian_flip(self, start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg, pier):
+        start_local_ra_deg, start_local_dec_deg = self.calculate_local_orientation(start_ra_deg, start_dec_deg, pier)
+        end_local_ra_deg, end_local_dec_deg = self.calculate_local_orientation(end_ra_deg, end_dec_deg, pier)
+        if self.is_orientation_allowed(start_local_ra_deg, start_local_dec_deg, pier) and not self.is_orientation_allowed(end_local_ra_deg, end_local_dec_deg, pier):
+            return True
+        return False
+
+    def is_position_allowed(self, ra_deg=None, dec_deg=None, pier=None):
+        if ra_deg is None:
+            ra_deg = self.ra_deg
+        if dec_deg is None:
+            dec_deg = self.dec_deg
+        if pier is None:
+            pier = self.scope_info.get('pier')
+
+        local_ra_deg, local_dec_deg = self.calculate_local_orientation(ra_deg, dec_deg, pier)
+        return self.is_orientation_allowed(local_ra_deg, local_dec_deg, pier)
+
+    def does_position_require_flip(self, ra_deg=None, dec_deg=None, pier=None):
+        if ra_deg is None:
+            ra_deg = self.ra_deg
+        if dec_deg is None:
+            dec_deg = self.dec_deg
+        if pier is None:
+            pier = self.scope_info.get('pier')
+
+        local_ra_deg, local_dec_deg = self.calculate_local_orientation(ra_deg, dec_deg, pier)
+        if not self.is_orientation_allowed(local_ra_deg, local_dec_deg, pier):
+            flip_pier = ("E" if pier == "W" else "W")
+            local_ra_deg, local_dec_deg = self.calculate_local_orientation(ra_deg, dec_deg, flip_pier)
+            return self.is_orientation_allowed(local_ra_deg, local_dec_deg, flip_pier)
+        return False
+
+    # Calculate local axis orientation based on celestial coordinates, current time and pier
+    # Input is in celestial coordinate system, degrees for RA and Dec, and pier is "E" or "W"
+    def calculate_local_orientation(self, ra_deg, dec_deg, pier):
+        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        local_dec_deg = dec_deg - self.latitude_deg
+        local_ra_deg = 0
+        if pier == "W":
+            local_ra_deg = (ra_deg - self.local_lst_hours * 15 - 90) % 360
+            dec_sign = (local_dec_deg > 0) - (local_dec_deg < 0)
+            dec_rotation = dec_sign * (180 - 2 * abs(local_dec_deg))
+            local_dec_deg += dec_rotation
+        else:
+            local_ra_deg = (ra_deg - self.local_lst_hours * 15 + 90) % 360
+
+        return local_ra_deg, local_dec_deg
+
+
+    # Check if a celestial position is above the horizon based on the telescope's location
+    def is_above_horizon(self, ra_deg, dec_deg):
+        # Convert celestial coordinates to local horizontal coordinates
+        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        ha_deg = (self.local_lst_hours * 15 - ra_deg) % 360
+        alt_deg = math.degrees(math.asin(math.sin(math.radians(self.latitude_deg)) * math.sin(math.radians(dec_deg)) +
+                                         math.cos(math.radians(self.latitude_deg)) * math.cos(math.radians(dec_deg)) * math.cos(math.radians(ha_deg))))
+        return alt_deg > 0
+
+
+    # check if position is allowed based on local RA, Dec and pier orientation
+    # Input is local RA and Dec in degrees, and pier is "E" or "W"
+    def is_orientation_allowed(self, local_ra,local_dec, pier):
+        is_allowed = False
+        
+        #check ra first: must be above horizon and correct pier orientation
+        if pier == "E":
+            # for east pier we allow 
+            is_allowed = (local_ra >= 0 and local_ra<100) or (local_ra >= 270 and local_ra<360)
+        else:
+            is_allowed = (local_ra >= 260 and local_ra<360) or (local_ra >= 0 and local_ra<100)
+
+        if not is_allowed:
+            print(f"Orientation not allowed for local_ra: {local_ra}, local_dec: {local_dec}, pier: {pier}")
+            return False
+        else:
+            #print(f"Orientation allowed for local_ra: {local_ra}, local_dec: {local_dec}, pier: {pier}")
+            pass
+
+        #check dec 
+        if pier == "E":
+            # for east pier we allow 
+            is_allowed = local_dec >= -90 and local_dec <=90
+        else:
+            is_allowed = local_dec <= -90 or local_dec >=90
+        
+        return is_allowed
+
+    def get_park_position(self):
+        # Return the park position as a tuple of RA and Dec in degrees
+        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        # point telescope west
+        west_ra_deg = (self.local_lst_hours * 15) % 360 -70
+        dec_deg = 0  # Park position at the celestial equator
+        return (west_ra_deg, dec_deg)
+
 
     def open_serial(self):
         self._serial_connection = serial.Serial(
@@ -91,12 +252,12 @@ class Telescope:
                         raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
-        print(f"scope send: {data}")
+        #print(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
-        print(f"scope read: {data}")
+        #print(f"scope read: {data}")
         return data
 
     def readline_scope(self, timeout=1):
@@ -104,7 +265,7 @@ class Telescope:
         self._serial_connection.timeout = timeout
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
         self._serial_connection.timeout = prevto
-        print(f"scope readline: {data}")
+        #print(f"scope readline: {data}")
         return data
 
     def read_scope_byte(self):
@@ -118,9 +279,6 @@ class Telescope:
             return
         self._thread = Thread(target=self.run_serial_bridge)
         self._thread.start()
-
-    def set_orientation_callback(self, callback):
-        self.orientation_callback = callback
 
     def stop_bridge(self):
         if self._thread is None:
@@ -176,9 +334,8 @@ class Telescope:
                         str = data.decode()
                         if(str.startswith("!O#")):
                             print("Orientation command received from BT serial")
-                            if self.orientation_callback is not None:
-                                result = self.orientation_callback()
-                                bt.write(result)
+                            result = TelescopeInitializePositionTask(self).execute()
+                            bt.write(json.dumps(result).encode('utf-8'))
                         else:
                             self.write_scope(data)  # Write it to scope
 
@@ -215,7 +372,7 @@ class Telescope:
             self.open_serial()
             time.sleep(2)
             self.send_PEC_position(self.current_pecpos())
-            self.send_tracking(True)    #now enable tracking
+            self.send_tracking(self.scope_info["tracking"])    #now re-enable tracking
 
     def reset_usb(self):
         try:
@@ -244,6 +401,12 @@ class Telescope:
         self.scope_info["quiet"] = quiet
         self.quiet= quiet
 
+    def send_lst(self):
+        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        lst = deg_to_lx200_ra(self.local_lst_hours/24*360)
+        print(f"Setting LST to {lst}")
+        LXSetLST(lst).execute(self)
+
     def set_locked(self, locked):
         self.scope_info["locked"] = locked
         PTCLockMenus(locked).execute(self)
@@ -259,6 +422,12 @@ class Telescope:
 
     def send_start_movement_speed(self, ra, dec):
         PTCStartMove(ra,dec).execute(self)
+
+    def send_start_movement_speed_ra(self, ra):
+        PTCStartMoveRA(ra).execute(self)
+
+    def send_start_movement_speed_dec(self, dec):
+        PTCStartMoveDEC(dec).execute(self)
 
     def send_set_to(self, ra, dec):
         LXSetRa(ra).execute(self)
@@ -300,6 +469,13 @@ class Telescope:
         except ValueError:
             pos = 0
         self.scope_info["pec"]["progress"] = pos
+
+    def send_PEC_enabled(self, enable=True):
+        try:
+            cmd = PTCEnablePEC(enable)
+            cmd.execute(self)
+        except ValueError as ve:
+            print(ve)
 
     def getSlewDistance(self):
         resp = LXDistance().execute(self).decode().rstrip('#')
@@ -379,19 +555,26 @@ class Telescope:
             data["coordinates"]["dec"] = dec
             line+=1
 
+            # LST
+            lst = lines[line].split()[1].rstrip('#')
+            data["coordinates"]["lst"] = lst
+            line+=1
+
             # Pier side
             data["pier"] = lines[line].split()[1]
             line+=1
 
             # PEC
             pec_parts = lines[line].split()
-            if pec_parts[1]=='disabled':
+            if pec_parts[1].startswith('D'):
                 data["pec"] = {
-                    "progress": pec_parts[1],
+                    "enabled": False,
+                    "progress": pec_parts[1][2:].rstrip('%'),
                     "value": 0
                 }
             else:
                 data["pec"] = {
+                    "enabled": True,
                     "progress": pec_parts[1][2:].rstrip('%'),
                     "value": int(pec_parts[2])
                 }

@@ -22,6 +22,7 @@ class PIDController:
         self.dt = dt        # Time step (seconds)
         self.integral = 0.0 # Accumulated error
         self.prev_error = 0.0  # Last error
+        self.edge_threshold = 20  # Minimum distance from the edge of the frame to consider a star for tracking
 
     def compute(self, error):
         # Proportional term
@@ -44,9 +45,21 @@ class PIDController:
         self.integral = 0.0
         self.prev_error = 0.0
 
+
+""" Singleton Autoguider class """
 class Autoguider:
 
+    _instance = None
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(Autoguider, cls).__new__(cls, *args, **kwargs)
+        return cls._instance
+
     def __init__(self):
+        if hasattr(self, '_initialized'):
+            return
+        self._initialized = True
+
         self.executor = ThreadPoolExecutor(max_workers=4)  # Create a thread pool with 4 workers
         self.pending_tasks = 0  # Counter for pending tasks
         self.task_lock = Lock()  # Lock to ensure thread-safe updates to the counter
@@ -58,7 +71,6 @@ class Autoguider:
             print(f"Camera not available")
             self.camera = None
 
-        self.dec_guiding = False            # Declination guiding. Make sure that DEC does not disturb RA!!
         self.guiding = False                # Guiding status on/off
 
         # Guiding methods - what autoguider does when error is detected in the star position
@@ -75,7 +87,9 @@ class Autoguider:
             "MON": self.guide_scope_monitor,
         }
 
-        self.guide_method = "PID"                 # guide method
+        self.guide_method_ra = "PID"        # guide method for RA
+        self.guide_method_dec = "MON"       # guide method for DEC
+        
         self.calibrating = False
         self.threshold = None               # Last threshold image
         self.last_frame_time = 0            # Last frame capture  time
@@ -90,15 +104,22 @@ class Autoguider:
         self.centroid_image = None
 
         # tracking settings
-        self.max_drift = 10                 # Integer for max_drift (0–50)
+        self.max_drift_ra = 1               # Integer for max_drift (0–50)
+        self.max_drift_dec = 2              # Integer for max_drift (0–50)
         self.star_size = 100                # Integer for star_size (1–100)
         self.gray_threshold = 150           # Integer for threshold (0–255)
+        self.auto_threshold = True          # Whether to use auto thresholding
+        self.last_auto_threshold_time = 0   # Timestamp of the last auto threshold calculation
+        self.last_auto_threshold_interval = 60   # Interval in seconds for auto threshold recalculation
+        self.auto_threshold_running = False # True while a background auto_threshold computation is in flight
+
         self.rotation_angle = 0.0           # Float for rotation angle (-180 to 180)
-        self.pixel_scale = 3.6              # Float for pixel scale (0.1–10.0)
+        self.pixel_scale = 3.2              # Float for pixel scale (0.1–10.0)
         self.guide_interval = 1.0           # Time period for tracking in seconds
         self.guide_pulse = 0.4              # Correction length: time between move start and move end (seconds)
-        self.max_distance = 10             # Maximum distance to search for stars (pixels)
-        
+        self.max_distance = 10              # Maximum distance to search for stars (pixels)
+        self.max_star_size = 20             # Maximum allowed star size (pixels) for auto-finding stars
+        self.edge_threshold = 20            # Minimum distance from the edge of the frame to consider a star valid (pixels)
         self.save_frames = False            # Save each frame to disk
         self.output_dir = ""
 
@@ -111,6 +132,14 @@ class Autoguider:
         self.ra_pid = PIDController(Kp=2.0, Ki=0.5, Kd=0.5, dt=1.0)  # Tune these!
         self.dec_pid = PIDController(Kp=2.0, Ki=0.5, Kd=0.5, dt=1.0)
 
+    def _on_auto_threshold_done(self, future):
+        try:
+            self.gray_threshold = future.result()
+        except Exception as e:
+            print(f"auto_threshold failed: {e}")
+        finally:
+            self.auto_threshold_running = False
+
     def write_track_log(self, log_entry):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         day = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -118,7 +147,7 @@ class Autoguider:
             log_file.write(f"{timestamp}, {log_entry}\n")
 
 
-    def detect_stars(self, frame, search_near_centroids, max_distance=None):
+    def detect_stars(self, frame, search_near_centroids, max_distance=None, max_stars=1,max_star_size=None):
         if max_distance is None:
             max_distance = self.max_distance
         if frame is None:
@@ -128,7 +157,9 @@ class Autoguider:
                                                                  search_near=search_near_centroids, 
                                                                  gray_threshold = self.gray_threshold,
                                                                  star_size=self.star_size,
-                                                                 max_distance=max_distance)
+                                                                 max_distance=max_distance,
+                                                                 max_stars=max_stars,
+                                                                 max_star_size=max_star_size)
             self.centroid_image = detail
             self.threshold = thresh
             self.focus_metric = focus_metric
@@ -160,6 +191,36 @@ class Autoguider:
                 return centroids
         else:
             self.last_status = f"NO STAR DETECTED at {centroid}"
+            print(self.last_status)
+            self.write_track_log(self.last_status)
+            return None
+
+
+    # Automatically add tracked stars up to the specified number
+    # heuristics: throw away stars larger than 10
+    # heuristics: throw away stars that are near the edge of the frame
+    def auto_add_tracked_stars(self, number_to_add):
+        added_count = 0
+        height, width = (self.camera.height, self.camera.width) if self.camera else (1080, 1920)
+        print(f"calling detect stars")
+        centroids = self.detect_stars(None, None, None, max_stars=number_to_add, max_star_size=self.max_star_size,)
+        print(f"Detected centroids: {centroids}")
+        if len(centroids)>0 and centroids[0] is not None:
+            self.remove_all_tracked_stars()
+            with self.lock:
+                print(f"Auto adding up to {number_to_add} tracked stars")
+                for i in range(min(number_to_add, len(centroids))):
+                    # Skip stars that are near the edge of the frame
+                    if centroids[i][0] < self.edge_threshold or centroids[i][0] > (width - self.edge_threshold) or centroids[i][1] < self.edge_threshold or centroids[i][1] > (height - self.edge_threshold):
+                        continue
+                    self.tracked_centroids.append(centroids[i])
+                    self.current_centroids.append(centroids[i])
+                    self.last_status = f"ADDED STAR at {centroids[i]}"
+                    print(self.last_status)
+                    self.write_track_log(self.last_status)
+                return centroids
+        else:
+            self.last_status = f"NO STAR DETECTED at auto_add_tracked_stars"
             print(self.last_status)
             self.write_track_log(self.last_status)
             return None
@@ -196,18 +257,24 @@ class Autoguider:
             print(self.last_status)
             self.write_track_log(self.last_status)
 
-    def guide_scope_monitor(self, ra_arcsec_error, dec_arcsec_error):
+    def guide_scope_monitor(self, ra_arcsec_error, dec_arcsec_error, axis):
         # Monitor only, no actual guiding
-        print(f"Monitoring RA error: {ra_arcsec_error}, DEC error: {dec_arcsec_error}")
+        if axis=='ra':
+            print(f"Monitoring RA error: {ra_arcsec_error}")
+        elif axis=='dec':
+            print(f"Monitoring DEC error: {dec_arcsec_error}")
+        else:
+            print(f"Monitoring RA error: {ra_arcsec_error}, DEC error: {dec_arcsec_error}")
 
-    def guide_scope_abs(self, ra_arcsec_error, dec_arcsec_error):
+    def guide_scope_abs(self, ra_arcsec_error, dec_arcsec_error, axis):
         
         raerr = self.last_correction['ra_arcsec']
         decerr = self.last_correction['dec_arcsec']
 
-        self.last_correction['ra'] = -1 if raerr > self.max_drift else 1 if raerr < -self.max_drift else 0
-        if self.dec_guiding:
-            self.last_correction['dec']= -1 if decerr > self.max_drift else 1 if decerr < -self.max_drift else 0
+        if axis == 'ra':
+            self.last_correction['ra'] = -1 if raerr > self.max_drift_ra else 1 if raerr < -self.max_drift_ra else 0
+        if axis == 'dec':
+            self.last_correction['dec']= -1 if decerr > self.max_drift_dec else 1 if decerr < -self.max_drift_dec else 0
 
         telescope = Telescope()
 
@@ -244,23 +311,28 @@ class Autoguider:
             future.add_done_callback(task_done_callback)  # Decrement counter when task finishes
             
 
-    def guide_scope_rel(self, ra_arcsec_error, dec_arcsec_error):
+    def guide_scope_rel(self, ra_arcsec_error, dec_arcsec_error, axis):
         # this should be PID controller!        
-        ra_speed = int(-1*ra_arcsec_error)
-        ra_speed = max(-15, min(ra_speed, 15))
-        dec_speed = int(-1*dec_arcsec_error)
-        dec_speed = max(-15, min(dec_speed, 15))
-        if not self.dec_guiding:
-            dec_speed = 0
-        self.last_correction['ra_speed']=ra_speed
-        self.last_correction['dec_speed']=dec_speed
+
         telescope = Telescope()
-        if not self.dec_guiding:
-            dec_speed = 0
+        if axis == 'ra':
+            ra_speed = int(-1*ra_arcsec_error)
+            ra_speed = max(-15, min(ra_speed, 15))
+            if abs(ra_arcsec_error) < self.max_drift_ra:
+                ra_speed = 0
+            self.last_correction['ra_speed']=ra_speed
+            telescope.send_start_movement_speed_ra(ra_speed)
+        
+        if axis == 'dec':
+            dec_speed = int(-1*dec_arcsec_error)
+            dec_speed = max(-15, min(dec_speed, 15))
+            if abs(dec_arcsec_error) < self.max_drift_dec:
+                dec_speed = 0
+            self.last_correction['dec_speed']=dec_speed
+            telescope.send_start_movement_speed_dec(dec_speed)
 
-        telescope.send_start_movement_speed(ra_speed, dec_speed)
 
-    def guide_scope_pid(self, ra_arcsec_error, dec_arcsec_error):
+    def guide_scope_pid(self, ra_arcsec_error, dec_arcsec_error, axis):
 
         # Compute speeds with PID
         ra_speed = self.ra_pid.compute(-ra_arcsec_error)  # Negative to correct RA
@@ -271,28 +343,33 @@ class Autoguider:
         dec_speed = int(max(-99, min(dec_speed, 99)))
         
         # zero if inside max drift
-        if abs(ra_arcsec_error) < self.max_drift:
+        if abs(ra_arcsec_error) < self.max_drift_ra:
             ra_speed = 0
-        if abs(dec_arcsec_error) < self.max_drift:
+        if abs(dec_arcsec_error) < self.max_drift_dec:
             dec_speed = 0
-
-        if not self.dec_guiding:
-            dec_speed = 0
-
-        # Log and send command
-        self.last_correction['ra_speed']=ra_speed
-        self.last_correction['dec_speed']=dec_speed
 
         telescope = Telescope()
-        telescope.send_start_movement_speed(ra_speed, dec_speed)
+        # Log and send command
+        if axis == 'ra':
+            self.last_correction['ra_speed']=ra_speed
+            telescope.send_start_movement_speed_ra(ra_speed)
+        if axis == 'dec':
+            self.last_correction['dec_speed']=dec_speed
+            telescope.send_start_movement_speed_dec(dec_speed)
+
 
     def guide_scope(self, ra_arcsec_error, dec_arcsec_error):
         # Call the appropriate method based on self.method
-        guide_methodf = self.guide_methods.get(self.guide_method)
-        if guide_methodf:
-            guide_methodf(ra_arcsec_error, dec_arcsec_error)
+        guide_methodf_ra = self.guide_methods.get(self.guide_method_ra)
+        guide_methodf_dec = self.guide_methods.get(self.guide_method_dec)
+        if guide_methodf_ra:
+            guide_methodf_ra(ra_arcsec_error, dec_arcsec_error,'ra')
         else:
-            raise ValueError(f"Unknown guiding method: {self.guide_method}")
+            raise ValueError(f"Unknown guiding method: {self.guide_method_ra}")
+        if guide_methodf_dec:
+            guide_methodf_dec(ra_arcsec_error, dec_arcsec_error,'dec')
+        else:
+            raise ValueError(f"Unknown guiding method: {self.guide_method_dec}")
 
     def calculate_drift(self, centroids):
         # Initialize array to store dx, dy vectors
@@ -473,6 +550,9 @@ class Autoguider:
             telescope.set_quiet(quiet)
             return result
 
+    def is_guiding(self):
+        return self.guiding
+
     def enable_guiding(self, enable):
         if enable:
             # reset PIDs!
@@ -483,9 +563,6 @@ class Autoguider:
             self.guiding=False
             telescope = Telescope()
             telescope.send_stop()
-
-    def enable_dec_guiding(self, enable):
-        self.dec_guiding = enable
 
 
     def save_frame(self, frame):
@@ -525,7 +602,15 @@ class Autoguider:
                 last_time = time.perf_counter()
                 self.last_frame_time = round(self.camera.last_frame_time, 2)
                 last_frame = frame
-
+                
+                # Auto thresholding - run in a background thread to avoid blocking the main loop
+                if (self.auto_threshold and not self.auto_threshold_running
+                        and time.perf_counter() - self.last_auto_threshold_time >= self.last_auto_threshold_interval):
+                    self.auto_threshold_running = True
+                    self.last_auto_threshold_time = time.perf_counter()
+                    future = self.executor.submit(self.analyzer.auto_threshold, frame.copy())
+                    future.add_done_callback(self._on_auto_threshold_done)
+                
                 # Print tracked_centroids and current_centroids
                 #print(f"Tracked Centroids: {self.tracked_centroids}")
                 #print(f"Current Centroids: {self.current_centroids}")

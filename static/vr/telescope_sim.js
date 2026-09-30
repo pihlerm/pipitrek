@@ -49,7 +49,7 @@ export class TelescopeSim {
         this.ground = addGround(0, this.scene);
         addSkyPoles(this.scene);
         
-        this.telescope = new Telescope(0.25, this.height, this.scene);
+        this.telescope = new Telescope(0.25, this.height, this.scene, true);
         this.telescope.setVisible(this.settings.showTelescope);
 
         this.moveSound = null;
