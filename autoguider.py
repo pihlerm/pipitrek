@@ -578,6 +578,15 @@ class Autoguider:
     def reset_centroids(self):
         self.tracked_centroids = self.current_centroids.copy()
 
+    def perform_auto_threshold(self, frame=None):
+        if frame is None:
+            frame = self.camera.frame
+
+        if frame is not None:
+            self.auto_threshold_running = True
+            future = self.executor.submit(self.analyzer.auto_threshold, frame.copy())
+            future.add_done_callback(self._on_auto_threshold_done)
+
     def run_autoguider(self):
         
         if self.camera is None or not self.camera.is_initialized():
@@ -606,10 +615,8 @@ class Autoguider:
                 # Auto thresholding - run in a background thread to avoid blocking the main loop
                 if (self.auto_threshold and not self.auto_threshold_running
                         and time.perf_counter() - self.last_auto_threshold_time >= self.last_auto_threshold_interval):
-                    self.auto_threshold_running = True
+                    self.perform_auto_threshold(frame)
                     self.last_auto_threshold_time = time.perf_counter()
-                    future = self.executor.submit(self.analyzer.auto_threshold, frame.copy())
-                    future.add_done_callback(self._on_auto_threshold_done)
                 
                 # Print tracked_centroids and current_centroids
                 #print(f"Tracked Centroids: {self.tracked_centroids}")

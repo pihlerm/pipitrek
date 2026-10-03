@@ -1,19 +1,6 @@
 import cv2
 import numpy as np
 
-from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photometry
-#older opencv-style import for photutils - for odroid!
-#from photutils import CircularAperture, CircularAnnulus, aperture_photometry
-
-from photutils.detection import DAOStarFinder
-from photutils.background import MedianBackground
-from astropy.stats import sigma_clipped_stats
-from astropy.io import fits
-from skimage.feature import blob_log
-from skimage.color import rgb2gray
-from skimage.util import img_as_float
-from scipy.ndimage import gaussian_filter
-
 class Analyzer:
     _instance = None
 
@@ -263,7 +250,11 @@ class Analyzer:
     
 
     def analyze_snr(self, img, snr_threshold=1.5, detection_threshold_sigma=4, fwhm = 3):
-        
+        from astropy.stats import sigma_clipped_stats
+        from photutils.background import MedianBackground
+        from photutils.detection import DAOStarFinder
+        from scipy.ndimage import gaussian_filter
+
         print(f"analyze_snr start")
         #ensure frame is black and white
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
@@ -311,7 +302,9 @@ class Analyzer:
         
     # === SNR ESTIMATION ===
     def estimate_star_snr(self,image, position, cutout_size=30, smooth_sigma=1.0, threshold_sigma=3.0):
-        
+        from astropy.stats import sigma_clipped_stats
+        from scipy.ndimage import gaussian_filter
+
         height, width = image.shape
         x, y = int(position[0]), int(position[1])
         half = cutout_size // 2

@@ -1,15 +1,39 @@
+import time as _startup_clock
+
+_startup_started = _startup_clock.perf_counter()
+_startup_last = _startup_started
+
+
+def _startup_log(message):
+    global _startup_last
+    now = _startup_clock.perf_counter()
+    print(
+        f"[startup +{now - _startup_started:.2f}s, "
+        f"step +{now - _startup_last:.2f}s] {message}",
+        flush=True,
+    )
+    _startup_last = now
+
+
+_startup_log("beginning module imports")
+
 from asyncio import tasks
 
-from flask import Flask, request, redirect, url_for, render_template, Response, jsonify, send_file
+from flask import Flask, request, redirect, url_for, Response, jsonify, send_file
+_startup_log("Flask imported")
+
 from analyzer import Analyzer
+_startup_log("Analyzer imported")
+
 from autoguider import Autoguider
+_startup_log("Autoguider imported")
+
 from camera import Camera
 from comm.telescopeserver import TelescopeServer
 from platesolver import PlateSolver
 from threading import Thread, Event
 from conversions import deg_to_lx200_ra, deg_to_lx200_dec
 from telescope_task_scheduler import TelescopeTaskScheduler
-import time
 import numpy as np
 from telescope import *
 import logging
@@ -28,6 +52,7 @@ import base64
 import ssl
 from telescope_task import PlateSolveTask, TelescopeImagingTask, TelescopeInitializePositionTask, TelescopeMeridianFlipTask, TelescopeParkTask, TelescopeSlewingTask, TelescopeStartAutoguiderTask, TelescopeStopAutoguiderTask
 from v412_ctl import list_cameras
+_startup_log("remaining application modules imported")
 
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
@@ -38,10 +63,6 @@ log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
 shutdown_event = Event()
 
 app = Flask(__name__)
-# Reload templates from disk on every request instead of caching the compiled version,
-# so edits to files like autoguider.html show up without restarting the process.
-app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.jinja_env.auto_reload = True
 sock = Sock(app)
 
 # Global variable to track the current process for terminal
@@ -59,12 +80,7 @@ telescope_task_scheduler = None
 
 video_interval = 0.5 # interval for generating video frames
 frame_timeout = 30 # seconds before timeout
-
-# PAGES
-   
-@app.route('/terminal')
-def terminal():
-    return render_template('terminal.html')
+_startup_log("module setup complete")
 
 
 # SOCKETS
@@ -251,6 +267,15 @@ def command_terminal(ws):
         except Exception as e:
             ws.send(f"error: {str(e)}")
             current_process = None
+
+
+
+@app.route('/get_log', methods=['GET'])
+def get_log_endpoint():
+    with open(f"pipitrek.log", "r") as log_file:
+        return jsonify({'status': 'ok', 'task_log':log_file.readlines()})
+
+    return jsonify({'status': 'error', 'message': 'Failed to read task log'})
 
 
 # TELESCOPE 
@@ -560,12 +585,24 @@ def get_task_endpoint(task_id):
     return jsonify({'status': 'ok', 'task': task})
 
 
+@app.route('/get_task_log/<string:day>', methods=['GET'])
+def get_task_log_endpoint(day):
+    if telescope_task_scheduler is None:
+        return jsonify({'status': 'error', 'message': 'Telescope task scheduler is not initialized'}), 503
+
+    from_line = request.args.get('from_line', default=0, type=int)
+    task_log = telescope_task_scheduler.get_task_log(day,from_line)
+    return jsonify({'status': 'ok', 'task_log': task_log})
+
+
 
 # CAMERA
 
 @app.route('/get_camera_list')
 def get_camera_list():
-    return jsonify(list_cameras())
+    list = list_cameras()
+    print(list)
+    return jsonify(list)
 
 
 @app.route('/save_frame', methods=['POST'])
@@ -1050,53 +1087,66 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 if __name__ == '__main__':
-    
-    print("PipiTrek commander starting up...")
+
+    _startup_log("PipiTrek commander starting up")
+    _startup_log("loading settings")
     all_settings = Settings()
     all_settings.load_settings()
+    _startup_log("settings loaded")
 
     #telescope startup
-    print("Connecting to telescope..")
+    _startup_log("connecting to telescope")
     telescope = Telescope()
+    _startup_log("telescope object initialized; waiting 2 seconds for Arduino")
     time.sleep(2) # wait arduino
     all_settings.set_telescope_settings(telescope)
+    _startup_log("starting telescope bridge")
     telescope.start_bridge()
-    print("telescope started.")
+    _startup_log("telescope started")
 
-    print("Setting up autoguider camera..")
+    _startup_log("setting up autoguider camera")
     try:
         camera = Camera()
+        _startup_log("camera object initialized; opening camera")
         camera.init_camera()
+        _startup_log("camera opened; loading settings and hot-pixel mask")
         all_settings.set_camera_settings(camera)
         camera.load_hot_pixel_mask() 
         camera.start_capture()
-        print("camera set up.")
+        _startup_log("camera capture started")
     except Exception as e:
-        print(f"Error initializing camera: {e}")
+        _startup_log(f"camera initialization failed: {e}")
         camera = None
 
-    print("Setting up autoguider..")
+    _startup_log("setting up autoguider")
     autoguider = Autoguider()
     all_settings.set_autoguider_settings(autoguider)
+    _startup_log("starting autoguider thread")
     autoguider_thread = Thread(target=autoguider.run_autoguider)
     autoguider_thread.start()
-    print("autoguider set up.")
+    _startup_log("autoguider thread started")
 
-    print("Starting telescope task scheduler..")
+    _startup_log("initializing telescope task scheduler")
     telescope_task_scheduler = TelescopeTaskScheduler(camera, telescope, autoguider)
+    _startup_log("telescope task scheduler initialized")
     # must be started by user
     # telescope_task_scheduler.start()  
 
     # TCP telescope server
+    _startup_log("starting TCP telescope server")
     telescopeserver = TelescopeServer()
     telescopeserver.start()
+    _startup_log("TCP telescope server started")
 
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)    
 
+    _startup_log("creating HTTPS web server")
     global_server = ServerThread(app)
+    _startup_log("starting HTTPS web server")
     global_server.start()
+    _startup_log("web server thread started; entering service loop")
     try:
         while global_server.is_alive():
             time.sleep(1)

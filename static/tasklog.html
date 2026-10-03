@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Task Log</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        html, body { height: 100%; margin: 0; }
+        #task-log-text { width: 100%; height: 100%; box-sizing: border-box; }
+    </style>
+</head>
+<body class="night-mode">
+    <textarea id="task-log-text" class="output-text" readonly></textarea>
+<script>
+    const logElement = document.getElementById('task-log-text');
+    let lastLogLine = 0;
+
+    function followTaskLog() {
+        const day = new Date().toISOString().split('T')[0];
+        fetch('/get_task_log/' + day + '?from_line=' + lastLogLine)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                if (data.task_log.length > 0) {
+                    logElement.value += data.task_log.join('');
+                    lastLogLine += data.task_log.length;
+                    logElement.scrollTop = logElement.scrollHeight;
+                }
+            } else {
+                logElement.value += 'Error: ' + data.message + '\n';
+            }
+        })
+        .catch(error => console.error('Task log error:', error))
+        .finally(() => setTimeout(followTaskLog, 2000));
+    }
+
+    followTaskLog();
+</script>
+</body>
+</html>

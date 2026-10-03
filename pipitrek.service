@@ -1,20 +1,19 @@
 [Unit]
-Description=PipiTrek Web Service for Astrophotography
+Description=PipiTrek service for Astrophotography
 After=network.target
 
 [Service]
 Type=simple
-ExecStartPre=/bin/sleep 30
-ExecStart=/usr/bin/python3 /root/astro/pipitrek/pipitrek.py
+#ExecStartPre=/bin/sleep 30
+ExecStart=/usr/bin/python3 -u /root/astro/pipitrek/pipitrek.py
 WorkingDirectory=/root/astro/pipitrek
-Restart=on-failure
-RestartSec=5
+Restart=no
 User=root
 StandardOutput=append:/root/astro/pipitrek/pipitrek.log
 StandardError=append:/root/astro/pipitrek/pipitrek.log
 # Ensure SIGTERM is sent and give time for cleanup
 KillSignal=SIGTERM
-TimeoutStopSec=15
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

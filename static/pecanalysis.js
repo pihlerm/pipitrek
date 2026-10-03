@@ -6,11 +6,13 @@
     // and measures it twice (once per lap) so row 0's baseline offset can be derived from the
     // difference between the two measurements.
     let pecTrackedIntervalStart = null;
-    let pecCaptureDataOverlap = null;
     let pecCaptureDataLastBucket = 0;
     let pecCaptureDataBuckets = 0;
 
     let previousPECTable = null;
+
+    let offsetError = 0;
+    let offsetErrorCnt = 0;
 
     let PEC_TABLE_LENGTH = 50;        // 50 intervals
     const PEC_BUCKETS_PER_INTERVAL = 2; // 100 positions / 50 intervals
@@ -78,17 +80,17 @@
     }
 
     function startPECDataCapture() {
-        pecCaptureData = Array.from({ length: 100 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
-        pecCaptureDataOverlap = Array.from({ length: 10 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
-        pecTrackedIntervalStart = null;
-        pecCaptureDataBuckets = 0;
-        pecCaptureDataLastBucket = 0;
-        pecCaptureActive = true;
-        document.getElementById('pec_capture_running').textContent = ' is running... 0%';
-        document.getElementById('pec_capture_running').classList.remove('hidden');
-        // Get PEC. Analysis will base its calculations on the current PEC table.
-        receivePEC();
-        renderPECAnalysisTable();
+        resetCentroids(function() {
+            pecCaptureData = Array.from({ length: 110 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+            pecTrackedIntervalStart = null;
+            pecCaptureDataBuckets = 0;
+            pecCaptureDataLastBucket = 0;
+            pecCaptureActive = true;
+            document.getElementById('pec_capture_running').textContent = ' is running... 0%';
+            document.getElementById('pec_capture_running').classList.remove('hidden');
+            receivePEC();
+            renderPECAnalysisTable();
+        });
     }
 
     // Called automatically once the starting interval has been measured twice.
@@ -158,6 +160,46 @@
         pecTableToTextarea(smoothedPECtable);
     }
 
+
+    function generateBoundariesAndOffset() {
+
+        let bucketsPerInterval = Math.round(100 / PEC_TABLE_LENGTH); 
+        const intervals = 100;
+
+        // Row 0 offset: difference between the starting interval's error measured on lap 1 vs lap 2
+        for (let i = 0; i < bucketsPerInterval; i++) {
+            if(pecCaptureData[pecTrackedIntervalStart+i].count>0 && pecCaptureData[100+i].count>0) {
+                offsetError += (pecCaptureData[pecTrackedIntervalStart+i].sum / pecCaptureData[pecTrackedIntervalStart+i].count) - (pecCaptureData[100+i].sum / pecCaptureData[100+i].count);
+                offsetErrorCnt++;
+            }
+        }
+        offsetError = offsetErrorCnt > 0 ? offsetError / offsetErrorCnt : 0;
+        offsetErrorPerInterval = offsetError / intervals;
+
+
+        for (let k = 0; k < intervals; k++) {
+            const bucket = pecCaptureData[k];
+            let err = bucket.count > 0 ? bucket.sum / bucket.count : 0;
+            let intervals_between = k > pecTrackedIntervalStart ? k - pecTrackedIntervalStart : k - pecTrackedIntervalStart+intervals;
+            err = err - offsetErrorPerInterval * intervals_between;
+            pecCaptureData[k].correctedError = err;
+        }
+        putValuesOnChart(pecCaptureData);
+    }
+
+
+    function putValuesOnChart(pecCaptureData) {
+        if (typeof pecChart === 'undefined' || !pecChart || !pecCaptureData) return;
+
+        pecChart.data.datasets[0].data = [];
+        for (let pos = 0; pos < pecCaptureData.length; pos++) {
+            const y = pecCaptureData[pos].correctedError;
+            if (y === undefined || isNaN(y)) continue;
+            pecChart.data.datasets[0].data.push({ x: pos, y });
+        }
+        pecChart.update();
+    }
+
     // Build the PEC correction table from the captured RA error data.
     // Row 0 is special: first column is literal 0, second column is a baseline offset
     // (microseconds/microstep) added by the firmware to every interval. It's derived from
@@ -184,6 +226,8 @@
         previousPecTable = parsePECTable();
         const previousValues = previousPecTable.map(([, correction]) => Number(correction) || 0);
 
+        generateBoundariesAndOffset();
+
         const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
         const rat = parseFloat(document.getElementById('pec_rat').value) || 144;
 
@@ -198,28 +242,14 @@
         // Nominal microseconds per microstep for correct sidereal tracking
         const baseMicrosecondsPerMicrostep = (siderealDaySeconds * 1e6) / (rat * mspr);
 
-        // Row 0 offset: difference between the starting interval's error measured on lap 1 vs lap 2
-        let offsetError = 0;
-        let offsetErrorCnt = 0;
-        if(pecCaptureDataOverlap) {
-            for (let i = 0; i < bucketsPerInterval; i++) {
-                if(pecCaptureData[pecTrackedIntervalStart+i].count>0 && pecCaptureDataOverlap[i].count>0) {
-                    offsetError += (pecCaptureData[pecTrackedIntervalStart+i].sum / pecCaptureData[pecTrackedIntervalStart+i].count) - (pecCaptureDataOverlap[i].sum / pecCaptureDataOverlap[i].count);
-                    offsetErrorCnt++;
-                }
-            }
-        }
-        offsetError = offsetErrorCnt > 0 ? offsetError / offsetErrorCnt : 0;
-        offsetErrorPerInterval = offsetError / intervals;
-
         // Average RA error (arcsec) sampled every 5 captured positions (21 boundary points, 0..100 wrapping to 0)
         const boundaryError = [];
         const firstInterval = pecTrackedIntervalStart/bucketsPerInterval;
 
         for (let k = 0; k <= intervals; k++) {
-            const bucket = pecCaptureData[(k * bucketsPerInterval) % pecCaptureData.length];
-            if(bucket.count == 0) bucket=pecCaptureData[(k * bucketsPerInterval+1) % pecCaptureData.length];
-            let err = bucket.count > 0 ? bucket.sum / bucket.count : 0;
+            const bucket = pecCaptureData[(k * bucketsPerInterval) % 100];
+            if(bucket.count == 0) bucket=pecCaptureData[(k * bucketsPerInterval+1) % 100];
+            let err = bucket.correctedError ? bucket.correctedError : (bucket.count > 0 ? bucket.correctedError / bucket.count : 0);
             let intervals_between = k > firstInterval ? k - firstInterval : k - firstInterval+intervals;
             err = err - offsetErrorPerInterval * intervals_between;
             boundaryError.push(err);
@@ -262,37 +292,6 @@
         tbody.innerHTML = rows.join('');
     }
 
-    // Save the currently captured PEC analysis data (pos, avg, count, delta) as a CSV file.
-    function savePECAnalysisData() {
-        if (!pecCaptureData) {
-            alert('No PEC analysis data to save.');
-            return;
-        }
-
-        const lines = ['pos,avg,count,delta'];
-        for (let pos = 0; pos < 100; pos++) {
-            const bucket = pecCaptureData[pos];
-            const avg = bucket.count > 0 ? bucket.sum / bucket.count : '';
-
-            const prevPos = pos === 0 ? 99 : pos - 1;
-            const prevBucket = pecCaptureData[prevPos];
-            const prevAvg = prevBucket.count > 0 ? prevBucket.sum / prevBucket.count : null;
-            const delta = (bucket.count > 0 && prevAvg !== null) ? (avg - prevAvg) : '';
-
-            lines.push(`${pos},${avg},${bucket.count},${delta}`);
-        }
-
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'pec_analysis.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
     // Parses the pec_table_text textarea (lines of "boundarySteps,correction") into [boundarySteps, correction] pairs.
     function parsePECTable() {
         const pecTableText = document.getElementById('pec_table_text').value;
@@ -317,6 +316,12 @@
                 pecTable.push(y);
             }
         });
+
+        if (![22,42,52,102].includes(pecTable.length)) {
+            alert("PEC table is empty or has an invalid length!");
+            return [];
+        }
+
         return pecTable;
     }
 
@@ -347,9 +352,15 @@
     }
 
     function sendPEC() {
-        submitJSON('/command_sendPEC',
-            { pec_table: preparePECTable() }
-        );
+        pec_table = preparePECTable();
+        if (pec_table.length === 0) {
+            return;
+        }
+        if (confirm("Are you sure you want to send PEC table to the Arduino?")) {   
+            submitJSON('/command_sendPEC',
+                { pec_table: pec_table }
+            );
+        }
     }
 
     // Save the pec_table_text textarea contents (boundarySteps,correction rows) as a CSV file.
@@ -413,7 +424,8 @@
 
                 var bucket = null;
                 if (pos >= pecTrackedIntervalStart && pecCaptureDataBuckets >= 100) {
-                    bucket = pecCaptureDataOverlap[pos-pecTrackedIntervalStart];
+                    // overflow data goes into the extra 10 buckets at the end of the array
+                    bucket = pecCaptureData[100 + (pos-pecTrackedIntervalStart)];
                 } else {
                     bucket = pecCaptureData[pos];
                 }
@@ -447,7 +459,7 @@
 
         const reader = new FileReader();
         reader.onload = (e) => {
-            const newData = Array.from({ length: 100 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+            const newData = Array.from({ length: 110 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
 
             e.target.result.split('\n').forEach(line => {
                 const trimmed = line.trim();
@@ -456,7 +468,7 @@
                 const parts = trimmed.split(/[,\t]/).map(s => s.trim());
                 const pos = Number(parts[0]);
                 const avg = Number(parts[1]);
-                if (isNaN(pos) || pos < 0 || pos > 99 || isNaN(avg)) return; // skips header row too
+                if (isNaN(pos) || pos < 0 || pos > 109 || isNaN(avg)) return; // skips header row too
 
                 newData[pos] = { sum: avg, count: 1, lastTimestamp: null };
             });
@@ -467,4 +479,35 @@
         };
         reader.readAsText(file);
         event.target.value = '';
+    }
+
+        // Save the currently captured PEC analysis data (pos, avg, count, delta) as a CSV file.
+    function savePECAnalysisData() {
+        if (!pecCaptureData) {
+            alert('No PEC analysis data to save.');
+            return;
+        }
+
+        const lines = ['pos,avg,count,delta'];
+        for (let pos = 0; pos < 110; pos++) {
+            const bucket = pecCaptureData[pos];
+            const avg = bucket.count > 0 ? bucket.sum / bucket.count : '';
+
+            const prevPos = pos === 0 ? 99 : pos - 1;
+            const prevBucket = pecCaptureData[prevPos];
+            const prevAvg = prevBucket.count > 0 ? prevBucket.sum / prevBucket.count : null;
+            const delta = (bucket.count > 0 && prevAvg !== null) ? (avg - prevAvg) : '';
+
+            lines.push(`${pos},${avg},${bucket.count},${delta}`);
+        }
+
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pec_analysis.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }

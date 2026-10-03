@@ -104,11 +104,31 @@ class Settings:
     def set_telescope_settings(self, telescope:Telescope):
         """Set telescope properties from a dictionary."""
         try:
-            # Channel settings (converted to float)
-            telescope.scope_info = self.settings["scope_info"]
-            telescope.send_PEC_position(int(self.settings["scope_info"]["pec"]["progress"]))
-            telescope.send_pier(self.settings["scope_info"]["pier"])
-            telescope.send_tracking(self.settings["scope_info"]["tracking"])
+            # PEC position is best set directly on the telescope if needed
+            #telescope.send_PEC_position(int(self.settings["scope_info"]["pec"]["progress"]))
+
+            scope_info = self.settings["scope_info"]
+            # make sure certain settings exist
+            if "latitude" in self.settings:
+                telescope.latitude = self.settings["latitude"]
+            if "longitude" in self.settings:
+                telescope.longitude = self.settings["longitude"]
+            
+            if "pier" not in scope_info:
+                scope_info["pier"] = "E"
+            if "tracking" not in scope_info:
+                scope_info["tracking"] = False
+            if "slewing" not in scope_info:
+                scope_info["slewing"] = False
+            if "PEC" not in scope_info:
+                scope_info["PEC"] = {}
+            if "progress" not in scope_info["PEC"]:
+                scope_info["PEC"]["progress"] = 0
+
+            telescope.scope_info = scope_info
+            telescope.send_pier(scope_info["pier"])
+            telescope.send_tracking(scope_info["tracking"])
+
         except KeyError as e:
             print(f"Missing property in settings: {e}")
         except (ValueError, TypeError) as e:

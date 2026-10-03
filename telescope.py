@@ -41,19 +41,17 @@ class Telescope:
             self.scope_info["text"] = ""
             self.scope_info["slewing"] = False
 
+            self.latitude = 46.0569
+            self.longitude = 14.5058
+
             self.ra_deg = 0     # telescope ra in degrees
             self.dec_deg = 0    # telescope declination in degrees
-
-            self.set_location(46.0569, 14.5058)
 
             self.quiet = False
             self._thread = None
             self.slew_request = None
 
-    def set_location(self, latitude_deg, longitude_deg):
-        self.latitude_deg = latitude_deg
-        self.longitude_deg = longitude_deg
-        self.send_lst()  # Initialize telescope LST based on current longitude and time
+            self.send_lst()  # Initialize telescope LST based on current longitude and time
 
 
     # Split a telescope move into allowed segments considering meridian flips
@@ -66,7 +64,7 @@ class Telescope:
             return [(end_ra_deg, end_dec_deg, pier)]
 
         flip_pier = "E" if pier == "W" else "W"
-        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        self.local_lst_hours = calculate_lst(self.longitude)
         vertical_ra_deg = (self.local_lst_hours * 15) % 360
         midpoint_dec_deg = (start_dec_deg + end_dec_deg) / 2
 
@@ -147,8 +145,8 @@ class Telescope:
     # Calculate local axis orientation based on celestial coordinates, current time and pier
     # Input is in celestial coordinate system, degrees for RA and Dec, and pier is "E" or "W"
     def calculate_local_orientation(self, ra_deg, dec_deg, pier):
-        self.local_lst_hours = calculate_lst(self.longitude_deg)
-        local_dec_deg = dec_deg - self.latitude_deg
+        self.local_lst_hours = calculate_lst(self.longitude)
+        local_dec_deg = dec_deg - self.latitude
         local_ra_deg = 0
         if pier == "W":
             local_ra_deg = (ra_deg - self.local_lst_hours * 15 - 90) % 360
@@ -160,14 +158,21 @@ class Telescope:
 
         return local_ra_deg, local_dec_deg
 
-
+    # Check if a celestial position is below the horizon based on the telescope's location
+    def is_position_below_horizon(self):
+        return not self.is_above_horizon(self.ra_deg, self.dec_deg)
+    
     # Check if a celestial position is above the horizon based on the telescope's location
-    def is_above_horizon(self, ra_deg, dec_deg):
+    def is_above_horizon(self, ra_deg=None, dec_deg=None):
+        if ra_deg is None:
+            ra_deg = self.ra_deg
+        if dec_deg is None:
+            dec_deg = self.dec_deg
         # Convert celestial coordinates to local horizontal coordinates
-        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        self.local_lst_hours = calculate_lst(self.longitude)
         ha_deg = (self.local_lst_hours * 15 - ra_deg) % 360
-        alt_deg = math.degrees(math.asin(math.sin(math.radians(self.latitude_deg)) * math.sin(math.radians(dec_deg)) +
-                                         math.cos(math.radians(self.latitude_deg)) * math.cos(math.radians(dec_deg)) * math.cos(math.radians(ha_deg))))
+        alt_deg = math.degrees(math.asin(math.sin(math.radians(self.latitude)) * math.sin(math.radians(dec_deg)) +
+                                         math.cos(math.radians(self.latitude)) * math.cos(math.radians(dec_deg)) * math.cos(math.radians(ha_deg))))
         return alt_deg > 0
 
 
@@ -201,7 +206,7 @@ class Telescope:
 
     def get_park_position(self):
         # Return the park position as a tuple of RA and Dec in degrees
-        self.local_lst_hours = calculate_lst(self.longitude_deg)
+        self.local_lst_hours = calculate_lst(self.longitude)
         # point telescope west
         west_ra_deg = (self.local_lst_hours * 15) % 360 -70
         dec_deg = 0  # Park position at the celestial equator
@@ -401,10 +406,9 @@ class Telescope:
         self.scope_info["quiet"] = quiet
         self.quiet= quiet
 
-    def send_lst(self):
-        self.local_lst_hours = calculate_lst(self.longitude_deg)
+    def send_lst(self):        
+        self.local_lst_hours = calculate_lst(self.longitude)
         lst = deg_to_lx200_ra(self.local_lst_hours/24*360)
-        print(f"Setting LST to {lst}")
         LXSetLST(lst).execute(self)
 
     def set_locked(self, locked):

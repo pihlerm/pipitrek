@@ -3,8 +3,8 @@
     const TASK_TYPES = {
         'Slew': {
             fields: [
-                { name: 'target_ra', label: 'Target RA', placeholder: '+HH:MM:SS' },
-                { name: 'target_dec', label: 'Target DEC', placeholder: '+DD*MM:SS' },
+                { name: 'target_ra', label: 'Target RA', type: 'ra', placeholder: '+HH:MM:SS' },
+                { name: 'target_dec', label: 'Target DEC', type: 'dec', placeholder: '+DD*MM:SS' },
             ]
         },
         'Imaging': {
@@ -18,6 +18,16 @@
         'StartAutoguider': { fields: [{ name: 'calibrate_axis', label: 'Calibrate axis', type: 'checkbox' }] },
         'StopAutoguider': { fields: [] },
         'Park': { fields: [] },
+        'FullPipi': {
+            fields: [
+                { name: 'exposure_time', label: 'Exposure (s)', type: 'number' },
+                { name: 'exposure_count', label: 'Shots', type: 'number' },
+                { name: 'target_ra', label: 'Target RA', type: 'ra', placeholder: '+HH:MM:SS' },
+                { name: 'target_dec', label: 'Target DEC', type: 'dec', placeholder: '+DD*MM:SS' },
+                { name: 'autoguide', label: 'Auto guide', type: 'checkbox' },
+                { name: 'plate_solve', label: 'Plate Solve', type: 'checkbox' },
+            ]
+        },
     };
 
     let taskIdCounter = 10000;  // client-side task IDBObjectStore. server will assign task id's
@@ -74,14 +84,71 @@
         html += `<span class="task-status-time">Start: ${start_time}</span>`;
         html += `<span class="task-status-time">Finish: ${end_time}</span>`;
         html += `<button class="mini-button" onclick="removeTask('${id}')" title="Remove task">X</button></div>`;
-        html += `<div class="task-item-field">`;
+        div.innerHTML = html;
+
+        const fieldsContainer = document.createElement('div');
+        fieldsContainer.className = 'task-item-field';
         taskDef.fields.forEach(field => {
             const value = (initialValues && initialValues[field.name] !== undefined) ? initialValues[field.name] : '';
-            //html += `<div class="task-item-field">
-            html += `<label for="${id}_${field.name}">${field.label}</label><input class="two_buttons_input" type="${field.type || 'text'}" id="${id}_${field.name}" placeholder="${field.placeholder || ''}" value="${value}">`;
+            const fieldContainer = document.createElement('div');
+            fieldContainer.className = 'task-field';
+
+            const label = document.createElement('label');
+            label.htmlFor = `${id}_${field.name}`;
+            label.textContent = field.label;
+
+            const input = document.createElement('input');
+            input.className = 'two_buttons_input';
+            input.type = field.type === 'number' ? 'number' : field.type === 'checkbox' ? 'checkbox' : 'text';
+            input.dataset.fieldType = field.type || 'text';
+            input.id = `${id}_${field.name}`;
+            input.placeholder = field.placeholder || '';
+            if (field.type === 'checkbox') {
+                input.checked = Boolean(value);
+            } else {
+                input.value = value;
+            }
+
+            fieldContainer.append(label, input);
+            fieldsContainer.appendChild(fieldContainer);
         });
-        html += `</div>`;
-        div.innerHTML = html;
+
+        const raField = taskDef.fields.find(field => field.type === 'ra');
+        const decField = taskDef.fields.find(field => field.type === 'dec');
+        if (raField && decField) {
+            const copyButton = document.createElement('button');
+            copyButton.className = 'task-coordinate-copy';
+            copyButton.type = 'button';
+            copyButton.textContent = '📋';
+            copyButton.title = 'Copy RA/DEC coordinates to clipboard';
+            copyButton.addEventListener('click', async () => {
+                const ra = document.getElementById(`${id}_${raField.name}`).value.trim();
+                const dec = document.getElementById(`${id}_${decField.name}`).value.trim();
+                const coordinates = `${ra} ${dec}`;
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(coordinates);
+                    } else {
+                        throw new Error('Clipboard API unavailable');
+                    }
+                    copyButton.textContent = '✓';
+                    copyButton.title = 'Coordinates copied';
+                    setTimeout(() => {
+                        copyButton.textContent = '📋';
+                        copyButton.title = 'Copy RA/DEC coordinates to clipboard';
+                    }, 1200);
+                } catch (error) {
+                        console.error('Could not copy task coordinates', error);
+                    
+                }
+            });
+            const fieldContainer = document.createElement('div');
+            fieldContainer.className = 'task-field';
+            fieldContainer.appendChild(copyButton);
+            fieldsContainer.appendChild(fieldContainer);
+        }
+
+        div.appendChild(fieldsContainer);
         document.getElementById('task_list').appendChild(div);
     }
 
@@ -90,6 +157,14 @@
         const target_ra = document.getElementById('ra-input').value.trim();
         const target_dec = document.getElementById('dec-input').value.trim();
         addTask('Slew', { target_ra, target_dec });
+        showPanel('tasks_panel');
+    }
+
+    // Adds a FullPipi task pre-filled with the current GOTO target RA/DEC input values.
+    function addFullpipiTask() {
+        const target_ra = document.getElementById('ra-input').value.trim();
+        const target_dec = document.getElementById('dec-input').value.trim();
+        addTask('FullPipi', { target_ra, target_dec, exposure_time: 30, exposure_count: 100 });
         showPanel('tasks_panel');
     }
 
@@ -110,6 +185,7 @@
                 } else {
                     alert(data.message || 'Could not remove task.');
                 }
+                getTaskList();
             })
             .catch(error => {
                 addMessage('Error: ' + error);
@@ -374,4 +450,8 @@
         .catch(error => {
             addMessage('Error: ' + error);
         });
+    }
+
+    function showTaskLog() {
+        window.open('/static/tasklog.html', 'task_log', 'width=900,height=600');
     }

@@ -19,6 +19,7 @@ TASK_BUILDERS = {
     'StartAutoguider': lambda t, tel, cam, ag: TelescopeStartAutoguiderTask(tel, ag, calibrate_axis=(t.get('calibrate_axis'))),
     'StopAutoguider': lambda t, tel, cam, ag: TelescopeStopAutoguiderTask(tel, ag),
     'Park': lambda t, tel, cam, ag: TelescopeParkTask(tel),
+    'FullPipi': lambda t, tel, cam, ag: TelescopeImagingTask(tel, float(t.get('exposure_time')), int(t.get('exposure_count')), camera=cam, autoguider=ag, target_ra=t.get('target_ra'), target_dec=t.get('target_dec'),autoguide=t.get('autoguide'),plate_solve=t.get('plate_solve')),
 }
 
 
@@ -35,9 +36,11 @@ class TelescopeTaskScheduler:
         self.camera = camera
         self.telescope = telescope
         self.autoguider = autoguider
+        self.last_position_check = 0
         self.last_task_id = 0
         self.lock = RLock()  # guards all access to _task_list and the fields below
         self.load_task_list("task_list.json")
+        self.task_log_index:dict[str, list[int]] = {}
 
     def start(self):
         if self._running:
@@ -75,7 +78,12 @@ class TelescopeTaskScheduler:
             import json
             try:
                 with open(file_path, 'r') as f:
-                    self._task_list = json.load(f)
+                    content = f.read()
+                if not content.strip():
+                    print(f"Task list file {file_path} is empty. Starting with an empty task list.")
+                    self._task_list = []
+                    return
+                self._task_list = json.loads(content)
                 print(f"Task list loaded from {file_path}")
                 for i, task_dict in enumerate(self._task_list):
                     if 'id' not in task_dict:
@@ -87,6 +95,9 @@ class TelescopeTaskScheduler:
 
             except FileNotFoundError:
                 print(f"Task list file {file_path} not found. Starting with an empty task list.")
+                self._task_list = []
+            except json.JSONDecodeError as e:
+                print(f"Invalid task list file {file_path}: {e}. Starting with an empty task list.")
                 self._task_list = []
 
     def get_task_list_status(self) -> dict[str, Any]:
@@ -137,6 +148,31 @@ class TelescopeTaskScheduler:
                 return True
             return False
 
+
+    def get_task_log(self, day=None, from_line=0) -> list[str] | None:
+        if day is None:
+            day = datetime.datetime.now().strftime("%Y-%m-%d")
+        lines = []
+        lineindex = self.task_log_index.get(day)
+        if lineindex is None:
+            lineindex = []
+            self.task_log_index[day] = lineindex
+
+        with open(f"task_{day}.log", "r") as log_file:
+            if from_line < len(lineindex):
+                log_file.seek(lineindex[from_line])
+            else:
+                for _ in range(from_line):
+                    log_file.readline()
+                    lineindex.append(log_file.tell())
+            while True:
+                line = log_file.readline()
+                if not line:
+                    break
+                lineindex.append(log_file.tell())
+                lines.append(line)
+            return lines
+
     def _assign_task_id(self, task):
         # Caller must hold self.lock.
         self.last_task_id += 1
@@ -165,7 +201,7 @@ class TelescopeTaskScheduler:
             try:
                 task_instance = builder(task_dict, self.telescope, self.camera, self.autoguider)
                 if task_dict.get('status') == "running":
-                    last_time += task_instance.time_estimate()
+                    last_time = time.time()+task_instance.time_estimate()
                 else:
                     last_time += task_instance.time
                 task_dict['end_time'] = last_time
@@ -175,6 +211,33 @@ class TelescopeTaskScheduler:
                     
         return True
             
+
+    def run_checks(self):
+        if time.time() - self.last_position_check >= 30:
+            self.last_position_check = time.time()
+            self.telescope.get_current_position()
+            if not self.telescope.is_position_allowed():
+                print("Telescope position is not allowed. Waiting for meridian flip or repositioning.")
+                if self.telescope.does_position_require_flip():
+                    print("Telescope requires meridian flip.")
+                    result = TelescopeMeridianFlipTask(self.telescope).execute()
+                    if not result or result.get('status') == 'error':
+                        print("Meridian flip failed. Proceeding to shut down the telescope.")
+                        TelescopeShutdownTask(self.telescope).execute()
+                        return False
+                    else:
+                        print("Meridian flip succeeded.")
+                        return True
+                elif self.telescope.is_position_below_horizon():
+                    print("Telescope is below the horizon.")
+                    TelescopeShutdownTask(self.telescope).execute()
+                    return False
+                else:
+                    print("Unknown problem with telescope position.")
+                    TelescopeShutdownTask(self.telescope).execute()
+                    return False
+        return True
+
 
     def run_task_list(self):
 
@@ -199,6 +262,7 @@ class TelescopeTaskScheduler:
                         if self.needs_stop:
                             break
                         time.sleep(0.5)  # small delay to prevent tight loop
+                        self.run_checks()
                         continue
                     
                     task_dict = self._task_dict
@@ -248,6 +312,7 @@ class TelescopeTaskScheduler:
                 time.sleep(0.1)  # small delay to prevent tight loop
         finally:
             print(f"Stopping task execution...")
+            self.run_checks()
             with self.lock:
                 self._running = False
                 self._task_list_current_index = -1

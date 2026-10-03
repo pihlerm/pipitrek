@@ -269,7 +269,17 @@ mainCanvas.addEventListener('mousemove', function (event) {
 
 });
 
-mainCanvas.addEventListener('click', searchLoupeObject);
+mainCanvas.addEventListener('click', function (event) {
+
+    searchLoupeObject();
+    const coordinates = getLoupeCoordinates();
+    if (coordinates === null) return;
+
+    const raInput = document.getElementById('ra-input');
+    const decInput = document.getElementById('dec-input');
+    if (raInput) raInput.value = formatRAFromDeg(coordinates.ra*15);
+    if (decInput) decInput.value = formatDecFromDeg(coordinates.dec);
+});
 
 mainCanvas.addEventListener('mouseleave', function () {
     loupe.style.display = 'none'; // Hide the loupe when the mouse leaves the video feed

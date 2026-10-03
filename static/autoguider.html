@@ -22,6 +22,7 @@
     <script src="vr/starCatalog.js"></script>
     <script src="pecanalysis.js"></script>
     <script src="tasks.js"></script>
+    <script src="menu.js"></script>
     <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
     <script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
 </head>
@@ -193,7 +194,7 @@
                                 <button class="command-button" id="goto-button" aria-disabled="false" onclick="submitGoto()" title="Move the telescope to the specified RA/DEC coordinates. Caution: make sure the telescope will not hit the mount or other obstacles.">GOTO</button>
                             </div>
                             <div class="two_buttons">
-                                <button class="command-button" type="button" onclick="submitGoto(true)" title="This button is for testing the GOTO command without actually moving the telescope. Not implemented yet.">Test</button>
+                                <button class="command-button" type="button" onclick="addFullpipiTask()" title="This button is for testing the FullPipi command">FullPipi</button>
                                 <button class="command-button" type="button" onclick="addGotoTask()" title="Add task to slew telescope to target coordinates.">-->Task</button>
                             </div>
                         </div>
@@ -259,7 +260,7 @@
                 </div>
                 <div id="terminal_frame" class="hidden">
                     <button class="command-button" onclick="shutdown()">Shutdown</button>
-                    <iframe id="terminal_iframe" src="/terminal"></iframe>
+                    <iframe id="terminal_iframe" src="/static/terminal.html"></iframe>
                 </div>
                 
                 <table id="autoguider_panel" class="parameters-table hidden">                   
@@ -804,7 +805,7 @@
                     </tr>
                     <tr class = "controller-row">
                         <td colspan="3">
-                            <h2>PEC analysis<button class="command-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">Help</button><span id="pec_capture_running" class="hidden"> is running...</span></h2> 
+                            <h2>PEC analysis<button class="help-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">?</button><span id="pec_capture_running" class="hidden"> is running...</span></h2> 
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -816,9 +817,6 @@
                     <tr class = "controller-row">
                         <td colspan="3">                            
                             <button class="command-button" title="Start PEC analysis procedure. Takes 10 minutes!" onclick="startPECDataCapture()">Start</button>
-                            <button class="command-button" title="Re-analyze and generate PEC correction table based on captured data" onclick="generatePECCorrectionTable()">Re-analyze</button>
-                            <button class="command-button" title="Normalize PEC table" onclick="normalizePECTable()">Normalize</button>
-                            <button class="command-button" title="Smooth large jumps (>500) between consecutive PEC corrections" onclick="smoothPECTable()">Smooth</button>
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -838,24 +836,14 @@
                             <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
                     </tr>
-                    <tr class = "controller-row">
-                        <td colspan="3">
-                            <button class="command-button" title="Get PEC table from arduino" onclick="receivePEC()">Get PEC</button>
-                            <button class="command-button" title="Send PEC table to arduino" onclick="sendPEC()">Send PEC</button>
-                            <button class="command-button" title="Create zero PEC table" onclick="createZeroPECTable(50)">Zero Table</button>
-                            <button class="command-button" title="Save PEC table as CSV" onclick="savePECTable()">Save Table</button>
-                            <button class="command-button" title="Load PEC table from CSV" onclick="document.getElementById('pec_table_file_input').click()">Load Table</button>
-                            <input type="file" id="pec_table_file_input" accept=".csv,.txt" style="display:none" onchange="loadPECTable(event)">
-                        </td>
-                    </tr>
                     <tr>
                         <td>
                             <div id="pec_table" class = "flex1">
-                                <textarea id="pec_table_text" rows="25" placeholder="Result"></textarea>
+                                <textarea id="pec_table_text" rows="33" placeholder="Result"></textarea>
                                 <div id="pec_analysis_container">
                                     <div>
-                                        <button class="command-button" title="Save PEC analysis data (pos,avg,count,delta) as CSV" onclick="savePECAnalysisData()">Save</button>
-                                        <button class="command-button" title="Load PEC analysis data from CSV" onclick="document.getElementById('pec_analysis_file_input').click()">Load</button>
+                                        <button class="command-button" title="Save captured  data (pos,avg,count,delta) as CSV" onclick="savePECAnalysisData()">Save</button>
+                                        <button class="command-button" title="Load captured data from CSV" onclick="document.getElementById('pec_analysis_file_input').click()">Load</button>
                                         <input type="file" id="pec_analysis_file_input" accept=".csv,.txt" style="display:none" onchange="loadPECAnalysisData(event)">
                                     </div>
                                     <table id="pec_analysis_table">
@@ -866,6 +854,19 @@
                                     </table>
                                 </div>
                             </div>
+                        </td>
+                        <td >                            
+                            <button class="command-button" title="Get PEC table from arduino" onclick="receivePEC()">Get PEC</button>
+                            <button class="command-button" title="Send PEC table to arduino" onclick="sendPEC()">Send PEC</button>
+                            <button class="command-button" title="Load PEC table from CSV" onclick="document.getElementById('pec_table_file_input').click()">Load PEC</button>
+                            <input type="file" id="pec_table_file_input" accept=".csv,.txt" style="display:none" onchange="loadPECTable(event)">
+                            <button class="command-button" title="Save PEC table as CSV" onclick="savePECTable()">Save PEC</button>
+                            <button class="command-button" title="Generate boundaries and offset for PEC analysis" onclick="generateBoundariesAndOffset()">Offset</button>
+                            <button class="command-button" title="Re-analyze and generate PEC correction table based on captured data" onclick="generatePECCorrectionTable()">Analyze</button>
+                            <button class="command-button" title="Normalize PEC table" onclick="normalizePECTable()">Normalize</button>
+                            <button class="command-button" title="Smooth large jumps (>500) between consecutive PEC corrections" onclick="smoothPECTable()">Smooth</button>                            
+                            <button class="command-button" title="Create zero PEC table" onclick="createZeroPECTable(50)">Zero Table</button>
+                            <div class = "flex1"></div>
                         </td>
                     </tr>                    
                 </table>
@@ -900,7 +901,9 @@
                     </tr>
                     <tr class = "controller-row" style="height: 30px;">
                         <td colspan="2">
-                            <h2>Task scheduler is <span id="scheduler_status">stopped</span></h2>
+                            <h2>Task scheduler is <span id="scheduler_status">stopped</span>
+                            <button id="start_scheduler_button" class="command-button" onclick="schedulerControl()" title="Start task scheduler.">Start</button>
+                            </h2>                            
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -914,7 +917,7 @@
                             <button class="command-button" onclick="addTask(document.getElementById('task_type_select').value)" title="Add a task to the task list.">Add Task</button>
                             <button class="command-button" onclick="getTaskList()" title="Get task list from the backend.">Get Tasks</button>
                             <button class="command-button" onclick="addToTaskList()" title="Send the task list to the backend and execute it in order.">Send Tasks</button>
-                            <button id="start_scheduler_button" class="command-button" onclick="schedulerControl()" title="Start task scheduler.">Start</button>
+                            <button class="command-button" onclick="showTaskLog()" title="Show the task log from the backend.">Show Log</button>
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -970,8 +973,7 @@
     <div id="output-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="output-title">
         <div class="modal-content">
             <button class="modal-close" type="button" aria-label="Close instructions" onclick="hideOutput()">&times;</button>
-            <textarea id="output-text" rows="40" class="output-text" readonly></textarea>
-            
+            <textarea id="output-text" rows="40" class="output-text" readonly></textarea>            
         </div>
      </div>
 </body>
@@ -1917,8 +1919,6 @@
     }
 
 
-
-
     function showCorrectionsChart() {
         document.getElementById('correctionsChart').style.display = 'block';
         document.getElementById('pecChart').style.display = 'none';
@@ -2115,6 +2115,10 @@
         });        
     }
 
+    document.getElementById('camera_list').addEventListener('change', (event) => {
+        selectCamera(event.target.value);
+    });
+
     function captureHotPixelMask() {
         submitSetting("hot_pixel_mask", true);
     }
@@ -2123,10 +2127,10 @@
         submitSetting("hot_pixel_mask", false);
     }
     function populateCameraList() {
-        fetch('/list_cameras')
+        fetch('/get_camera_list')
             .then(response => response.json())
             .then(cameras => {
-                const cameraSelect = document.getElementById('camera_index');
+                const cameraSelect = document.getElementById('camera_list');
                 cameraSelect.innerHTML = '';
                 cameras.forEach(camera => {
                     const option = document.createElement('option');
@@ -2217,9 +2221,12 @@
             .catch(error => console.error('Acquisition error:', error));
     }
     
-    function resetCentroids() {
+    function resetCentroids(done) {
         fetch('/reset_centroids', { method: 'POST' })
-            .then(response => console.log('Centroids reset to current star positions'))
+            .then(response => {
+                console.log('Centroids reset to current star positions');
+                if (done) done();
+            })
             .catch(error => console.error('Reset centroids error:', error));
     }
 
@@ -2524,30 +2531,6 @@
 
 
 
-    // Zero-padded "HH:MM:SS"/"+DD*MM:SS" formatting matching validateRA/validateDEC, with carry handling for rounded seconds.
-    function formatRAFromDeg(raDeg) {
-        let hours = ((raDeg / 15) % 24 + 24) % 24;
-        let h = Math.floor(hours);
-        let m = Math.floor((hours - h) * 60);
-        let s = Math.round(((hours - h) * 60 - m) * 60);
-        if (s >= 60) { s -= 60; m += 1; }
-        if (m >= 60) { m -= 60; h += 1; }
-        h = h % 24;
-        const pad = (v) => String(v).padStart(2, '0');
-        return `${pad(h)}:${pad(m)}:${pad(s)}`;
-    }
-
-    function formatDecFromDeg(decDeg) {
-        const sign = decDeg < 0 ? '-' : '+';
-        const abs = Math.abs(decDeg);
-        let d = Math.floor(abs);
-        let m = Math.floor((abs - d) * 60);
-        let s = Math.round(((abs - d) * 60 - m) * 60);
-        if (s >= 60) { s -= 60; m += 1; }
-        if (m >= 60) { m -= 60; d += 1; }
-        const pad = (v) => String(v).padStart(2, '0');
-        return `${sign}${pad(d)}*${pad(m)}:${pad(s)}`;
-    }
 
     function useMapCenter() {
         if (!skyMap) return;
@@ -2889,6 +2872,41 @@
         document.getElementById('pixel_scale_value').textContent = pixelScale.toFixed(2);
         alert(`Pixel Scale: ${pixelScale.toFixed(2)} arcsec/pixel`);
     }
+
+    const pecChartMenu = createMenu('pecChart');
+    pecChartMenu.addMenuItem('Option A', function pecChartMenuA() {
+        alert('Option A selected');
+    });
+    pecChartMenu.addMenuItem('Option B', function pecChartMenuB() {
+        alert('Option B selected');
+    });
+
+    const videoFeedMenu = createMenu('overlayCanvas');
+    videoFeedMenu.addMenuItem('GOTO this point', function() {
+        const coordinates = getLoupeCoordinates();
+        if (coordinates === null) return;
+
+        const raInput = document.getElementById('ra-input');
+        const decInput = document.getElementById('dec-input');
+        if (raInput) raInput.value = formatRAFromDeg(coordinates.ra*15);
+        if (decInput) decInput.value = formatDecFromDeg(coordinates.dec);
+        submitGoto();
+    });
+    
+    let distanceFromCoordinates = null;
+    let distanceToCoordinates = null;
+    videoFeedMenu.addMenuItem('Distance from', function() {
+        distanceFromCoordinates = getLoupeCoordinates();
+    });
+    videoFeedMenu.addMenuItem('Distance to', function() {        
+        distanceToCoordinates = getLoupeCoordinates();
+        if (distanceFromCoordinates && distanceToCoordinates) {
+            const deltaRA = (distanceToCoordinates.ra - distanceFromCoordinates.ra) * 15; // Convert to degrees
+            const deltaDec = distanceToCoordinates.dec - distanceFromCoordinates.dec;
+            const distance = Math.sqrt(deltaRA * deltaRA + deltaDec * deltaDec);
+            alert(`Distance: ${distance.toFixed(2)} degrees`);
+        }
+    });
 
 
 </script>

@@ -2,13 +2,12 @@ references:
 https://github.com/ofrohn/d3-celestial
 
 1. Put files under /root/astro
+   Install dependencies, nginx etc with install-depends.sh
 
 2. To enable service:
-		copy pipitrek.service to /etc/systemd/system 
-		run commands: 
-			sudo systemctl daemon-reload
-			sudo systemctl enable pipitrek.service
-			
+	Run sudo bash ./install-service.sh. This installs pipitrek.service in
+	/etc/systemd/system, reloads systemd, and enables it at boot. It does not
+	start it immediately.
 
 3. Start/Stop service:
 		sudo systemctl start pipitrek.service
