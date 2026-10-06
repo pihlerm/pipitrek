@@ -1,3 +1,4 @@
+import datetime
 import time as _startup_clock
 
 _startup_started = _startup_clock.perf_counter()
@@ -77,6 +78,8 @@ camera = None
 telescopeserver = None
 global_server = None
 telescope_task_scheduler = None
+
+log_index:dict[str, list[int]] = {}
 
 video_interval = 0.5 # interval for generating video frames
 frame_timeout = 30 # seconds before timeout
@@ -173,12 +176,16 @@ def autoguider_socket(ws):
     
 @sock.route('/telescope_socket')
 def telescope_socket(ws):
-    last_yield = time.time()
+    last_yield = time.time()-5
     while True:
         try:
             start = time.time()
-            if start - last_yield > 100:
-                properties = {"function": "ping"}
+            if start - last_yield > 5:
+                properties = {"function": "telescopeStatus",
+                              "status": telescope.get_status(),
+                              "bluetooth": telescope.bt_serial.is_open,
+                              "telescope_server_client_ip": telescopeserver.get_client_address()
+                              }
                 ws.send(json.dumps(properties))
                 last_yield = start
 
@@ -268,15 +275,34 @@ def command_terminal(ws):
             ws.send(f"error: {str(e)}")
             current_process = None
 
+@app.route('/get_log/<string:day>', methods=['GET'])
+def get_log_endpoint(day):
+    from_line = request.args.get('from_line', default=0, type=int)
+    if day is None:
+        day = datetime.datetime.now().strftime("%Y-%m-%d")
+    lines = []
+    lineindex = log_index.get(day)
+    if lineindex is None:
+        lineindex = []
+        log_index[day] = lineindex
 
-
-@app.route('/get_log', methods=['GET'])
-def get_log_endpoint():
     with open(f"pipitrek.log", "r") as log_file:
-        return jsonify({'status': 'ok', 'task_log':log_file.readlines()})
+        if from_line < len(lineindex):
+            log_file.seek(lineindex[from_line])
+        else:
+            for _ in range(from_line):
+                log_file.readline()
+                lineindex.append(log_file.tell())
+        while True:
+            line = log_file.readline()
+            if not line:
+                break
+            lineindex.append(log_file.tell())
+            lines.append(line)
+        
+        return jsonify({'status': 'ok', 'task_log': lines})
 
     return jsonify({'status': 'error', 'message': 'Failed to read task log'})
-
 
 # TELESCOPE 
 @app.route('/scope_info', methods=['GET'])
@@ -384,9 +410,8 @@ def control_move():
 @app.route('/control_speed', methods=['POST'])
 def control_speed():
     speed = request.form.get('speed')
-    if speed in ['G', 'C', 'M', 'S']:
+    if speed in ['G', 'C', 'M', 'S','A']:
         print(f"Received speed: {speed}")
-        # You can add code here to send the direction command to the telescope
         telescope.send_speed(speed)
         return jsonify({"status": "success", "speed": speed})
     else:
@@ -741,7 +766,8 @@ def form_properties():
         "save_frames" : autoguider.save_frames,
         "max_drift_ra": autoguider.max_drift_ra,
         "max_drift_dec": autoguider.max_drift_dec,
-        "star_size": autoguider.star_size,
+        "min_star_size": autoguider.min_star_size,
+        "max_star_size": autoguider.max_star_size,
         "gray_threshold": autoguider.gray_threshold,
         "auto_threshold": autoguider.auto_threshold,
         "rotation_angle": autoguider.rotation_angle,
@@ -831,11 +857,18 @@ def set_max_drift():
             print(f"set max drift DEC to {new_max_drift} and is {autoguider.max_drift_dec}")
     return jsonify({"status": "success"}), 200
 
-@app.route('/set_star_size', methods=['POST'])
-def set_star_size():
-    new_star_size = request.form.get('star_size', type=int, default=autoguider.star_size)
+@app.route('/set_min_star_size', methods=['POST'])
+def set_min_star_size():
+    new_star_size = request.form.get('min_star_size', type=int, default=autoguider.star_size)
     if 1 <= new_star_size <= 100:
-        autoguider.star_size = new_star_size
+        autoguider.min_star_size = new_star_size
+    return jsonify({"status": "success"}), 200
+
+@app.route('/set_max_star_size', methods=['POST'])
+def set_max_star_size():
+    new_star_size = request.form.get('max_star_size', type=int, default=autoguider.max_star_size)
+    if 1 <= new_star_size <= 1000:
+        autoguider.max_star_size = new_star_size
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_rotation_angle', methods=['POST'])
@@ -927,22 +960,36 @@ def remove_tracked_star():
 
 @app.route('/reset_centroids', methods=['POST'])
 def reset_centroids():
-
+    if autoguider is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not available'}), 503
     autoguider.reset_centroids()
     print(f"Centroids reset to current star positions")
-    return jsonify({'status': 'success', 'message': f"Centroids reset to current star positions"}), 200
+    return jsonify({'status': 'success', 'message': "Centroids reset to current star positions"}), 200
 
+@app.route('/clear_centroids', methods=['POST'])
+def clear_centroids():
+    if autoguider is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not available'}), 503
+    autoguider.remove_all_tracked_stars()
+    print(f"Centroids cleared")
+    return jsonify({'status': 'success', 'message': "Centroids cleared"}), 200
 
 @app.route('/calibrate', methods=['POST'])
 def calibrate():
+    if autoguider is None:
+        return jsonify({'status': 'error', 'message': 'Autoguider not available'}), 503
+    
     with_backlash = request.form.get('with_backlash', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
-    if autoguider.calibrate_angle(with_backlash):
-        print(f"Calibration successful")
+    result = False
+    if not with_backlash:
+        result = autoguider.calibrate_angle_with_tracking(num_seconds=30)
+    else:
+        result = autoguider.calibrate_angle(with_backlash)
+
+    if result:
         return jsonify({'status': 'success', 'message': 'Calibration successful'})
     else:
-        print("Failed to calibrate")
         return jsonify({'status': 'error', 'message': "Failed to calibrate"}), 400
-
 
 
 # ANALYSIS

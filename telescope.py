@@ -41,6 +41,7 @@ class Telescope:
             self.scope_info["text"] = ""
             self.scope_info["slewing"] = False
 
+            self.speed = 'G'  # Default speed, can be 'G', 'C', 'M', 'S', or 'A'
             self.latitude = 46.0569
             self.longitude = 14.5058
 
@@ -51,8 +52,21 @@ class Telescope:
             self._thread = None
             self.slew_request = None
 
+            self.log_communication = False
+
+            self.status = None
+
             self.send_lst()  # Initialize telescope LST based on current longitude and time
 
+    def get_status(self):
+        return self.status
+
+    def tracking(self):
+        return self.scope_info["tracking"]
+
+    def set_tracking(self, tracking):
+        self.scope_info["tracking"] = tracking
+        self.send_tracking(tracking)
 
     # Split a telescope move into allowed segments considering meridian flips
     def split_move(self, start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg,pier):
@@ -223,7 +237,7 @@ class Telescope:
             timeout=1,
             #dsrdtr=False  # Explicitly disable DTR (and DSR) handling
         )
-        self._serial_connection.dtr = False  # Disable DTR to prevent reset
+        time.sleep(2)  # Allow the Arduino to finish booting after the port opens
         self._serial_connection.flush()  # Clear the buffer
         print("Telescope serial connection initialized")
 
@@ -257,12 +271,14 @@ class Telescope:
                         raise ConnectionError("USB reset failed")
 
     def write_scope(self, data):
-        #print(f"scope send: {data}")
+        if self.log_communication:
+            print(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
-        #print(f"scope read: {data}")
+        if self.log_communication:
+            print(f"scope read: {data}")
         return data
 
     def readline_scope(self, timeout=1):
@@ -270,12 +286,14 @@ class Telescope:
         self._serial_connection.timeout = timeout
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
         self._serial_connection.timeout = prevto
-        #print(f"scope readline: {data}")
+        if self.log_communication:
+            print(f"scope readline: {data}")
         return data
 
     def read_scope_byte(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(1))
-        #print(f"scope read: {data}")
+        if self.log_communication:
+            print(f"scope read: {data}")
         return data
 
     def start_bridge(self):
@@ -416,13 +434,24 @@ class Telescope:
         PTCLockMenus(locked).execute(self)
 
     def send_move(self, direction):
-        LXMove(direction).execute(self)
+        if self.speed == 'A':
+            if direction=='n':
+                dec = 10
+            elif direction=='s':
+                dec = -10
+            PTCAbsMoveDEC(dec).execute(self)
+        else:
+            LXMove(direction).execute(self)
 
     def send_stop(self, direction=""):
         LXStop(direction).execute(self)
 
     def send_speed(self, speed):
-        LXSpeed(speed).execute(self)
+        self.speed = speed
+        if self.speed == 'A':
+            print("Absolute speed selected")
+        else:
+            LXSpeed(speed).execute(self)
 
     def send_start_movement_speed(self, ra, dec):
         PTCStartMove(ra,dec).execute(self)
@@ -470,8 +499,11 @@ class Telescope:
             cmd = PTCGetPECPos()
             cmd.execute(self)
             pos = cmd.response.decode().rstrip("!\n")
+            self.status = "ok"
         except ValueError:
             pos = 0
+            self.status = "error"
+
         self.scope_info["pec"]["progress"] = pos
 
     def send_PEC_enabled(self, enable=True):
@@ -504,6 +536,9 @@ class Telescope:
         time.sleep(t)
         LXStop(direction).execute(self)
 
+    def send_abs_dec_correction(self, direction):
+        PTCAbsMoveDEC(direction).execute(self)
+
     def send_backlash_comp_ra(self, comp):
         PTCSetBacklashRA(comp).execute(self)
 
@@ -524,6 +559,7 @@ class Telescope:
         cmd.execute(self)
         info = cmd.response.decode().rstrip("!\n")
         slewing = self.scope_info["slewing"]
+        self.status = "ok"
 
         try:
             lines = info.strip().split('\n')
@@ -618,6 +654,7 @@ class Telescope:
             self.scope_info = data
         except:
             print("get info failed to parse")
+            self.status = "error"
 
         self.scope_info["text"] = info
         self.scope_info["quiet"] = self.quiet
@@ -656,10 +693,6 @@ class Telescope:
             pec_table = list(map(int, data_str.split(',')))  # Convert to integer list
         except ValueError as ve:
             print(f"Error: Non-integer values found in PEC table. {ve}")
-            return []
-
-        if len(pec_table) != num_points * 2:
-            print(f"Error: Expected {num_points * 2} values, but received {len(pec_table)}")
             return []
 
         print(f"Received PEC table with {num_points} points.")

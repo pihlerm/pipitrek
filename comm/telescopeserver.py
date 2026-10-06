@@ -28,9 +28,9 @@ class TelescopeServer:
         self._running = False
         self.slewing = False
         self.conn_active = threading.Event()
-        self.is_open = False
         self._server_socket = None  # Listening socket
         self._client_socket = None  # Connected client socket
+        self._client_addr = None    # Connected client address
         self._send_thread = None
         self._listen_thread = None
 
@@ -40,6 +40,8 @@ class TelescopeServer:
 
         self.slew_request = None
 
+    def get_client_address(self):
+        return self._client_addr
 
     def send_position(self, conn):
         self.conn_active.set()
@@ -130,6 +132,7 @@ class TelescopeServer:
             try:
                 conn, addr = self._server_socket.accept()
                 print(f"Connected by {addr}")
+                self._client_addr = addr
                 conn.settimeout(1)  # Set a timeout for the recv() call
 
                 if self._client_socket is not None:
@@ -155,6 +158,7 @@ class TelescopeServer:
                     self.conn_active.clear()
                     if self._client_socket is not None:
                         self._client_socket.close()
+                        self._client_addr = None
             except socket.timeout:
                 continue  # Timeout reached, check self._running
             except OSError as e:

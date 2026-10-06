@@ -135,7 +135,7 @@ class TelescopeImagingTask(TelescopeTask):
     def start_guiding(self):
         if self.camera and self.autoguider and self.autoguide:
            
-            self.autoguider.perform_auto_threshold()
+            #self.autoguider.perform_auto_threshold()
             time.sleep(2)  # small delay to allow the auto threshold to take effect
 
             self._subtask = TelescopeStartAutoguiderTask(self.telescope, self.autoguider)
@@ -384,7 +384,7 @@ class PlateSolveTask(TelescopeTask):
         frame = None
         if self.capture and (self.camera is None or not self.camera.running):
             self.executed = True
-            return self._exit({"status": "error", "message": "Camera is not running"}, 503)
+            return self._exit({"status": "error", "message": "Camera is not running"})
         if self.capture:
             frame = self.camera.frame
             if frame is not None and frame.size > 0:

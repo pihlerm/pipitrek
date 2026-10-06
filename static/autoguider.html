@@ -23,6 +23,8 @@
     <script src="pecanalysis.js"></script>
     <script src="tasks.js"></script>
     <script src="menu.js"></script>
+    <script src="menu.js"></script>
+    <script src="scope_comm.js"></script>
     <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
     <script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
 </head>
@@ -46,7 +48,10 @@
                         <span id="indicator-camera" class="indicator-light" title="Indicates if the camera is actively imaging">IMAGING</span>
                         <span id="indicator-silent" class="indicator-light" title="Indicates if the telescope is in silent mode (no status updates will be shown)">SILENT</span>
                         <span id="indicator-slewing" class="indicator-light" title="Indicates if the telescope is currently slewing" onclick="confirmStopSlewing()" style="cursor:pointer;">SLEWING</span>
-                        <span>PipiTrek Autoguider 0.99</span>
+                        <span id="indicator-bluetooth" class="indicator-light" title="Indicates if the telescope's Bluetooth is active">BTOOTH</span>
+                        <span id="indicator-telescope-server" class="indicator-light" title="Indicates if the telescope server is active">TSERVER</span>
+                        <span id="indicator-telescope-status" class="indicator-light" title="Indicates if the telescope is alive">PipiTrek</span>
+                        <span>PTAG  1.01</span>
                     </div>
                 </div>
             </td>
@@ -125,7 +130,11 @@
                                 <td>
                                     <button class="control-button" onclick="sendDirection('s')" title="Move telescope DEC south">↓</button>
                                 </td>
-                                <td></td>
+                                <td style="width:50px;">
+                                    <button class="control-button" onclick="sendSpeed('A')" title="Absolute movement">abs</button>
+                                </td>
+
+                                </td>
                                 <td>
                                 </td>
                                 <td>
@@ -260,6 +269,7 @@
                 </div>
                 <div id="terminal_frame" class="hidden">
                     <button class="command-button" onclick="shutdown()">Shutdown</button>
+                    <button class="command-button" onclick="showLog()">Show Log</button>
                     <iframe id="terminal_iframe" src="/static/terminal.html"></iframe>
                 </div>
                 
@@ -286,16 +296,13 @@
                             loop:<span id="last_loop_time">0</span> s<br>
                             frame:<span id="last_frame_time">0</span> s
                         </td>
-                        <td>
-                            <div class="two_buttons">
-                                <img id="detail_feed" src="/static/img/Airy.png" alt="Not Available">
-                                <div>R px:<span id="ra_px">0</span> arcs:<span id="ra_arcsec">0.0</span> rms:<span id="ra_rms">0.0</span><br>
+                        <td style="width:300px; display:flex; align-items:flex-start; gap:10px;">
+                                <img id="detail_feed" src="/static/img/Airy.png" alt="Not Available"></img>
+                                <div style="white-space:nowrap;">R px:<span id="ra_px">0</span> arcs:<span id="ra_arcsec">0.0</span> rms:<span id="ra_rms">0.0</span><br>
                                      D px:<span id="dec_px">0</span> arcs:<span id="dec_arcsec">0.0</span> rms:<span id="dec_rms">0.0</span><br>
-                                    focus:<span id="focus_metric">0</span>
+                                    focus:<span id="focus_metric">0</span> seeing:<span id="seeing_metric">0</span>arcs
                                 </div>
-                            </div>
-                        </td>
-                        
+                        </td>                        
                     </tr>
                     <tr class = "controller-row">
                         <td colspan="3">
@@ -310,10 +317,11 @@
                         </td>
                         <td>
                             <button class="command-button" onclick="resetCentroids()" title="Reset centroids to current star positions">Re-center</button>
+                            <button class="command-button" onclick="clearCentroids()" title="Clear all centroids">Clear</button>
                         </td>
                         <td>
-                            <button class="command-button" onclick="acquire()" title="Acquire the brightest star for tracking">Brightest</button>
-                            <button class="command-button" onclick="autoAddTrackedStars()" title="Automatically add tracked stars">Auto Add</button>
+                            <button class="command-button" onclick="acquire()" title="Acquire the brightest star for tracking">AutoAdd 1</button>
+                            <button class="command-button" onclick="autoAddTrackedStars()" title="Automatically add tracked stars">AutoAdd 5</button>
                         </td>
                     </tr>
 
@@ -336,17 +344,29 @@
                     <tr class = "controller-row">
                         <td><label for="guide_interval">Guide interval:</label></td>
                         <td>
-                            <input type="range" id="guide_interval" name="guide_interval" min="0" max="10" step="0.1" value="0" oninput="submitGuideInterval()">
+                            <input type="range" id="guide_interval" name="guide_interval" min="0" max="4" step="0.1" value="0" oninput="submitGuideInterval()" title="Set guide loop interval. If larger than frame interval, some frames might not be processed. Set 0 to auto-tune to framerate.">
                             <span id="guide_interval_value">0</span>
+                        </td>
+                        <td>
+                            <span id="guide_interval_auto"></span>
+                        </td>
+                        
+                    </tr>
+                    <tr class = "controller-row">
+                        <td><label for="min_star_size">Min Star Size:</label></td>
+                        <td>
+                            <input type="range" id="min_star_size" name="min_star_size" min="1" max="20" value="1" oninput="submitMinStarSize()" title="Set the minimum size of the stars to be recognized by the autoguider.">
+                            <span id="min_star_size_value">1</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
-                        <td><label for="star_size">Star Size:</label></td>
+                        <td><label for="max_star_size">Max Star Size:</label></td>
                         <td>
-                            <input type="range" id="star_size" name="star_size" min="1" max="20" value="1" oninput="submitStarSize()">
-                            <span id="star_size_value">1</span>
+                            <input type="range" id="max_star_size" name="max_star_size" min="1" max="400" value="20" oninput="submitMaxStarSize()" title="Set the maximum size of the stars to be recognized by the autoguider.">
+                            <span id="max_star_size_value">20</span>
                         </td>
                     </tr>
+
                     <tr class = "controller-row">
                         <td><label for="rotation_angle">Rotation Angle (deg):</label></td>
                         <td>
@@ -1064,18 +1084,28 @@
 
         telescope_ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
-            scopeAppendToResult(event.data);
+            //scopeAppendToResult(event.data);
             if (data.function === "slew_request") {
-                //const message = `We have a slew request to coordinates RA: ${data.ra}, DEC: ${data.dec}. Do you want to apply?`;
-                //if (confirm(message)) {
-                    // If the user confirms, send the slew command
-                    //submitJSON('/command_slew', { ra: data.ra, dec: data.dec });
-                    document.getElementById('ra-input').value = data.ra;
-                    document.getElementById('dec-input').value = data.dec;
-                    scopeAppendToResult('Slew request applied.');
-                //} else {
-                //    scopeAppendToResult('Slew request declined.');
-                //}
+                document.getElementById('ra-input').value = data.ra;
+                document.getElementById('dec-input').value = data.dec;
+                scopeAppendToResult('Slew request applied.');
+            } else if (data.function === "telescopeStatus") {
+                
+                const bluetoothIndicator = document.getElementById('indicator-bluetooth');
+                const telescopeServerIndicator = document.getElementById('indicator-telescope-server');
+                const telescopeStatusIndicator = document.getElementById('indicator-telescope-status');
+
+                if (bluetoothIndicator) {
+                    bluetoothIndicator.classList.toggle('on', data.bluetooth);
+                }
+                if (telescopeServerIndicator) {
+                    telescopeServerIndicator.classList.toggle('on', data.telescope_server_client_ip);
+                }
+                if (telescopeStatusIndicator) {
+                    telescopeStatusIndicator.classList.toggle('flash-red', data.status !== "ok");
+                    telescopeStatusIndicator.classList.toggle('on', data.status == "ok");
+                }
+
             }
         };
 
@@ -1084,29 +1114,7 @@
         };
     });
 
-    function sendDirection(direction) {
-        scopeSubmit('/control_move',
-            `direction=${direction}`
-        );
-    }
 
-    function sendSpeed(speed) {
-        scopeSubmit('/control_speed',
-            `speed=${speed}`
-        );
-    }
-
-    function sendStop() {
-        scopeSubmit('/control_stop',
-            `direction=`
-        );
-    }
-
-    function setPECEnabled(enable) {
-        scopeSubmit('/set_pec_enabled',
-            `enable=${enable}`
-        );
-    }
 
     function togglePECEnabled() {
         const button = document.getElementById('pec-enabled-button');
@@ -1116,45 +1124,6 @@
         setPECEnabled(enable);
     }
 
-    function uploadFirmware() {
-        const form = document.getElementById('uploadForm');
-        const formData = new FormData(form);
-        scopeAppendToResult('Starting firmware upload. Please do not disconnect telescope.');
-        fetch('/command_upload', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            scopeAppendToResult('Upload Success: ' + JSON.stringify(data, null, 2));
-            document.getElementById('firmware').files.length = 0; // Clear the file input
-            document.getElementById('upload-firmware-button').classList.remove('red');
-        })
-        .catch((error) => {
-            scopeAppendToResult('Error: ' + error);
-        });
-    }
-
-    function resetArduino() {
-        if (confirm("Are you sure you want to reset the Arduino?")) {
-            scopeSubmit('/command_reset', '');
-        } else {
-            scopeAppendToResult('Arduino reset canceled.');
-        }
-    }
-
-    function getInfo() {
-        fetch('/command_info', {
-            method: 'GET'
-        })
-        .then(response => response.json())
-        .then(data => {
-            setInfo(data.info)
-        })
-        .catch((error) => {
-            scopeAppendToResult('Error: ' + error);
-        });
-    }
 
     function updateScopeInfo() {
         fetch('/scope_info')
@@ -1234,85 +1203,9 @@
 
     setInterval(updateScopeInfo, 1000);
 
-    function setPier(pier) {
-        scopeSubmitSetting("pier", pier);
-    }
 
-    function setTracking(isTracking) {
-        scopeSubmitSetting("tracking", isTracking);
-    }
 
-    function setQuiet(isQuiet) {
-        scopeSubmitSetting("quiet", isQuiet);
-    }
 
-    function setLocked(isLocked) {
-        scopeSubmitSetting("locked", isLocked);
-    }
-
-    function setPECPosition() {
-        scopeSubmitSetting("pec_position", PEC_wheel.getPECPosition());
-    }
-
-    function submitCamera() {
-        const shots = document.getElementById('shots-input').value.trim();
-        const exposure = document.getElementById('exposure-input').value.trim();
-        scopeSubmitJSON('/set_camera',
-            { shots: shots, exposure: exposure }
-        );
-    }
-
-    function startCamera() {
-        btnCamStart = document.getElementById('camera-shooting');
-        scopeSubmitJSON('/command_camera',
-            {action: btnCamStart.innerText}
-        );
-    }
-
-    function submitBacklash() {
-        const ra = document.getElementById('bc_ra-input').value.trim();
-        const dec = document.getElementById('bc_dec-input').value.trim();
-        scopeSubmitJSON('/set_backlash',
-            { ra: ra, dec: dec }
-        );
-    }
-
-    function submitGoto(direct = false) {
-        if (document.getElementById('guiding').checked) {
-            scopeAppendToResult('Disabled while guiding');
-            return;
-        }
-
-        const ra = document.getElementById('ra-input').value.trim();
-        const dec = document.getElementById('dec-input').value.trim();
-
-        if (!validateRA(ra) || !validateDEC(dec)) {
-            scopeAppendToResult('Error: Invalid RA or DEC format.');
-            return;
-        }
-        if (direct) {
-            scopeSubmitJSON('/command_goto_direct',
-                { ra: ra, dec: dec }
-            );
-        } else {
-            scopeSubmitJSON('/command_goto',
-                { ra: ra, dec: dec }
-            );
-        }
-    }
-
-    function submitSetTo() {
-        const ra = document.getElementById('ra-input').value.trim();
-        const dec = document.getElementById('dec-input').value.trim();
-
-        if (!validateRA(ra) || !validateDEC(dec)) {
-            scopeAppendToResult('Error: Invalid RA or DEC format.');
-            return;
-        }
-        scopeSubmitJSON('/command_set_to',
-            { ra: ra, dec: dec }
-        );
-    }
 
     // Apply input mask for RA
     Inputmask({
@@ -1337,48 +1230,7 @@
     }).mask(document.getElementById('dec-input'));
 
 
-    function scopeSubmitSetting(name, value) {
-        scopeSubmit(`/set_${name}`,`${name}=${value}`);
-    }
 
-    function scopeSubmit(name, body) {
-        fetch(name, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: body
-        })
-        .then(response => {
-            if (!response.ok) {
-                // Throw an error to trigger the .catch block
-                throw new Error(`HTTP error! Status: ${response.status}`);
-            }
-            return response.json(); // Parse the JSON response
-        })
-        .then(data => {
-            scopeAppendToResult('Success: ' + JSON.stringify(data));
-        })
-        .catch(error => scopeAppendToResult('Error:', error.message));
-    }
-
-    function scopeSubmitJSON(name, obj) {
-
-        fetch(name, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(obj)
-        })
-        .then(response => {
-            if (!response.ok) {
-                // Throw an error to trigger the .catch block
-                throw new Error(`HTTP error! Status: ${response.status}`);
-            }
-            return response.json(); // Parse the JSON response
-        })
-        .then(data => {
-            scopeAppendToResult('Success: ' + JSON.stringify(data));
-        })
-        .catch(error => scopeAppendToResult('Error:', error.message));
-    }
 
     function updateInputBackgrounds() {
         const raInput = document.getElementById('ra-input');
@@ -1425,12 +1277,14 @@
                 { label: 'DEC correction(speed)', data: [], borderColor: 'orange', fill: false, pointRadius: 0 },
                 { label: 'RA error (arcsec)', data: [], borderColor: 'purple', fill: false, pointRadius: 0 },
                 { label: 'DEC error (arcsec)', data: [], borderColor: 'brown', fill: false, pointRadius: 0 },
+                { label: 'No star lock', data: [], borderColor: 'red', backgroundColor: 'transparent', showLine: false, pointStyle: 'circle', pointRadius: 3, pointBorderWidth: 2 },
                 ],
             },
             options: {
                 responsive: false,
                 scales: {
                     x: {
+                        type: 'linear',
                         title: { display: true, text: 'Time' },
                         grid: {
                             color: '#919191', // Set grid line color
@@ -1439,6 +1293,7 @@
                             maxTicksLimit: 10, // Limit the number of ticks shown
                             maxRotation: 0, // Prevent rotation of ticks
                             minRotation: 0, // Ensure ticks are horizontal
+                            callback: value => new Date(value).toLocaleTimeString(),
                         },
                     },
                     y: {
@@ -1581,13 +1436,13 @@
     }
 
     function startVideoFeed() {
-        _startVideoFeed('wss://' + window.location.host + '/video_feed_ws');
+        _startVideoFeed('wss://' + window.location.host + ':8443/video_feed_ws');
     }
     function stopVideoFeed() {
         _stopVideoFeed();
     }
     function startThreshFeed() {
-        _startVideoFeed('wss://' + window.location.host + '/thresh_feed_ws');
+        _startVideoFeed('wss://' + window.location.host + ':8443/thresh_feed_ws');
     }
     function stopThreshFeed() {
         _stopVideoFeed();
@@ -1707,12 +1562,15 @@
         document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(2);
         document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(2);
         document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
+        document.getElementById('seeing_metric').textContent = data.last_correction.seeing.toFixed(2);
         
         setSliderFromServer('threshold', data.gray_threshold);
         document.getElementById('auto_threshold').checked = data.auto_threshold;
         setSliderFromServer('max_drift_ra', data.max_drift_ra);
         setSliderFromServer('max_drift_dec', data.max_drift_dec);
-        setSliderFromServer('star_size', data.star_size);
+        setSliderFromServer('min_star_size', data.min_star_size);
+        setSliderFromServer('max_star_size', data.max_star_size);
+
         setSliderFromServer('rotation_angle', data.rotation_angle.toFixed(3));
         updateSkyMapRotation(data.rotation_angle);
 
@@ -1736,6 +1594,7 @@
 
         setSliderFromServer('guide_pulse', data.guide_pulse);
         setSliderFromServer('guide_interval', data.guide_interval);
+        document.getElementById('guide_interval_auto').textContent = Number(data.guide_interval) === 0 ? 'auto' : '';
 
         setSliderFromServer('ra_pid_p', data.ra_pid_p);
         setSliderFromServer('ra_pid_i', data.ra_pid_i);
@@ -1850,40 +1709,32 @@
         drawAnalysisCircles();
 
         // Update the chart with new data
-        const currentTime = new Date().toLocaleTimeString(); // Use current time as the label
+        // Python time.time() is in seconds; JS needs milliseconds. Fall back to local time if missing.
+        const ts = (data.last_correction && data.last_correction.timestamp)
+            ? data.last_correction.timestamp * 1000
+            : Date.now();
 
-        correctionsChart.data.labels.push(currentTime);
-        // Add new data points to each dataset
-        if (data.star_locked) {
-            correctionsChart.data.datasets[0].data.push(data.last_correction.ra);
-            correctionsChart.data.datasets[1].data.push(data.last_correction.dec);
-            correctionsChart.data.datasets[2].data.push(data.last_correction.ra_speed/10.0);
-            correctionsChart.data.datasets[3].data.push(data.last_correction.dec_speed/10.0);
-            correctionsChart.data.datasets[4].data.push(data.last_correction.ra_arcsec);
-            correctionsChart.data.datasets[5].data.push(data.last_correction.dec_arcsec);
-        } else {
-            // Add null to the main datasets to maintain alignment
-            for(i=0;i<6;i++) {
-                correctionsChart.data.datasets[i].data.push(null);
-            }
-        }
+        const lc = data.star_locked ? data.last_correction : null;
+        const values = lc ? [
+            lc.ra, lc.dec, lc.ra_speed/10.0, lc.dec_speed/10.0, lc.ra_arcsec, lc.dec_arcsec
+        ] : [null, null, null, null, null, null];
+        values.forEach((y, i) => correctionsChart.data.datasets[i].data.push({ x: ts, y: y }));
+        // Red circle on the zero line when no star is locked
+        correctionsChart.data.datasets[6].data.push({ x: ts, y: data.star_locked ? null : 0 });
 
         // Limit the number of data points to avoid overcrowding
-        if (correctionsChart.data.labels.length > 120) {
-            correctionsChart.data.labels.shift(); // Remove the oldest label
-            correctionsChart.data.datasets.forEach(dataset => {
-            if (dataset.data.length > 0) {
+        correctionsChart.data.datasets.forEach(dataset => {
+            if (dataset.data.length > 120) {
                 dataset.data.shift(); // Remove the oldest data point
-                }
-            });
-        }
+            }
+        });
 
         // Update the chart
         correctionsChart.update();
 
 
         // Update the PEC chart
-        if (data.pec_position && data.last_correction.ra_arcsec !== undefined) {
+        if (data.pec_position && data.last_correction.ra_axis_arcsec !== undefined) {
             pecChart.data.datasets[0].data.push({
                 x: data.pec_position, // PEC progress (x-axis)
                 y: data.last_correction.ra_arcsec, // RA error (y-axis)
@@ -1938,8 +1789,8 @@
 
     function calculateRMS() {
         // Get the RA and DEC datasets from the chart
-        const raArcsecData = correctionsChart.data.datasets[4].data; // RA Arcsec dataset
-        const decArcsecData = correctionsChart.data.datasets[5].data; // DEC Arcsec dataset
+        const raArcsecData = correctionsChart.data.datasets[4].data.map(p => p.y); // RA Arcsec dataset
+        const decArcsecData = correctionsChart.data.datasets[5].data.map(p => p.y); // DEC Arcsec dataset
 
         // Filter out null values (in case of missing data points)
         const validRaData = raArcsecData.filter(value => value !== null);
@@ -1994,200 +1845,13 @@
         ctx.fillText('DEC(N)', decX + 5, decY + 5);
     }
 
-    function submitChannels() {
-        const r_channel = document.getElementById('r_channel').value;
-        const g_channel = document.getElementById('g_channel').value;
-        const b_channel = document.getElementById('b_channel').value;
 
-        document.getElementById('r_channel_value').textContent = r_channel;
-        document.getElementById('g_channel_value').textContent = g_channel;
-        document.getElementById('b_channel_value').textContent = b_channel;
-
-
-        fetch('/set_channels', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ r_channel, g_channel, b_channel }),
-        })
-    }
-
-    function submitJSON(name, obj) {
-        return fetch(name, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(obj)
-        });
-    }
-
-
-    function submitSetting(name, value, axis) {
-        fetch(`/set_${name}`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `${name}=${value}&axis=${axis}`
-        });        
-    }
-
-    function submitSaveFrames(value) {
-        submitSetting("save_frames", value);
-    }
-
-    function submitThreshold() {
-        const threshold = document.getElementById('threshold').value;
-        document.getElementById('threshold_value').textContent = threshold;
-        submitSetting("threshold", threshold);
-    }
-    function submitAutoThreshold() {
-        const auto_threshold = document.getElementById('auto_threshold').checked;
-        submitSetting("auto_threshold", auto_threshold);
-    }
-    function submitMaxDrift(axis) {
-        const max_drift = document.getElementById(`max_drift_${axis}`).value;
-        document.getElementById(`max_drift_${axis}_value`).textContent = max_drift;
-        submitSetting("max_drift", max_drift, axis);
-    }
-
-    function submitStarSize() {
-        const star_size = document.getElementById('star_size').value;
-        document.getElementById('star_size_value').textContent = star_size;
-        submitSetting("star_size", star_size);
-    }
-
-    function submitRotationAngle() {
-        const rotation_angle = document.getElementById('rotation_angle').value;
-        document.getElementById('rotation_angle_value').textContent = rotation_angle;
-        submitSetting("rotation_angle", rotation_angle);
-    }
-
-    function submitPixelScale() {
-        const pixel_scale = document.getElementById('pixel_scale').value;
-        document.getElementById('pixel_scale_value').textContent = pixel_scale;
-        submitSetting("pixel_scale", pixel_scale);
-    }
-
-    function submitGuideInterval() {
-        const guide_interval = document.getElementById('guide_interval').value;
-        document.getElementById('guide_interval_value').textContent = guide_interval;
-        submitSetting("guide_interval", guide_interval);
-    }
-    
-    function submitGuidePulse() {
-        const guide_pulse = document.getElementById('guide_pulse').value;
-        document.getElementById('guide_pulse_value').textContent = guide_pulse;
-        submitSetting("guide_pulse", guide_pulse);
-    }
-
-    function submitGuideMethod(value, axis) {
-        submitSetting("guide_method", value, axis);
-    }
-    
-    function submitIntegrate_frames() {
-        const integrate_frames = document.getElementById('integrate_frames').value;
-        document.getElementById('integrate_frames_value').textContent = integrate_frames;
-        submitCameraProperties(JSON.stringify({ "integrate_frames":integrate_frames }));
-    }
-
-    function submitCameraFPS(value) {
-        submitCameraProperties(JSON.stringify({ "camera_fps":value }));
-    }
-    function submitVideoMode(value) {
-        submitCameraProperties(JSON.stringify({ "video_mode":value }));
-    }
-    function submitResolution(value) {
-        const [width, height] = value.split('x').map(Number); // Split and convert to numbers
-        submitCameraProperties(JSON.stringify({ width, height }));
-    }
-
-    function submitCameraColor(value) {        
-        submitCameraProperties(JSON.stringify({ "camera_color" : value }));
-    }
-
-    function submitExposure(value) {        
-        document.getElementById('camera_exposure_value').textContent = value;
-        submitCameraProperties(JSON.stringify({ "camera_exposure" : value }));
-    }
-
-    function selectCamera(value) {        
-        submitCameraProperties(JSON.stringify({ "camera_index" : value })).then(() => {
-            loadCameraProperties();
-        });        
-    }
 
     document.getElementById('camera_list').addEventListener('change', (event) => {
         selectCamera(event.target.value);
     });
 
-    function captureHotPixelMask() {
-        submitSetting("hot_pixel_mask", true);
-    }
 
-    function clearHotPixelMask() {
-        submitSetting("hot_pixel_mask", false);
-    }
-    function populateCameraList() {
-        fetch('/get_camera_list')
-            .then(response => response.json())
-            .then(cameras => {
-                const cameraSelect = document.getElementById('camera_list');
-                cameraSelect.innerHTML = '';
-                cameras.forEach(camera => {
-                    const option = document.createElement('option');
-                    option.value = camera.index;
-                    option.textContent = `${camera.name} (Index: ${camera.index})`;
-                    cameraSelect.appendChild(option);
-                });
-            })
-            .catch(error => {
-                console.error('Error fetching camera list:', error);
-            });
-    }
-
-    function submitCameraProperties(properties) {
-        return fetch('/set_camera_properties', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: properties,
-        }).then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        }).then(data => {
-            console.log('Camera properties updated:', data);
-        }).catch(error => {
-            console.error('Error updating camera properties:', error);
-        });
-    }
-
-
-    
-    function submitPID() {
-        const ra_pid_p = document.getElementById('ra_pid_p').value;
-        const ra_pid_i = document.getElementById('ra_pid_i').value;
-        const ra_pid_d = document.getElementById('ra_pid_d').value;
-        document.getElementById('ra_pid_p_value').textContent = ra_pid_p;
-        document.getElementById('ra_pid_i_value').textContent = ra_pid_i;
-        document.getElementById('ra_pid_d_value').textContent = ra_pid_d;
-
-        const dec_pid_p = document.getElementById('dec_pid_p').value;
-        const dec_pid_i = document.getElementById('dec_pid_i').value;
-        const dec_pid_d = document.getElementById('dec_pid_d').value;
-        document.getElementById('dec_pid_p_value').textContent = dec_pid_p;
-        document.getElementById('dec_pid_i_value').textContent = dec_pid_i;
-        document.getElementById('dec_pid_d_value').textContent = dec_pid_d;
-
-        fetch('/set_pid', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ ra_pid_p, ra_pid_i, ra_pid_d, dec_pid_p, dec_pid_i, dec_pid_d }),
-        })
-    }
 
     function setGuiderSelectStars(isEnabled) {
         overlayCanvas.style.cursor = isEnabled ? 'crosshair' : 'var(--loupe-cursor)';
@@ -2200,7 +1864,7 @@
     }
 
     function setGuiding(isGuiding) {
-            updateGotoButtonState(isGuiding);
+      updateGotoButtonState(isGuiding);
       submitSetting("guiding", isGuiding);
     }
 
@@ -2215,35 +1879,6 @@
             .catch(error => console.error('Auto add tracked stars error:', error));
     }
 
-    function acquire() {
-        fetch('/acquire', { method: 'POST' })
-            .then(response => console.log('Acquisition triggered'))
-            .catch(error => console.error('Acquisition error:', error));
-    }
-    
-    function resetCentroids(done) {
-        fetch('/reset_centroids', { method: 'POST' })
-            .then(response => {
-                console.log('Centroids reset to current star positions');
-                if (done) done();
-            })
-            .catch(error => console.error('Reset centroids error:', error));
-    }
-
-    function calibrate(with_backlash) {
-        fetch('/calibrate', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `with_backlash=${with_backlash}`
-        })                
-        .then(response => response.text())
-        .then(data => {
-            document.getElementById('pec_table_text').value = data;
-        })
-        .catch(error => {
-            document.getElementById('pec_table_text').value = 'Error: ' + error;
-        });
-    }
 
     /* Selection of stars to track/guide by.
        Ctrl+click - add star to tracking list
@@ -2604,35 +2239,7 @@
         }
     });
 
-    function saveFrame() {
-        fetch('/save_frame', {
-            method: 'POST',
-        })
-        .then(response => {
-            if (response.ok) {
-                return response.blob(); // Convert the response to a Blob
-            } else {
-                return response.json().then(data => {
-                    throw new Error(data.message || 'Failed to save frame');
-                });
-            }
-        })
-        .then(blob => {
-            // Create a temporary link element
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'saved_frame.png'; // Set the file name
-            document.body.appendChild(a);
-            a.click(); // Trigger the download
-            a.remove(); // Remove the link element
-            window.URL.revokeObjectURL(url); // Revoke the object URL
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Error: ' + error.message);
-        });
-    }
+
 
     function shutdown() {
         if (confirm("Are you sure you want to shut down the telescope?")) {
@@ -2846,17 +2453,6 @@
         }
     }
 
-    function submitProperty(name, value) {
-        fetch('/set_direct_camera_property', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ "name" : name, "value" : value }),
-        })
-        .then(response => console.log(`Property ${name} set to ${value}`))
-        .catch(error => console.error(`Error setting property ${name}:`, error));
-    }
  
     function calculatePixelScale() {
         const sensorWidth = parseFloat(document.getElementById('sensor_width-input').value);
@@ -2908,6 +2504,9 @@
         }
     });
 
+    function showLog() {
+        window.open('/static/log.html', 'log', 'width=900,height=600');
+    }
 
 </script>
 </html>

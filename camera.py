@@ -23,7 +23,13 @@ class Camera:
             self.camera_index = 0
 
             self.frame = None                   # Last captured frame
+            self.latest = (None, 0)             # (frame, timestamp) published together
             self.last_frame_time = 0
+            self.last_frame_timestamp = 0
+            self.last_read_time = 0             # Duration of the last cap.read() (s)
+            self.read_failures_total = 0        # Total failed cap.read() calls
+            self.last_lock_wait = 0             # Time waited for the camera lock before the last read (s)
+            self.last_mask_time = 0             # Time spent in hot pixel masking for the last frame (s)
             # camera settings
             self.color = True                   # True for color, False for grayscale
             self.r_channel = 1.0                # Float for R channel (0.0–1.0)
@@ -114,9 +120,13 @@ class Camera:
         # get a frame        
         if color is None:
             color = self.color
+        t_lock = time.perf_counter()
         with self.lock:
+            self.last_lock_wait = time.perf_counter() - t_lock
             while True:
+                t_read = time.perf_counter()
                 ret, frame = self.cap.read()
+                self.last_read_time = time.perf_counter() - t_read
                 if ret:
                     self.failure_count = 0  # Reset failure counter on success
                     if color:
@@ -125,13 +135,21 @@ class Camera:
                         return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 else:
                     self.failure_count += 1
-                    print(f"No frame snapped in capture_frame (Failure #{self.failure_count}).")
+                    self.read_failures_total += 1
+                    print(f"No frame snapped in capture_frame (Failure #{self.failure_count}) after {self.last_read_time:.2f}s.", flush=True)
                     if self.failure_count >= self.max_failures:
                         print(f"Max failures ({self.max_failures}) reached. Attempting recovery...")
+                        t_rec = time.perf_counter()
                         self.attempt_recovery()
+                        print(f"Recovery took {time.perf_counter() - t_rec:.2f}s", flush=True)
                     if self.recovery_attempts >= self.max_recovery_attempts:
-                        print(f"Max recovery attempts ({self.max_recovery_attempts}) reached. Terminating...")
-                        raise ValueError("Camera stopped responding")
+                        # Keep retrying so the camera comes back after being re-plugged
+                        print(f"Max recovery attempts ({self.max_recovery_attempts}) reached. Waiting for camera to return...", flush=True)
+                        self.recovery_attempts = 0
+                        self.failure_count = self.max_failures - 1
+                        if not self.running:
+                            raise ValueError("Camera stopped responding")
+                        time.sleep(2)
 
     def clear_hot_pixel_mask(self):
         filename = os.path.join(self.output_dir, self.hot_pixel_mask_path)
@@ -251,8 +269,15 @@ class Camera:
 
             if self.integrate_frames==1:
                 start = time.perf_counter()
-                self.frame = self.capture_frame()
-                self.apply_hot_pixel_mask(self.frame)
+                frame = self.capture_frame()
+                ts = time.time()
+                t_mask = time.perf_counter()
+                self.apply_hot_pixel_mask(frame)
+                self.last_mask_time = time.perf_counter() - t_mask
+                # publish frame and its timestamp together so readers never pair them wrongly
+                self.last_frame_timestamp = ts
+                self.latest = (frame, ts)
+                self.frame = frame
                 capture_time+=time.perf_counter() - start
                 start = time.perf_counter()
                 frame_count = 1
@@ -260,7 +285,7 @@ class Camera:
                 # Copy first frame, add rest
                 for i in range(self.integrate_frames):
                     start = time.perf_counter()
-                    frame = self.capture_frame()
+                    frame = self.capture_frame()                    
                     start2=time.perf_counter()
                     capture_time+=start2 - start
                     
@@ -290,12 +315,19 @@ class Camera:
 
                     frame = self.frame_accumulator.astype(np.uint8)
                     self.apply_hot_pixel_mask(frame)
+                    ts = time.time()
+                    self.last_frame_timestamp = ts
+                    self.latest = (frame, ts)
                     self.frame=frame
                 gc.enable()
     
             end_time = time.perf_counter()
             process_time+=end_time - start
             self.last_frame_time = end_time - start_time
+            if self.last_frame_time > 1.5:
+                print(f"SLOW CAMERA CYCLE {self.last_frame_time:.2f}s: read={self.last_read_time:.2f}s "
+                      f"lock_wait={self.last_lock_wait:.2f}s mask={self.last_mask_time:.2f}s "
+                      f"read_failures_total={self.read_failures_total}", flush=True)
             #print(f"Frame time {end_time - start_time:.2f}s")
             #print(f"Processing time {process_time:.2f}s")
             #print(f"Capturing time {capture_time:.2f}s")
@@ -336,10 +368,25 @@ class Camera:
             self.height = actual_height
             self.alloc_buffers(self.color)
 
+    def enable_uvc_nodrop(self):
+        # Keep damaged frames instead of letting uvcvideo discard them (needs root; read when the device is opened)
+        path = "/sys/module/uvcvideo/parameters/nodrop"
+        try:
+            if os.path.exists(path):
+                with open(path) as f:
+                    current = f.read().strip()
+                if current not in ("1", "Y"):
+                    with open(path, "w") as f:
+                        f.write("1")
+                    print("uvcvideo nodrop enabled")
+        except OSError as e:
+            print(f"Could not set uvcvideo nodrop: {e}")
+
     def init_camera(self):
         print(f"Init camera")
+        self.enable_uvc_nodrop()
         self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_V4L2)  # Force V4L2 backend
-        #self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 4)
+        #self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # Check if camera opened successfully
         if not self.cap.isOpened():
@@ -401,6 +448,7 @@ class Camera:
             print(f"Recovery attempt #{self.recovery_attempts}: Camera reopened successfully.")
             self.failure_count = 0  # Reset if recovery succeeds
             self.recovery_attempts = 0
+            self.set_direct_controls(self.controls)
         else:
             print(f"Recovery attempt #{self.recovery_attempts}: Failed to reopen camera.")
 

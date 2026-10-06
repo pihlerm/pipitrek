@@ -67,7 +67,7 @@ class Analyzer:
 
 #       How It Works
 #       Initial Centroid:
-#       Uses cv2.findContours() and cv2.moments() on the thresholded image to find the unweighted centroid of the largest or nearest star (same as your original code).
+#       Uses cv2.findContours() and cv2.moments() on the thresholded image to find the unweighted centroid of the largest or nearest star.
 #       Returns None if no valid star is found (area too small or zero moment).
 #       Cropping:
 #       Defines a square region (crop_size x crop_size, e.g., 50x50 pixels) around the initial centroid (cx, cy).
@@ -112,8 +112,7 @@ class Analyzer:
                         centroid, enhanced_with_profile, thresh, focus_metric = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance, max_star_size=max_star_size)
                     else:
                         centroid, _, _, _ = self._detect_star(frame, thresh, gray, contours, search_near=near, gray_threshold=gray_threshold, star_size=star_size, max_distance=max_distance, max_star_size=max_star_size)
-                    if centroid is not None:
-                        result.append(centroid)
+                    result.append(centroid)
         
         return result, enhanced_with_profile, thresh, focus_metric
 

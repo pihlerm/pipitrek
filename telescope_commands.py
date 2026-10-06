@@ -169,6 +169,14 @@ class PTCStartMoveDEC(PipiTelescopeCommand):
         str = f"!SD{decsign}{abs(dec):02d}#"
         super().__init__(str)
 
+class PTCAbsMoveDEC(PipiTelescopeCommand):
+    def __init__(self, dec):
+        # Ensure integer
+        dec = int(dec)
+        decsign = '+' if dec>=0 else '-'
+        str = f"!SA{decsign}{abs(dec):02d}#"
+        super().__init__(str)
+
 class PTCGetPEC(PipiTelescopeCommand):
     def __init__(self):
         super().__init__(f"!PO#")
@@ -182,7 +190,7 @@ class PTCSetPEC(TelescopeCommand):
         with telescope.lock:
             super().execute(telescope)  # send !PI#
 
-            num_points = len(self.pec_table) // 2
+            num_points = len(self.pec_table)
             telescope.write_scope(f"PEC {num_points} ".encode())
             
             data_str = ",".join(map(str, self.pec_table)) + "\n"

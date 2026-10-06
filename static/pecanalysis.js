@@ -29,31 +29,27 @@
 
 
     function pecTableToTextarea(pecTable) {
-        const rows = [];
-        for (let i = 0; i < pecTable.length; i++) {
-            const [boundarySteps, correction] = pecTable[i];
-            rows.push(`${boundarySteps},${correction}`);
-        }
-        document.getElementById('pec_table_text').value = rows.join('\n');
+        document.getElementById('pec_table_text').value = pecTable.map(v => Math.round(v)).join('\n');
         updatePECChartOverlay();
     }
 
     // Draws the current pec_table_text as a semi-transparent stepped area on the PEC chart (datasets[1]),
     // normalized to the chart's 0-99 'PEC Progress' x-axis. Row 0's baseline offset (added to every
     // interval by the firmware) is folded into each bar's height so the overlay reflects the actual
-    // correction that would be applied at each PEC position.
+    // correction that would be applied at each PEC position. The table has no stored positions: MSPR
+    // is divided equally into pecTable.length-1 intervals to derive each correction's boundary.
     function updatePECChartOverlay() {
         if (typeof pecChart === 'undefined' || !pecChart) return;
 
         const pecTable = parsePECTable();
         const points = [];
         if (pecTable.length >= 2) {
-            const mspr = pecTable[pecTable.length - 1][0] || 1;
-            const offset = pecTable[0][1] || 0;
+            const intervals = pecTable.length - 1;
+            const offset = pecTable[0] || 0;
             let prevX = 0;
             for (let i = 1; i < pecTable.length; i++) {
-                const [boundarySteps, correction] = pecTable[i];
-                const x = (boundarySteps / mspr) * 100;
+                const correction = pecTable[i];
+                const x = (i / intervals) * 100;
                 const y = correction + offset;
                 points.push({ x: prevX, y });
                 points.push({ x, y });
@@ -68,14 +64,8 @@
     function createZeroPECTable(numrows) {
         // Reset the telescope to a zero PEC table before capturing, so measured errors aren't skewed
         // by a previously applied correction.
-        const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
         const pec_size = parseInt(document.getElementById('pec_size').value) || 25;
-        const intervals = pec_size;
-        const microstepsPerInterval = mspr / intervals;
-        const zeroRows = ['0,0'];
-        for (let i = 1; i <= intervals; i++) {
-            zeroRows.push(`${Math.round(i * microstepsPerInterval)},0`);
-        }
+        const zeroRows = new Array(pec_size + 1).fill(0);
         document.getElementById('pec_table_text').value = zeroRows.join('\n');
     }
 
@@ -107,17 +97,17 @@
         if (!Array.isArray(pecTable) || pecTable.length === 0) {
             return [];
         }
-        
+
         let sumall = 0;
         for (let i = 1; i < pecTable.length; i++) {
-            sumall += pecTable[i][1];
+            sumall += pecTable[i];
         }
 
-        return pecTable.map(([microsteps, correction], index) => {
+        return pecTable.map((correction, index) => {
             if (index === 0) {
-                return [microsteps, Math.round(correction+sumall/ (pecTable.length-1))];
+                return Math.round(correction + sumall / (pecTable.length - 1));
             }
-            return [microsteps, Math.round(correction - sumall / (pecTable.length-1))];
+            return Math.round(correction - sumall / (pecTable.length - 1));
         });
     }
 
@@ -131,28 +121,28 @@
     // Uses the original (unsmoothed) values for all diffs, so adjustments don't cascade.
     function _smoothPECTable(pecTable) {
         if (!Array.isArray(pecTable) || pecTable.length < 2) {
-            return pecTable.map(row => [...row]);
+            return [...pecTable];
         }
 
-        const smoothed = pecTable.map(([microsteps, correction]) => [microsteps, correction]);
+        const smoothed = [...pecTable];
 
         for (let i = 0; i < pecTable.length - 1; i++) {
-            const a = pecTable[i][1];
-            const b = pecTable[i + 1][1];
+            const a = pecTable[i];
+            const b = pecTable[i + 1];
             if (Math.abs(a - b) <= 500) continue;
 
             const aIsLarger = Math.abs(a) >= Math.abs(b);
             const adjust = (aIsLarger ? a : b) * 0.1;
             if (aIsLarger) {
-                smoothed[i][1] -= adjust;
-                smoothed[i + 1][1] += adjust;
+                smoothed[i] -= adjust;
+                smoothed[i + 1] += adjust;
             } else {
-                smoothed[i + 1][1] -= adjust;
-                smoothed[i][1] += adjust;
+                smoothed[i + 1] -= adjust;
+                smoothed[i] += adjust;
             }
         }
 
-        return smoothed.map(([microsteps, correction]) => [microsteps, Math.round(correction)]);
+        return smoothed.map(correction => Math.round(correction));
     }
 
     function smoothPECTable() {
@@ -224,7 +214,7 @@
 
     function generatePECCorrectionTable() {
         previousPecTable = parsePECTable();
-        const previousValues = previousPecTable.map(([, correction]) => Number(correction) || 0);
+        const previousValues = previousPecTable.map(correction => Number(correction) || 0);
 
         generateBoundariesAndOffset();
 
@@ -261,14 +251,13 @@
         const offset = (offsetMicrostepsEquivalent * baseMicrosecondsPerMicrostep) / mspr * attenuationFactor;
 
         const newPECtable = [];
-        newPECtable.push([0, Math.round(offset + (previousValues[0] || 0))]);
+        newPECtable.push(Math.round(offset + (previousValues[0] || 0)));
         for (let i = 1; i <= intervals; i++) {
             const deltaArcsec = boundaryError[i - 1] - boundaryError[i];
             const microstepsEquivalent = deltaArcsec / nominalArcsecPerMicrostep;
             const totalCorrectionUs = microstepsEquivalent * baseMicrosecondsPerMicrostep;
             const correctionPerMicrostep = (totalCorrectionUs / microstepsPerInterval)*attenuationFactor;
-            const boundarySteps = Math.round(i * microstepsPerInterval);
-            newPECtable.push([boundarySteps, Math.round(correctionPerMicrostep + (previousValues[i] || 0))]);
+            newPECtable.push(Math.round(correctionPerMicrostep + (previousValues[i] || 0)));
         }
         pecTableToTextarea(newPECtable);
     }
@@ -292,32 +281,24 @@
         tbody.innerHTML = rows.join('');
     }
 
-    // Parses the pec_table_text textarea (lines of "boundarySteps,correction") into [boundarySteps, correction] pairs.
+    // Parses the pec_table_text textarea (one value per line) into a flat numeric array.
+    // Element 0 is the constant offset; the rest are per-interval corrections. There are no
+    // stored positions: MSPR is divided equally into pecTable.length-1 intervals.
     function parsePECTable() {
         const pecTableText = document.getElementById('pec_table_text').value;
         const pecTable = [];
         pecTableText.split('\n').forEach(line => {
-            const [x, y] = line.split(',').map(Number);
-            if (!isNaN(x) && !isNaN(y)) {
-                pecTable.push([x, y]);
-            }
+           pecTable.push(Number(line.trim()));
         });
         return pecTable;
     }
 
-    // parse and prepare the PEC table from the textarea into linear array for sending to telescope
+    // parse and prepare the PEC table from the textarea into linear array for sending to telescope.
+    // Format matches parsePECTable(): element 0 is the constant offset, the rest are corrections.
     function preparePECTable() {
-        const pecTableText = document.getElementById('pec_table_text').value;
-        const pecTable = [];
-        pecTableText.split('\n').forEach(line => {
-            const [x, y] = line.split(',').map(Number);
-            if (!isNaN(x) && !isNaN(y)) {
-                pecTable.push(x);
-                pecTable.push(y);
-            }
-        });
+        const pecTable = parsePECTable().filter(value => !isNaN(value));
 
-        if (![22,42,52,102].includes(pecTable.length)) {
+        if (![11,21,26,51].includes(pecTable.length)) {
             alert("PEC table is empty or has an invalid length!");
             return [];
         }
@@ -334,10 +315,7 @@
             const pecTableText = document.getElementById('pec_table_text');
             if (data.status === 'success') {
                 const pecTable = data.pec_table;
-                const formattedTable = pecTable.map((value, index) => {
-                    return index % 2 === 0 ? `${value},` : `${value}\n`;
-                }).join('');
-                pecTableText.value = formattedTable;
+                pecTableText.value = pecTable.join('\n');
             } else {
                 pecTableText.value = 'Error: ' + data.message;
             }
@@ -363,7 +341,8 @@
         }
     }
 
-    // Save the pec_table_text textarea contents (boundarySteps,correction rows) as a CSV file.
+    // Save the pec_table_text textarea contents (one value per line; element 0 is the constant
+    // offset, the rest are corrections) as a CSV file.
     function savePECTable() {
         const text = document.getElementById('pec_table_text').value;
         const blob = new Blob([text], { type: 'text/csv' });
@@ -377,8 +356,9 @@
         URL.revokeObjectURL(url);
     }
 
-    // Load a PEC table CSV/TSV file (boundarySteps,correction rows) into the pec_table_text textarea.
-    // Separator can be comma or TAB.
+    // Load a PEC table file (one correction value per line; element 0 is the constant offset) into
+    // the pec_table_text textarea. If a line has multiple comma/TAB separated values (legacy
+    // "boundarySteps,correction" format), only the last value (the correction) is used.
     function loadPECTable(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -391,11 +371,10 @@
                 if (!trimmed) return;
 
                 const parts = trimmed.split(/[,\t]/).map(s => s.trim());
-                const boundarySteps = Number(parts[0]);
-                const correction = Number(parts[1]);
-                if (isNaN(boundarySteps) || isNaN(correction)) return;
+                const value = Number(parts[parts.length - 1]);
+                if (isNaN(value)) return;
 
-                rows.push(`${boundarySteps},${correction}`);
+                rows.push(`${value}`);
             });
 
             document.getElementById('pec_table_text').value = rows.join('\n');
@@ -409,7 +388,7 @@
 
         function savePECdata(data) {
         // Save PEC data capture sample: pec position, RA error and timestamp
-        if (pecCaptureActive && data.pec_position !== undefined && data.last_correction.ra_arcsec !== undefined) {
+        if (pecCaptureActive && data.pec_position !== undefined && data.last_correction.ra_axis_arcsec !== undefined) {
             const pos = Math.round(Number(data.pec_position));
             if (!isNaN(pos) && pos >= 0 && pos <= 99) {
 
@@ -429,7 +408,7 @@
                 } else {
                     bucket = pecCaptureData[pos];
                 }
-                bucket.sum += data.last_correction.ra_arcsec;
+                bucket.sum += data.last_correction.ra_axis_arcsec;
                 bucket.count += 1;
                 bucket.lastTimestamp = Date.now();
                 if(pos !== pecCaptureDataLastBucket) {
