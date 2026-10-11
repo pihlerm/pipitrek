@@ -177,6 +177,14 @@ class PTCAbsMoveDEC(PipiTelescopeCommand):
         str = f"!SA{decsign}{abs(dec):02d}#"
         super().__init__(str)
 
+class PTCAbsMoveRA(PipiTelescopeCommand):
+    def __init__(self, ra):
+        # Ensure integer
+        ra = int(ra)
+        rasign = '+' if ra>=0 else '-'
+        str = f"!SB{rasign}{abs(ra):02d}#"
+        super().__init__(str)
+
 class PTCGetPEC(PipiTelescopeCommand):
     def __init__(self):
         super().__init__(f"!PO#")

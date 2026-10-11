@@ -58,6 +58,14 @@ _startup_log("remaining application modules imported")
 # Disable Flask request logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
+
+class _ClientDisconnectFilter(logging.Filter):
+    """Drop werkzeug 'Error on request' records caused by clients closing the TLS connection."""
+    def filter(self, record):
+        text = record.getMessage()
+        return not ("Error on request" in text and ("SSLEOFError" in text or "SSLError" in text))
+
+log.addFilter(_ClientDisconnectFilter())
 # Alternatively, disable completely:
 # log.disabled = True
 # Global shutdown event
@@ -119,7 +127,7 @@ def video_feed_ws(ws):
                     print("Frame encoding failed")
             time.sleep(max(video_interval - (time.time()-start),0.01))
     except ssl.SSLEOFError as e:
-        print(f"SSL EOF error in video_feed_ws: {e}")
+        print("WebSocket connection closed in video_feed_ws")
     except Exception as e:
         print(f"video_feed_ws video feed error: {e}")
     finally:
@@ -153,7 +161,7 @@ def thresh_feed_ws(ws):
                     print("Frame encoding failed")
             time.sleep(max(video_interval - (time.time()-start),0.01))
     except ssl.SSLEOFError as e:
-        print(f"SSL EOF error in thresh_feed_ws: {e}")
+        print("WebSocket connection closed in thresh_feed_ws")
     except Exception as e:
         print(f"thresh_feed_ws video feed error: {e}")
     finally:
@@ -166,11 +174,11 @@ def autoguider_socket(ws):
             if autoguider.data_ready:
                 autoguider.data_ready = False
                 ws.send(json.dumps(form_properties()))
-            time.sleep(0.1)
         except ssl.SSLEOFError as e:
-            print(f"SSL EOF error in autoguider_socket: {e}")
+            print("WebSocket connection closed in autoguider_socket")
         except Exception as e:  # Catches WebSocketConnectionClosedException
             break
+        time.sleep(0.1)
     print("autoguider_socket disconnected")
 
     
@@ -205,12 +213,12 @@ def telescope_socket(ws):
                     "dec": dec
                 }
                 ws.send(json.dumps(properties))
-            time.sleep(0.1)
         except ssl.SSLEOFError as e:
-            print(f"SSL EOF error in telescope_socket: {e}")
+            print("WebSocket connection closed in telescope_socket")
         except Exception as e:  # Catches WebSocketConnectionClosedException
             print(f"Unexpected error in telescope_socket: {e}")
             break
+        time.sleep(0.1)
     print("telescope_socket disconnected")
 
 
@@ -270,7 +278,7 @@ def command_terminal(ws):
             ws.send(f"exit: {current_process.returncode}")
             current_process = None
         except ssl.SSLEOFError as e:
-            print(f"SSL EOF error in command_terminal: {e}")
+            print("WebSocket connection closed in command_terminal")
         except Exception as e:
             ws.send(f"error: {str(e)}")
             current_process = None
@@ -645,12 +653,6 @@ def save_frame():
     else:
         return jsonify({"status": "error", "message": "Camera is not running"}), 503
 
-@app.route('/set_pixel_scale', methods=['POST'])
-def set_pixel_scale():
-    new_scale = request.form.get('pixel_scale', type=float, default=autoguider.pixel_scale)
-    if 0.1 <= new_scale <= 10.0:
-        autoguider.pixel_scale = new_scale
-    return jsonify({"status": "success"}), 200
 
 @app.route('/set_hot_pixel_mask', methods=['POST'])
 def set_hot_pixel_mask():
@@ -661,22 +663,52 @@ def set_hot_pixel_mask():
         camera.capture_hot_pixel_mask()
     return jsonify({"status": "success"}), 200
 
-@app.route('/get_camera_properties', methods=['GET'])
-def get_camera_properties():    
+@app.route('/get_camera_controls', methods=['GET'])
+def get_camera_controls():
     if camera is not None:
         return jsonify(camera.get_direct_controls())
     else:
         return jsonify({"status": "error", "message": "Camera not available"}), 503
 
 
-@app.route('/set_direct_camera_property', methods=['POST'])
-def set_direct_camera_property():
+@app.route('/set_direct_camera_control', methods=['POST'])
+def set_direct_camera_control():
     name = request.json.get('name')
     value = request.json.get('value')    
     if camera is not None and camera.set_direct_control(name, value):
         return jsonify({"status": "success"}), 200
     else:
         return jsonify({"status": "error", 'message': 'Failed setting '+name+' to '+value}), 200
+
+@app.route('/get_camera_properties', methods=['POST'])
+def get_camera_properties():
+    #camera_name = request.json.get('camera_name')
+    props = form_camera_properties() if camera is not None else {}
+    if camera is not None:
+        return jsonify(props)
+    else:
+        return jsonify({"status": "error", "message": "Camera not available"}), 503
+
+
+def form_camera_properties():
+    return {
+        "camera_index": camera.camera_index,
+        "rotation_angle": camera.rotation_angle,
+        "pixel_scale": camera.pixel_scale,
+        "width": camera.width,
+        "height": camera.height,
+        "exposure": camera.get_exposure(),
+        "exposure_ms": camera.get_exposure()/10,
+        "integrate_frames": camera.integrate_frames,
+        "r_channel": camera.r_channel,
+        "g_channel": camera.g_channel,
+        "b_channel": camera.b_channel,
+        "camera_fps": camera.cam_fps,
+        "resolution": { "width":camera.width, "height":camera.height },
+        "video_mode": camera.cam_mode,
+        "camera_color": camera.color,
+        "last_frame_time": camera.last_frame_time
+    }
 
 @app.route('/set_camera_properties', methods=['POST'])
 def set_camera_properties():
@@ -724,6 +756,14 @@ def set_camera_properties():
     if camera_index is not None:
         camera.select_camera(int(camera_index))    
 
+    pixel_scale = request.json.get('pixel_scale')
+    if pixel_scale is not None:
+        camera.pixel_scale = float(pixel_scale)
+
+    rotation_angle = request.json.get('rotation_angle')
+    if rotation_angle is not None:
+        camera.rotation_angle = float(rotation_angle)
+
     return jsonify({"status": "success"}), 200
 
 
@@ -731,35 +771,8 @@ def set_camera_properties():
 # AUTOGUIDER
 def form_properties():
     telescope = Telescope()
-    if camera is not None:
-        camera_index = camera.camera_index
-        width = camera.width
-        height = camera.height
-        exposure = camera.get_exposure()
-        integrate_frames = camera.integrate_frames
-        r_channel = camera.r_channel
-        g_channel = camera.g_channel
-        b_channel = camera.b_channel
-        actual_fps = camera.cam_fps
-        cam_mode = camera.cam_mode
-        camera_color = camera.color
-    else:
-        camera_index = 0
-        width = 1
-        height = 1
-        exposure = 1
-        integrate_frames = 1
-        r_channel = 1
-        g_channel = 1
-        b_channel = 1
-        actual_fps = 5
-        cam_mode = "MJPEG"
-        camera_color = True
-    
 
     properties = {
-        "width": width,
-        "height": height,
         "tracked_centroids": autoguider.tracked_centroids,
         "current_centroids": autoguider.current_centroids,
         "pec_position": telescope.scope_info["pec"]["progress"],
@@ -770,30 +783,17 @@ def form_properties():
         "max_star_size": autoguider.max_star_size,
         "gray_threshold": autoguider.gray_threshold,
         "auto_threshold": autoguider.auto_threshold,
-        "rotation_angle": autoguider.rotation_angle,
-        "pixel_scale": autoguider.pixel_scale,
         "guide_method_ra": autoguider.guide_method_ra,
         "guide_method_dec": autoguider.guide_method_dec,
         "guiding": autoguider.guiding,
         "guide_interval": autoguider.guide_interval,
-        "guide_pulse": autoguider.guide_pulse,
+        "guide_arcsec": autoguider.guide_arcsec,
         "last_correction": autoguider.last_correction,
         "star_locked": autoguider.star_locked,
         "focus_metric": autoguider.focus_metric,
         "last_loop_time": autoguider.last_loop_time,
         "last_frame_time": autoguider.last_frame_time,
         "last_status": autoguider.last_status,
-        "camera_index": camera_index,
-        "exposure": exposure,
-        "exposure_ms": exposure/10,
-        "integrate_frames": integrate_frames,
-        "r_channel": r_channel,
-        "g_channel": g_channel,
-        "b_channel": b_channel,
-        "camera_fps": actual_fps,
-        "resolution": { "width":width, "height":height },
-        "video_mode": cam_mode,
-        "camera_color": camera_color,
         "ra_pid_p": autoguider.ra_pid.Kp,
         "ra_pid_i": autoguider.ra_pid.Ki,
         "ra_pid_d": autoguider.ra_pid.Kd,
@@ -846,7 +846,7 @@ def set_auto_threshold():
 
 @app.route('/set_max_drift', methods=['POST'])
 def set_max_drift():
-    new_max_drift = request.form.get('max_drift', type=int, default=autoguider.max_drift_ra)
+    new_max_drift = request.form.get('max_drift', type=float, default=autoguider.max_drift_ra)
     axis = request.form.get('axis', type=str, default='ra')
     if 0 <= new_max_drift <= 50:
         if axis == 'ra':
@@ -871,13 +871,6 @@ def set_max_star_size():
         autoguider.max_star_size = new_star_size
     return jsonify({"status": "success"}), 200
 
-@app.route('/set_rotation_angle', methods=['POST'])
-def set_rotation_angle():
-    new_angle = request.form.get('rotation_angle', type=float, default=autoguider.rotation_angle)
-    if -180 <= new_angle <= 180:
-        autoguider.rotation_angle = new_angle
-    return jsonify({"status": "success"}), 200
-
 @app.route('/set_guide_interval', methods=['POST'])
 def set_guide_interval():
     guide_interval = request.form.get('guide_interval', type=float, default=1)
@@ -895,10 +888,10 @@ def set_guide_method():
         autoguider.guide_method_dec = guide_method
     return jsonify({"status": "success"}), 200
 
-@app.route('/set_guide_pulse', methods=['POST'])
-def set_guide_pulse():
-    guide_pulse = request.form.get('guide_pulse', type=float, default=1)
-    autoguider.guide_pulse = guide_pulse
+@app.route('/set_guide_arcsec', methods=['POST'])
+def set_guide_arcsec():
+    guide_arcsec = request.form.get('guide_arcsec', type=int, default=1)
+    autoguider.guide_arcsec = guide_arcsec
     return jsonify({"status": "success"}), 200
 
 

@@ -13,34 +13,38 @@ class Settings:
         self.settings = {}
 
     def update_autoguider_settings(self, autoguider: Autoguider):
-        self.settings["max_drift_ra"] = autoguider.max_drift_ra
-        self.settings["max_drift_dec"] = autoguider.max_drift_dec
-        self.settings["star_size"] = autoguider.star_size
-        self.settings["gray_threshold"] = autoguider.gray_threshold
-        self.settings["rotation_angle"] = autoguider.rotation_angle
-        self.settings["pixel_scale"] = autoguider.pixel_scale
-        self.settings["guide_interval"] = autoguider.guide_interval
-        self.settings["guide_pulse"] = autoguider.guide_pulse
-        self.settings["guide_method_ra"] = autoguider.guide_method_ra
-        self.settings["guide_method_dec"] = autoguider.guide_method_dec
-        self.settings["max_star_size"] = autoguider.max_star_size
-        self.settings["auto_threshold"] = autoguider.auto_threshold
-        self.settings["pid"] =  { "ra" : {},"dec": {}}
-        self.settings["pid"]["ra"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
-        self.settings["pid"]["dec"] = { "p":autoguider.dec_pid.Kp, "i": autoguider.dec_pid.Ki, "d": autoguider.dec_pid.Kd }
+        
+        self.settings["autoguider"] = {}
+        self.settings["autoguider"]["max_drift_ra"] = autoguider.max_drift_ra
+        self.settings["autoguider"]["max_drift_dec"] = autoguider.max_drift_dec
+        self.settings["autoguider"]["star_size"] = autoguider.star_size
+        self.settings["autoguider"]["gray_threshold"] = autoguider.gray_threshold
+        self.settings["autoguider"]["guide_interval"] = autoguider.guide_interval
+        self.settings["autoguider"]["guide_arcsec"] = autoguider.guide_arcsec
+        self.settings["autoguider"]["guide_method_ra"] = autoguider.guide_method_ra
+        self.settings["autoguider"]["guide_method_dec"] = autoguider.guide_method_dec
+        self.settings["autoguider"]["max_star_size"] = autoguider.max_star_size
+        self.settings["autoguider"]["auto_threshold"] = autoguider.auto_threshold
+        self.settings["autoguider"]["pid"] =  { "ra" : {},"dec": {}}
+        self.settings["autoguider"]["pid"]["ra"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
+        self.settings["autoguider"]["pid"]["dec"] = { "p":autoguider.dec_pid.Kp, "i": autoguider.dec_pid.Ki, "d": autoguider.dec_pid.Kd }
         
 
     def update_camera_settings(self, camera: Camera):
-        self.settings["integrate_frames"] = camera.integrate_frames
-        self.settings["r_channel"] = camera.r_channel
-        self.settings["g_channel"] = camera.g_channel
-        self.settings["b_channel"] = camera.b_channel
-        self.settings["cam_fps"] = camera.cam_fps
-        self.settings["width"] = camera.width
-        self.settings["height"] = camera.height
-        self.settings["cam_mode"] = camera.cam_mode
-        self.settings["camera_controls"] = camera.get_direct_control_values()
-        self.settings["camera_color"] = camera.color
+        
+        self.settings["camera"] = {}
+        self.settings["camera"]["integrate_frames"] = camera.integrate_frames
+        self.settings["camera"]["r_channel"] = camera.r_channel
+        self.settings["camera"]["g_channel"] = camera.g_channel
+        self.settings["camera"]["b_channel"] = camera.b_channel
+        self.settings["camera"]["cam_fps"] = camera.cam_fps
+        self.settings["camera"]["width"] = camera.width
+        self.settings["camera"]["height"] = camera.height
+        self.settings["camera"]["cam_mode"] = camera.cam_mode
+        self.settings["camera"]["camera_controls"] = camera.get_direct_control_values()
+        self.settings["camera"]["camera_color"] = camera.color
+        self.settings["camera"]["rotation_angle"] = camera.rotation_angle
+        self.settings["camera"]["pixel_scale"] = camera.pixel_scale
 
     def update_telescope_settings(self, telescope:Telescope):        
         self.settings["scope_info"] = telescope.scope_info        
@@ -48,23 +52,21 @@ class Settings:
     def set_autoguider_settings(self, autoguider: Autoguider):
         try:
             # Integer settings
-            autoguider.gray_threshold = int(self.settings.get("gray_threshold", 150))
-            autoguider.star_size = int(self.settings.get("star_size", 10))
-            autoguider.guide_pulse = float(self.settings.get("guide_pulse", 0.4))  
+            ag = self.settings.get("autoguider",{})
+            autoguider.gray_threshold = int(ag.get("gray_threshold", 150))
+            autoguider.star_size = int(ag.get("star_size", 10))
+            autoguider.guide_arcsec = int(ag.get("guide_arcsec", 1))  
 
             # Float settings
-            autoguider.pixel_scale = float(self.settings.get("pixel_scale", 3.5))
-            autoguider.rotation_angle = float(self.settings.get("rotation_angle", 0.0))
-            autoguider.max_drift_ra = float(self.settings.get("max_drift_ra", 5.0))
-            autoguider.max_drift_dec = float(self.settings.get("max_drift_dec", 5.0))
-            autoguider.guide_interval = float(self.settings.get("guide_interval", 1.0))
-            autoguider.output_dir = self.settings.get("output_dir")
-            autoguider.guide_method_ra = self.settings.get("guide_method_ra", 1.0)
-            autoguider.guide_method_dec = self.settings.get("guide_method_dec", 1.0)
-            autoguider.max_star_size = int(self.settings.get("max_star_size", 200))
-            autoguider.auto_threshold = bool(self.settings.get("auto_threshold", True))
+            autoguider.max_drift_ra = float(ag.get("max_drift_ra", 5.0))
+            autoguider.max_drift_dec = float(ag.get("max_drift_dec", 5.0))
+            autoguider.guide_interval = float(ag.get("guide_interval", 1.0))
+            autoguider.guide_method_ra = ag.get("guide_method_ra", "MON")
+            autoguider.guide_method_dec = ag.get("guide_method_dec", "MON")
+            autoguider.max_star_size = int(ag.get("max_star_size", 200))
+            autoguider.auto_threshold = bool(ag.get("auto_threshold", True))
 
-            pid_settings = self.settings.get("pid")
+            pid_settings = ag.get("pid")
             if pid_settings is not None:
                 autoguider.ra_pid.Kp = float(pid_settings.get("ra", {}).get("p", 0.0))
                 autoguider.ra_pid.Ki = float(pid_settings.get("ra", {}).get("i", 0.0))
@@ -72,6 +74,8 @@ class Settings:
                 autoguider.dec_pid.Kp = float(pid_settings.get("dec", {}).get("p", 0.0))
                 autoguider.dec_pid.Ki = float(pid_settings.get("dec", {}).get("i", 0.0))
                 autoguider.dec_pid.Kd = float(pid_settings.get("dec", {}).get("d", 0.0))
+
+            autoguider.output_dir = self.settings.get("output_dir")
 
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")
@@ -81,19 +85,23 @@ class Settings:
     def set_camera_settings(self, camera: Camera):
         try:
             # Channel settings (converted to float) with default values
-            camera.r_channel = float(self.settings.get("r_channel", 1.0))  # Default to 1.0
-            camera.g_channel = float(self.settings.get("g_channel", 1.0))  # Default to 1.0
-            camera.b_channel = float(self.settings.get("b_channel", 1.0))  # Default to 1.0
+            cams = self.settings.get("camera", {}) 
+            camera.r_channel = float(cams.get("r_channel", 1.0))  # Default to 1.0
+            camera.g_channel = float(cams.get("g_channel", 1.0))  # Default to 1.0
+            camera.b_channel = float(cams.get("b_channel", 1.0))  # Default to 1.0
 
             # Integer settings with default values
-            camera.integrate_frames = int(self.settings.get("integrate_frames", 10))  # Default to 10
+            camera.integrate_frames = int(cams.get("integrate_frames", 10))  # Default to 10
 
             # Method calls for exposure, gain, and fps with default values
-            camera.set_mode(self.settings.get("cam_mode", "MJPG"))
-            camera.set_frame_size(int(self.settings.get("width", 1280)), int(self.settings.get("height", 720)))
-            camera.setfps(float(self.settings.get("cam_fps", 30.0)))  # Default to 30.0
-            camera.set_direct_controls(self.settings.get("camera_controls", []))
-            camera.set_color(self.settings.get("camera_color", True))
+            camera.set_mode(cams.get("cam_mode", "MJPG"))
+            camera.set_frame_size(int(cams.get("width", 1280)), int(cams.get("height", 720)))
+            camera.setfps(float(cams.get("cam_fps", 30.0)))  # Default to 30.0
+            camera.set_direct_controls(cams.get("camera_controls", []))
+            camera.set_color(cams.get("camera_color", True))
+            camera.rotation_angle = float(cams.get("rotation_angle", 0.0))
+            camera.pixel_scale = float(cams.get("pixel_scale", 3.5))
+            
             camera.output_dir = self.settings.get("output_dir")
 
         except (ValueError, TypeError) as e:

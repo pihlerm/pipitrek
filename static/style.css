@@ -65,8 +65,12 @@ input {
 }
 
 
-input[type="range"] {
+.normal-range {
     width: 200px; /* Adjust as needed */
+}
+
+.small-range {
+    width: 120px;
 }
 
 input[type="range"]:not(.slider-unlocked) {

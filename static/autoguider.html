@@ -25,6 +25,7 @@
     <script src="menu.js"></script>
     <script src="menu.js"></script>
     <script src="scope_comm.js"></script>
+    
     <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
     <script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
 </head>
@@ -344,7 +345,7 @@
                     <tr class = "controller-row">
                         <td><label for="guide_interval">Guide interval:</label></td>
                         <td>
-                            <input type="range" id="guide_interval" name="guide_interval" min="0" max="4" step="0.1" value="0" oninput="submitGuideInterval()" title="Set guide loop interval. If larger than frame interval, some frames might not be processed. Set 0 to auto-tune to framerate.">
+                            <input type="range" class="normal-range" id="guide_interval" name="guide_interval" min="0" max="4" step="0.1" value="0" oninput="submitGuideInterval()" title="Set guide loop interval. If larger than frame interval, some frames might not be processed. Set 0 to auto-tune to framerate.">
                             <span id="guide_interval_value">0</span>
                         </td>
                         <td>
@@ -355,32 +356,22 @@
                     <tr class = "controller-row">
                         <td><label for="min_star_size">Min Star Size:</label></td>
                         <td>
-                            <input type="range" id="min_star_size" name="min_star_size" min="1" max="20" value="1" oninput="submitMinStarSize()" title="Set the minimum size of the stars to be recognized by the autoguider.">
+                            <input type="range" class="normal-range" id="min_star_size" name="min_star_size" min="1" max="20" value="1" oninput="submitMinStarSize()" title="Set the minimum size of the stars to be recognized by the autoguider.">
                             <span id="min_star_size_value">1</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="max_star_size">Max Star Size:</label></td>
                         <td>
-                            <input type="range" id="max_star_size" name="max_star_size" min="1" max="400" value="20" oninput="submitMaxStarSize()" title="Set the maximum size of the stars to be recognized by the autoguider.">
+                            <input type="range" class="normal-range" id="max_star_size" name="max_star_size" min="1" max="400" value="20" oninput="submitMaxStarSize()" title="Set the maximum size of the stars to be recognized by the autoguider.">
                             <span id="max_star_size_value">20</span>
                         </td>
                     </tr>
 
                     <tr class = "controller-row">
-                        <td><label for="rotation_angle">Rotation Angle (deg):</label></td>
-                        <td>
-                            <input type="range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="0" step="1" oninput="submitRotationAngle()">
-                            <span id="rotation_angle_value">0</span>
-                        </td>
-                        <td>
-                            <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>                            
-                        </td>
-                    </tr>
-                    <tr class = "controller-row">
                         <td><label for="threshold">Threshold:</label></td>
                         <td>
-                            <input type="range" id="threshold" name="threshold" min="0" max="255" value="0" onchange="submitThreshold()">
+                            <input type="range" class="normal-range" id="threshold" name="threshold" min="0" max="255" value="0" onchange="submitThreshold()">
                             <span id="threshold_value">0</span>
                         </td>
                         <td>
@@ -395,10 +386,10 @@
                         </td>
                     </tr>
                     <tr class = "controller-row">
-                        <td><label for="guide_pulse">Guide pulse (s):</label></td>
+                        <td><label for="guide_arcsec">Guide arcsec:</label></td>
                         <td>
-                            <input type="range" id="guide_pulse" name="guide_pulse" min="0" max="2" step="0.1" value="0" oninput="submitGuidePulse()" title="Set the guide pulse duration for RA/DEC in ABS mode (seconds)">
-                            <span id="guide_pulse_value">0</span>
+                            <input type="range" class="normal-range" id="guide_arcsec" name="guide_arcsec" min="0" max="10" step="1" value="0" oninput="submitGuideArcsec()" title="Set the guide arcsec for RA/DEC in ABS mode">
+                            <span id="guide_arcsec_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -419,28 +410,28 @@
                     <tr class = "controller-row">
                         <td><label for="max_drift_ra">Max Drift RA :</label></td>
                         <td>
-                            <input type="range" id="max_drift_ra" name="max_drift_ra" min="0" max="10" step = "0.1" value="0" oninput="submitMaxDrift('ra')">
+                            <input type="range" class="normal-range" id="max_drift_ra" name="max_drift_ra" min="0" max="10" step = "0.1" value="0" oninput="submitMaxDrift('ra')">
                             <span id="max_drift_ra_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="ra_pid_p">RA  PID p:</label></td>
                         <td>
-                            <input type="range" id="ra_pid_p" name="ra_pid_p" min="0.0" max="10.0" step="0.01" value="0.0" onchange="submitPID()">
+                            <input type="range" class="normal-range" id="ra_pid_p" name="ra_pid_p" min="0.0" max="10.0" step="0.01" value="0.0" onchange="submitPID()">
                             <span id="ra_pid_p_value">0.0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="ra_pid_i">RA  PID i:</label></td>
                         <td>
-                            <input type="range" id="ra_pid_i" name="ra_pid_i" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
+                            <input type="range" class="normal-range" id="ra_pid_i" name="ra_pid_i" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
                             <span id="ra_pid_i_value">0.0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="ra_pid_d">RA  PID d:</label></td>
                         <td>
-                            <input type="range" id="ra_pid_d" name="ra_pid_d" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
+                            <input type="range" class="normal-range" id="ra_pid_d" name="ra_pid_d" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
                             <span id="ra_pid_d_value">0.0</span>
                         </td>
                     </tr>
@@ -462,28 +453,28 @@
                     <tr class = "controller-row">
                         <td><label for="max_drift_dec">Max Drift DEC:</label></td>
                         <td>
-                            <input type="range" id="max_drift_dec" name="max_drift_dec" min="0" max="10" step = "0.1" value="0" oninput="submitMaxDrift('dec')">
+                            <input type="range" class="normal-range" id="max_drift_dec" name="max_drift_dec" min="0" max="10" step = "0.1" value="0" oninput="submitMaxDrift('dec')">
                             <span id="max_drift_dec_value">0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="dec_pid_p">DEC PID p:</label></td>
                         <td>
-                            <input type="range" id="dec_pid_p" name="dec_pid_p" min="0.0" max="10.0" step="0.01" value="0.0" onchange="submitPID()">
+                            <input type="range" class="normal-range" id="dec_pid_p" name="dec_pid_p" min="0.0" max="10.0" step="0.01" value="0.0" onchange="submitPID()">
                             <span id="dec_pid_p_value">0.0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="dec_pid_i">DEC PID i:</label></td>
                         <td>
-                            <input type="range" id="dec_pid_i" name="dec_pid_i" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
+                            <input type="range" class="normal-range" id="dec_pid_i" name="dec_pid_i" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
                             <span id="dec_pid_i_value">0.0</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="dec_pid_d">DEC PID d:</label></td>
                         <td>
-                            <input type="range" id="dec_pid_d" name="dec_pid_d" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
+                            <input type="range" class="normal-range" id="dec_pid_d" name="dec_pid_d" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
                             <span id="dec_pid_d_value">0.0</span>
                         </td>
                     </tr>
@@ -512,35 +503,47 @@
                     <tr class = "controller-row">
                         <td><label for="pixel_scale">Pixel Scale (arcsec/pixel):</label></td>
                         <td>
-                            <input type="range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="3.2" step="0.1" onchange="submitPixelScale()">
+                            <input type="range" class="normal-range" id="pixel_scale" name="pixel_scale" min="0.1" max="10.0" value="3.2" step="0.1" onchange="submitPixelScale()">
                             <span id="pixel_scale_value">3.2</span>
                         </td>
                     </tr>
+
+                    <tr class = "controller-row">
+                        <td><label for="rotation_angle">Rotation Angle (deg):</label></td>
+                        <td>
+                            <input type="range" class="normal-range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="0" step="1" oninput="submitRotationAngle()">
+                            <span id="rotation_angle_value">0</span>
+                        </td>
+                        <td>
+                            <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>                            
+                        </td>
+                    </tr>
+
                     <tr class = "controller-row">
                         <td><label for="integrate_frames">Int Frames (1 - 20):</label></td>
                         <td>
-                            <input type="range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="1" onchange="submitIntegrate_frames()">
+                            <input type="range" class="normal-range" id="integrate_frames" name="integrate_frames" min="1" max="20" step="1" value="1" onchange="submitIntegrate_frames()">
                             <span id="integrate_frames_value">1</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="r_channel">R Channel:</label></td>
                         <td>
-                            <input type="range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="1" onchange="submitChannels()">
+                            <input type="range" class="normal-range" id="r_channel" name="r_channel" min="0.0" max="1.0" step="0.01" value="1" onchange="submitChannels()">
                             <span id="r_channel_value">1</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="g_channel">G Channel:</label></td>
                         <td>
-                            <input type="range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="1" onchange="submitChannels()">
+                            <input type="range" class="normal-range" id="g_channel" name="g_channel" min="0.0" max="1.0" step="0.01" value="1" onchange="submitChannels()">
                             <span id="g_channel_value">1</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="b_channel">B Channel:</label></td>
                         <td>
-                            <input type="range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="1" onchange="submitChannels()">
+                            <input type="range" class="normal-range" id="b_channel" name="b_channel" min="0.0" max="1.0" step="0.01" value="1" onchange="submitChannels()">
                             <span id="b_channel_value">1</span>
                         </td>
                     </tr>
@@ -609,7 +612,7 @@
                     <tr class = "controller-row">
                         <td><label for="camera_exposure">Exposure:</label></td>
                         <td>
-                            <input type="range" id="camera_exposure" min="0" max="5000" step="1" value="0" onchange="submitExposure(this.value)">
+                            <input type="range" class="normal-range" id="camera_exposure" min="0" max="5000" step="1" value="0" onchange="submitExposure(this.value)">
                             <span id="camera_exposure_value">0</span>
                         </td>
                     </tr>
@@ -749,7 +752,7 @@
                             <span id="analysis_snr_label">SNR threshold:</span>
                         </td>
                         <td>
-                            <input type="range" id="analysis_snr" name="analysis_snr" min="0" max="10" step="0.1" value="1.5" oninput="document.getElementById('analysis_snr_value').textContent = this.value">
+                            <input type="range" class="normal-range" id="analysis_snr" name="analysis_snr" min="0" max="10" step="0.1" value="1.5" oninput="document.getElementById('analysis_snr_value').textContent = this.value">
                             <span id="analysis_snr_value">1.5</span>
                         </td>
                     </tr>
@@ -758,7 +761,7 @@
                             <span id="analysis_std_label">STD threshold:</span>
                         </td>
                         <td>
-                            <input type="range" id="analysis_std" name="analysis_std" min="0" max="10" step="0.1" value="4" oninput="document.getElementById('analysis_std_value').textContent = this.value">
+                            <input type="range" class="normal-range" id="analysis_std" name="analysis_std" min="0" max="10" step="0.1" value="4" oninput="document.getElementById('analysis_std_value').textContent = this.value">
                             <span id="analysis_std_value">4</span>
                         </td>
                     </tr>
@@ -767,7 +770,7 @@
                             <span id="analysis_fwhm_label">FWHM:</span>
                         </td>
                         <td>
-                            <input type="range" id="analysis_fwhm" name="analysis_fwhm" min="0" max="10" step="0.1" value="3" oninput="document.getElementById('analysis_fwhm_value').textContent = this.value">
+                            <input type="range" class="normal-range" id="analysis_fwhm" name="analysis_fwhm" min="0" max="10" step="0.1" value="3" oninput="document.getElementById('analysis_fwhm_value').textContent = this.value">
                             <span id="analysis_fwhm_value">3</span>
                         </td>
                     </tr>
@@ -825,7 +828,7 @@
                     </tr>
                     <tr class = "controller-row">
                         <td colspan="3">
-                            <h2>PEC analysis<button class="help-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">?</button><span id="pec_capture_running" class="hidden"> is running...</span></h2> 
+                            <h2>PEC and Drift analysis<button class="help-button" title="Show PEC analysis instructions" onclick="showPECInstructions()">?</button><span id="pec_capture_running" class="hidden"> is running...</span></h2> 
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -835,13 +838,8 @@
                     </tr>
 
                     <tr class = "controller-row">
-                        <td colspan="3">                            
-                            <button class="command-button" title="Start PEC analysis procedure. Takes 10 minutes!" onclick="startPECDataCapture()">Start</button>
-                        </td>
-                    </tr>
-                    <tr class = "controller-row">
                         <td><label for="pec_mspr">Microsteps/rev (MSPR):</label></td>
-                        <td><input class="two_buttons_input" type="number" id="pec_mspr" value="12000" title="Number of microsteps the RA motor makes to turn the worm gear one full revolution."></td>
+                        <td><input class="two_buttons_input" type="number" id="pec_mspr" value="24000" title="Number of microsteps the RA motor makes to turn the worm gear one full revolution."></td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="pec_rat">RA gear teeth (RAT):</label></td>
@@ -861,11 +859,6 @@
                             <div id="pec_table" class = "flex1">
                                 <textarea id="pec_table_text" rows="33" placeholder="Result"></textarea>
                                 <div id="pec_analysis_container">
-                                    <div>
-                                        <button class="command-button" title="Save captured  data (pos,avg,count,delta) as CSV" onclick="savePECAnalysisData()">Save</button>
-                                        <button class="command-button" title="Load captured data from CSV" onclick="document.getElementById('pec_analysis_file_input').click()">Load</button>
-                                        <input type="file" id="pec_analysis_file_input" accept=".csv,.txt" style="display:none" onchange="loadPECAnalysisData(event)">
-                                    </div>
                                     <table id="pec_analysis_table">
                                         <thead>
                                             <tr><th>Pos</th><th>Avg&quot;</th><th>N</th><th>&Delta;</th></tr>
@@ -876,16 +869,37 @@
                             </div>
                         </td>
                         <td >                            
+
+                            <span>Data collection</span><br>
+                            <button class="command-button" title="Start PEC data collection. Takes 10 minutes!" onclick="startPECDataCapture()">Collect</button>
+                            <br>
+                            <button class="command-button" title="Load captured data from CSV" onclick="document.getElementById('pec_analysis_file_input').click()">Load</button>
+                            <button class="command-button" title="Save captured  data (pos,avg,count,delta) as CSV" onclick="savePECAnalysisData()">Save</button>                            
+                            <input type="file" id="pec_analysis_file_input" accept=".csv,.txt" style="display:none" onchange="loadPECAnalysisData(event)">
+
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                            <span>Data analysis</span><br>
+
+                            <button class="command-button" title="Calculate offset (drift) of one full cycle and subtract from data." onclick="calculateOffset()">Offset/Drift</button>
+                            <br>
+                            <button class="command-button" title="Apply FFT-smoothed data to corrected error" onclick="applyFourierToCorrectedError()">FFT</button>
+                            <input type="range" class="small-range" id="pec_fft_keep" min="0" max="100" value="50" step="1" title="Fourier low-pass filter of PEC data, plotted on chart.Percentage of FFT coefficients to keep" oninput="fourierFilterPECData()">                            
+                            <button class="command-button" title="Re-analyze and generate PEC correction table based on captured data" onclick="generatePECCorrectionTable()">Apply->PEC</button>
+                            <input type="range" class="small-range" id="pec_attenuation" min="0" max="100" value="50" step="1" title="Attenuation factor applied to the generated PEC correction">                            
+                            <button class="command-button" title="Normalize PEC table" onclick="normalizePECTable()">Normalize</button>
+                            <button class="command-button" title="Smooth large jumps (>500) between consecutive PEC corrections" onclick="smoothPECTable()">Smooth</button>                            
+
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                            <span>PEC table</span><br>
+
                             <button class="command-button" title="Get PEC table from arduino" onclick="receivePEC()">Get PEC</button>
                             <button class="command-button" title="Send PEC table to arduino" onclick="sendPEC()">Send PEC</button>
                             <button class="command-button" title="Load PEC table from CSV" onclick="document.getElementById('pec_table_file_input').click()">Load PEC</button>
                             <input type="file" id="pec_table_file_input" accept=".csv,.txt" style="display:none" onchange="loadPECTable(event)">
                             <button class="command-button" title="Save PEC table as CSV" onclick="savePECTable()">Save PEC</button>
-                            <button class="command-button" title="Generate boundaries and offset for PEC analysis" onclick="generateBoundariesAndOffset()">Offset</button>
-                            <button class="command-button" title="Re-analyze and generate PEC correction table based on captured data" onclick="generatePECCorrectionTable()">Analyze</button>
-                            <button class="command-button" title="Normalize PEC table" onclick="normalizePECTable()">Normalize</button>
-                            <button class="command-button" title="Smooth large jumps (>500) between consecutive PEC corrections" onclick="smoothPECTable()">Smooth</button>                            
-                            <button class="command-button" title="Create zero PEC table" onclick="createZeroPECTable(50)">Zero Table</button>
+                            <button class="command-button" title="Create zero PEC table" onclick="createZeroPECTable()">Zero PEC</button>
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+
                             <div class = "flex1"></div>
                         </td>
                     </tr>                    
@@ -963,16 +977,16 @@
             <button class="command-button" id="reset_button" onclick="resetChart()">Reset</button>
         </div>
         <div class="chart-canvases">
-            <canvas id="correctionsChart" width="1760px" height="200px"></canvas>
-            <canvas id="pecChart" width="1760px" height="200px" style="display: none;"></canvas>
+            <canvas id="correctionsChart" width="1760px" height="300px"></canvas>
+            <canvas id="pecChart" width="1760px" height="300px" style="display: none;"></canvas>
         </div>
     </div>
 
     <div id="pec-instructions-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pec-instructions-title">
         <div class="modal-content">
             <button class="modal-close" type="button" aria-label="Close instructions" onclick="hidePECInstructions()">&times;</button>
-            <h2 id="pec-instructions-title">PEC Analysis Instructions</h2>
-            <p>To perform PEC (periodic error correction) analysis, do the following steps:</p>
+            <h2 id="pec-instructions-title">PEC and Drift Analysis Instructions</h2>
+            <p>To perform PEC (periodic error correction) and Drift(clock inaccuracy) analysis, do the following steps:</p>
             <ol>
                 <li>Set up the telescope, <b>polar align</b>. <b>Do not yet start telescope!</b></li>
                 <li>Point the telescope to near astronomical equator and near vertical. Put <b>pier on E side</b>.</li>
@@ -997,6 +1011,9 @@
         </div>
      </div>
 </body>
+
+<script src="loupe.js"></script>
+<script src="camera.js"></script>
 
 <script type="module">
     import { TelescopeSim } from '/static/vr/telescope_sim_novr.js';
@@ -1255,9 +1272,7 @@
         }
     }
     setInterval(updateInputBackgrounds, 1000); // Update every second
-</script>
-<script src="../static/loupe.js"></script>
-<script>
+
     const videoFeed = document.getElementById('video_feed_canvas');
     const full_feed_canvas = document.getElementById('full_feed_canvas');
     const resultTextarea = document.getElementById('result');
@@ -1281,11 +1296,12 @@
                 ],
             },
             options: {
+                animation: false,
                 responsive: false,
                 scales: {
                     x: {
                         type: 'linear',
-                        title: { display: true, text: 'Time' },
+                        title: { display: false, text: 'Time' },
                         grid: {
                             color: '#919191', // Set grid line color
                         },
@@ -1316,7 +1332,7 @@
             data: {
                 datasets: [
                     {
-                        label: 'RA Error (arcsec)',
+                        label: 'RA Error raw (arcsec)',
                         data: [], // Points will be added dynamically
                         borderColor: 'purple',
                         backgroundColor: 'purple',
@@ -1336,6 +1352,27 @@
                         yAxisID: 'y1',
                         order: 1, // higher order draws first/behind, so the RA error points stay on top
                     },
+                    {
+                        label: 'RA Error (Fourier filtered)',
+                        type: 'line',
+                        data: [], // Filled in by fourierFilterPECData()
+                        borderColor: 'lime',
+                        backgroundColor: 'lime',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        yAxisID: 'y',
+                        order: 0,
+                    },
+                    {
+                        label: 'RA Error smoothed (arcsec)',
+                        data: [], // Points will be added dynamically
+                        borderColor: 'red',
+                        backgroundColor: 'red',
+                        pointRadius: 3,
+                        yAxisID: 'y',
+                        order: 0,
+                    },
+
                 ],
             },
             options: {
@@ -1344,7 +1381,7 @@
                     x: {
                         type: 'linear',
                         position: 'bottom',
-                        title: { display: true, text: 'PEC Progress (%)' },
+                        title: { display: false, text: 'PEC Progress (%)' },
                         min: 0,
                         max: 99, // Static grid for x-axis
                         grid: { color: '#919191' },
@@ -1358,6 +1395,12 @@
                         position: 'right',
                         title: { display: true, text: 'PEC Correction (\u00b5s/step)' },
                         grid: { display: false },
+                        // Keep zero centered by making the range symmetric
+                        afterDataLimits: (axis) => {
+                            const m = Math.max(Math.abs(axis.min), Math.abs(axis.max)) || 1;
+                            axis.min = -m;
+                            axis.max = m;
+                        },
                     },
                 },
             },
@@ -1370,7 +1413,7 @@
         initializePECChart(); 
         updateCorrections();
         startVideoFeed();
-        loadCameraProperties();
+        loadCameraControls();
         updateSkymapChipUI();
         updatePECChartOverlay();
         populateCameraList();
@@ -1571,15 +1614,6 @@
         setSliderFromServer('min_star_size', data.min_star_size);
         setSliderFromServer('max_star_size', data.max_star_size);
 
-        setSliderFromServer('rotation_angle', data.rotation_angle.toFixed(3));
-        updateSkyMapRotation(data.rotation_angle);
-
-        setSliderFromServer('pixel_scale', data.pixel_scale);
-        setSliderFromServer('integrate_frames', data.integrate_frames);
-        setSliderFromServer('r_channel', data.r_channel);
-        setSliderFromServer('g_channel', data.g_channel);
-        setSliderFromServer('b_channel', data.b_channel);
-
         document.getElementById('guiding').checked = data.guiding;
         updateGotoButtonState(data.guiding);
         document.getElementById('save_frames').checked = data.save_frames;
@@ -1592,8 +1626,9 @@
             guidingIndicator.classList.toggle('on-red', noLock);
         }
 
-        setSliderFromServer('guide_pulse', data.guide_pulse);
+        setSliderFromServer('guide_arcsec', data.guide_arcsec);
         setSliderFromServer('guide_interval', data.guide_interval);
+        document.getElementById('guide_arcsec_value').textContent = data.guide_arcsec.toFixed(2);
         document.getElementById('guide_interval_auto').textContent = Number(data.guide_interval) === 0 ? 'auto' : '';
 
         setSliderFromServer('ra_pid_p', data.ra_pid_p);
@@ -1604,13 +1639,6 @@
         setSliderFromServer('dec_pid_i', data.dec_pid_i);
         setSliderFromServer('dec_pid_d', data.dec_pid_d);
 
-        setSliderFromServer('camera_exposure', data.exposure);
-
-        const cameraList = document.getElementById('camera_list');
-        if (cameraList) {
-            cameraList.value = data.camera_index;
-        }
-
 
         const methodRadio_ra = document.querySelector(`input[name="guide_method_ra"][value="${data.guide_method_ra}"]`);
         if (methodRadio_ra) {
@@ -1620,37 +1648,6 @@
         if (methodRadio_dec) {
             methodRadio_dec.checked = true;
         }
-        // Set the camera FPS radio button
-        const fpsRadio = document.querySelector(`input[name="camera-fps"][value="${data.camera_fps}"]`);
-        if (fpsRadio) {
-            fpsRadio.checked = true;
-        }
-
-        // Set the resolution radio button
-        const resolutionRadio = document.querySelector(`input[name="resolution"][value="${data.resolution.width}x${data.resolution.height}"]`);
-        if (resolutionRadio) {
-            resolutionRadio.checked = true;
-        }
-
-        // Set the video mode radio button
-        const videoModeRadio = document.querySelector(`input[name="video-mode"][value="${data.video_mode}"]`);
-        if (videoModeRadio) {
-            videoModeRadio.checked = true;
-        }
-
-        // Set the camera color radio button
-        const colorRadioButton = document.querySelector(`input[name="camera_color"][value="${data.camera_color}"]`);
-        if (colorRadioButton) {
-            colorRadioButton.checked = true;
-        }
-
-
-        // Update the camera_info element
-        const cameraInfo = document.getElementById('camera_info');
-        if (cameraInfo) {
-            cameraInfo.textContent = `FPS:${data.camera_fps} ${data.video_mode} ${data.resolution.width}x${data.resolution.height} exposure:${data.exposure_ms}ms frame time:${data.last_frame_time.toFixed(2)}s`;
-        }
-
 
         // Update the star lock state
         const starLockState = document.getElementById('star-lock-state');
@@ -1663,7 +1660,6 @@
             starLockState.classList.remove('lock');
             starLockState.classList.add('no-lock');
         }
-
 
         // Decode the Base64 image and set it as the src of the detail_feed image
         const detailFeed = document.getElementById('detail_feed');
@@ -1724,7 +1720,7 @@
 
         // Limit the number of data points to avoid overcrowding
         correctionsChart.data.datasets.forEach(dataset => {
-            if (dataset.data.length > 120) {
+            if (dataset.data.length > 200) {
                 dataset.data.shift(); // Remove the oldest data point
             }
         });
@@ -1734,16 +1730,16 @@
 
 
         // Update the PEC chart
-        if (data.pec_position && data.last_correction.ra_axis_arcsec !== undefined) {
+        if (data.pec_position && data.last_correction.ra_axis_arcsec !== undefined && data.star_locked && data.last_correction.ra_axis_arcsec!==0) {
             pecChart.data.datasets[0].data.push({
                 x: data.pec_position, // PEC progress (x-axis)
                 y: data.last_correction.ra_arcsec, // RA error (y-axis)
             });
 
             // Limit the number of points to avoid overcrowding
-            /*if (pecChart.data.datasets[0].data.length > 100) {
+            if (pecChart.data.datasets[0].data.length > 1000) {
                 pecChart.data.datasets[0].data.shift();
-            }*/
+            }
 
             pecChart.update();
         }
@@ -1763,7 +1759,9 @@
         correctionsChart.update(); // Update the chart to reflect changes
 
         // Clear data for pecChart
-        pecChart.data.datasets[0].data = []; // Clear all data points
+        pecChart.data.datasets.forEach(dataset => {
+            dataset.data = []; // Clear all data points
+        });
         pecChart.update(); // Update the chart to reflect changes
 
         console.log('Charts have been reset.');
@@ -2194,6 +2192,9 @@
         }
         document.getElementById(panel).classList.remove('hidden');
 
+        if (panel === 'pec_panel') showPECChart();
+        if (panel === 'autoguider_panel') showCorrectionsChart();
+
         for (const panelButtonId of ['control_frame_button', 
                                      'autoguider_panel_button', 
                                      'camera_panel_button', 
@@ -2356,95 +2357,7 @@
         });
     }
 
-    function loadCameraProperties() {
-        fetch('/get_camera_properties')
-        .then(response => response.json())
-        .then(data => {
-            const cameraPanel = document.getElementById('camera_panel');
 
-            const rows = cameraPanel.querySelectorAll('tr'); // Get all rows in the camera panel
-
-            rows.forEach(row => {
-                if (row.dynamic) {
-                    row.remove(); // Remove the row if it has the dynamic property
-                }
-            });
-
-            for (const [property, details] of Object.entries(data)) {
-                const row = document.createElement('tr');
-                row.className = 'controller-row';
-                row.dynamic = true;
-
-                const labelCell = document.createElement('td');
-                labelCell.innerHTML = `<label for="${property}">${property.replace(/_/g, ' ')}:</label>`;
-                row.appendChild(labelCell);
-
-                const controlCell = document.createElement('td');
-                
-
-                if (details.type === 'int') {
-                    // Create a slider for integer properties
-                    if(property === "exposure_time_absolute") {
-                        input_min = 0;
-                        input_max = Math.log(details.max)/Math.log(Math.sqrt(2))+0.1;
-                        value = Math.log(details.value)/Math.log(Math.sqrt(2));
-                        controlCell.innerHTML = `
-                        <input type="range" id="${property}" name="${property}" 
-                            min="${input_min}" max="${input_max}" step="0.1"
-                            value="${value}" 
-                            oninput="updateExposure('${property}', this.value, ${details.max})"
-                            onchange="submitProperty( '${property}', document.getElementById('exposure_time_absolute_value').textContent)">
-                        <span id="${property}_value">${details.value}</span>`;
-                    } else {
-                        controlCell.innerHTML = `
-                        <input type="range" id="${property}" name="${property}" 
-                            min="${details.min}" max="${details.max}" step="${details.step}" 
-                            value="${details.value}" 
-                            oninput="updateLabel('${property}', this.value)"
-                            onchange="submitProperty('${property}', this.value)">
-                        <span id="${property}_value">${details.value}</span>`;
-                    }
-                } else if (details.type === 'bool') {
-                    // Create a checkbox for boolean properties
-                    controlCell.innerHTML = `
-                        <input type="checkbox" id="${property}" name="${property}" 
-                            ${details.value ? 'checked' : ''} 
-                            onchange="submitProperty('${property}', this.checked ? 1 : 0)">
-                    `;
-                } else if (details.type === 'menu') {
-                    // Create radio buttons for menu properties
-                    const options = Object.entries(details.options)
-                        .map(([key, label]) => `
-                            <input type="radio" id="${property}_${key}" name="${property}" value="${key}" 
-                                ${details.value == key ? 'checked' : ''} 
-                                onchange="submitProperty('${property}', ${key})">
-                            <label for="${property}_${key}">${label}</label>
-                        `);//.join('<br>');
-                    controlCell.innerHTML = options;
-                }
-
-                row.appendChild(controlCell);
-                cameraPanel.appendChild(row);
-            }
-
-            // blank row
-            const row = document.createElement('tr');
-            row.innerHTML="<td></td><td></td>"
-            cameraPanel.appendChild(row);
-
-
-        })
-        .catch(error => console.error('Error fetching camera properties:', error));
-    }
-
-    function updateExposure(property, value, max_value) {
-        const exposure = Math.min(Math.pow(Math.sqrt(2), value), max_value);
-        const label = document.getElementById(`${property}_value`);
-
-        if (label) {
-            label.textContent = exposure.toFixed(0); // Update label
-        }
-    }
 
     function updateLabel(property, value) {
         const label = document.getElementById(`${property}_value`);

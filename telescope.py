@@ -251,24 +251,21 @@ class Telescope:
 
     def try_on_scope(self, func):
         with self.lock:
-            while True:
+            retries = 4
+            while retries > 0:
                 try:
                     if self._serial_connection.is_open:
                         return func()
                     else:
                         raise ConnectionError("Serial connection is not open")
-                except serial.SerialException as se:
-                    print(f"Serial error: {se} - Attempting to reset USB")
-                    if self.reset_usb():
-                        continue
-                    else:
-                        raise ConnectionError("USB reset failed")
                 except Exception as e:
                     print(f"Serial exception: {e} - Attempting to reset USB")
                     if self.reset_usb():
+                        retries -= 1
                         continue
                     else:
                         raise ConnectionError("USB reset failed")
+            raise ConnectionError("Max retries exceeded for serial operation")
 
     def write_scope(self, data):
         if self.log_communication:
@@ -297,8 +294,8 @@ class Telescope:
         return data
 
     def start_bridge(self):
-        if self._thread is not None:
-            print("telescope bridge started...")
+        if self._thread is not None and self._thread.is_alive():
+            print("telescope bridge already running...")
             return
         self._thread = Thread(target=self.run_serial_bridge)
         self._thread.start()
@@ -330,48 +327,52 @@ class Telescope:
         print("Starting serial bridge...")
         while self.running:
             if not self.pause:
-                current_time = time.time()
+                try:
+                    current_time = time.time()
+                    
+                    if not self.quiet:  # in quiet mode, do not disturb traffic
+                        # get ra/dec position every 4 seconds
+                        if current_time - last_position_time >= 4:
+                            self.get_current_position()
+                            if self.scope_info["slewing"]:
+                                self.getSlewDistance()
+                            last_position_time = current_time
+                        # get PEC position every 5 seconds
+                        if current_time - last_pec_position_time >= 5:
+                            self.get_PEC_position()
+                            last_pec_position_time = current_time
+                        # get info every 33 seconds
+                        if current_time - last_info_time >= 33:
+                            self.get_info()
+                            last_info_time = current_time
+
+                    # check if btserial open/closed; it will auto open/close serial port
+                    bt.check_status_bt()
+
+                    if bt.in_waiting() > 0:  # Check if there’s any data waiting
+                        data = bt.read(bt.in_waiting())  # Read all available bytes
+                        if data:                         
+                            str = data.decode()
+                            if(str.startswith("!O#")):
+                                print("Orientation command received from BT serial")
+                                result = TelescopeInitializePositionTask(self).execute()
+                                bt.write(json.dumps(result).encode('utf-8'))
+                            else:
+                                self.write_scope(data)  # Write it to scope
+
+                    with self.lock:
+                        if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
+                            data = self.read_scope()  # Read all available bytes                        
+                            if data:  # Ensure data was read                        
+                                bt.write(data)       # will write if open
+                                #print(f"telescope bridge: {data}")
+    #                           #tcp.write(data)  # will write if open
                 
-                if not self.quiet:  # in quiet mode, do not disturb traffic
-                    # get ra/dec position every 4 seconds
-                    if current_time - last_position_time >= 4:
-                        self.get_current_position()
-                        if self.scope_info["slewing"]:
-                            self.getSlewDistance()
-                        last_position_time = current_time
-                    # get PEC position every 5 seconds
-                    if current_time - last_pec_position_time >= 5:
-                        self.get_PEC_position()
-                        last_pec_position_time = current_time
-                    # get info every 33 seconds
-                    if current_time - last_info_time >= 33:
-                        self.get_info()
-                        last_info_time = current_time
-
-                # check if btserial open/closed; it will auto open/close serial port
-                bt.check_status_bt()
-
-                if bt.in_waiting() > 0:  # Check if there’s any data waiting
-                    data = bt.read(bt.in_waiting())  # Read all available bytes
-                    if data:                         
-                        str = data.decode()
-                        if(str.startswith("!O#")):
-                            print("Orientation command received from BT serial")
-                            result = TelescopeInitializePositionTask(self).execute()
-                            bt.write(json.dumps(result).encode('utf-8'))
-                        else:
-                            self.write_scope(data)  # Write it to scope
-
-                with self.lock:
-                    if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
-                        data = self.read_scope()  # Read all available bytes                        
-                        if data:  # Ensure data was read                        
-                            bt.write(data)       # will write if open
-                            #print(f"telescope bridge: {data}")
-#                           #tcp.write(data)  # will write if open
+                except Exception as e:
+                    print(f"Error in serial bridge loop: {e}")
                 
-                # Brief sleep to avoid high CPU usage
-                time.sleep(0.05)  # 50ms delay
+            # Brief sleep to avoid high CPU usage
+            time.sleep(0.05)  # 50ms delay
 
         print("Stopping serial bridge...")
 
@@ -435,11 +436,15 @@ class Telescope:
 
     def send_move(self, direction):
         if self.speed == 'A':
+            mv = 4
             if direction=='n':
-                dec = 10
+                PTCAbsMoveDEC(mv).execute(self)
             elif direction=='s':
-                dec = -10
-            PTCAbsMoveDEC(dec).execute(self)
+                PTCAbsMoveDEC(-mv).execute(self)
+            elif direction=='e':
+                PTCAbsMoveRA(mv).execute(self)
+            elif direction=='w':
+                PTCAbsMoveRA(-mv).execute(self)            
         else:
             LXMove(direction).execute(self)
 
@@ -536,8 +541,11 @@ class Telescope:
         time.sleep(t)
         LXStop(direction).execute(self)
 
-    def send_abs_dec_correction(self, direction):
-        PTCAbsMoveDEC(direction).execute(self)
+    def send_abs_ra_correction(self, arcsec):
+        PTCAbsMoveRA(arcsec).execute(self)
+
+    def send_abs_dec_correction(self, arcsec):
+        PTCAbsMoveDEC(arcsec).execute(self)
 
     def send_backlash_comp_ra(self, comp):
         PTCSetBacklashRA(comp).execute(self)

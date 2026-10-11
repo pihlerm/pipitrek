@@ -355,7 +355,7 @@ class TelescopeMeridianFlipTask(TelescopeTask):
         self.telescope.send_pier('F')
         while self.telescope.getSlewDistance()=="1":
             time.sleep(2)
-        
+        self.telescope.get_info()
         return self._exit({'status': 'ok', 'message': 'Pier flip finished.'})
 
     def stop(self):        
@@ -431,8 +431,8 @@ class TelescopeInitializePositionTask(TelescopeTask):
         self.telescope.send_set_to(result.get('ra'), result.get('dec'))
         self.telescope.send_lst()
         if -180 <= result.get('rotation') <= 180:
-            self.autoguider.rotation_angle = result.get('rotation')
-            self.autoguider.pixel_scale = result.get('scale')
+            self.camera.rotation_angle = result.get('rotation')
+            self.camera.pixel_scale = result.get('scale')
 
         
         return self._exit(result)

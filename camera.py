@@ -32,6 +32,8 @@ class Camera:
             self.last_mask_time = 0             # Time spent in hot pixel masking for the last frame (s)
             # camera settings
             self.color = True                   # True for color, False for grayscale
+            self.rotation_angle = 0.0            # Camera orientation in degrees (-180 to 180)
+            self.pixel_scale = 3.2               # Arcseconds per pixel at the equator
             self.r_channel = 1.0                # Float for R channel (0.0–1.0)
             self.g_channel = 1.0                # Float for G channel (0.0–1.0)
             self.b_channel = 1.0                # Float for B channel (0.0–1.0)

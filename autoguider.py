@@ -77,8 +77,6 @@ class Autoguider:
         self._initialized = True
 
         self.executor = ThreadPoolExecutor(max_workers=4)  # Create a thread pool with 4 workers
-        self.pending_tasks = 0  # Counter for pending tasks
-        self.task_lock = Lock()  # Lock to ensure thread-safe updates to the counter
 
         self.analyzer = Analyzer()
         try:
@@ -93,8 +91,8 @@ class Autoguider:
         # "PID" - Proportional-Integral-Derivative control
         # "REL" - Relative movement: change telescope speed in RA/DEC based on the detected error using telecsope.send_start_movement_speed
         #         PipiTrek command !S
-        # "ABS" - Absolute movement: change telescope position (move telescope by the calculated error) using telescope command telescope.send_correction
-        #         PipiTrek command LXMove by time pulse
+        # "ABS" - Absolute movement: change telescope position (move telescope by the calculated error) using telescope command telescope.send_abs_ra_correction and telescope.send_abs_dec_correction
+        #         PipiTrek command PTCAbsMoveRA/PTCAbsMoveDEC by arcseconds (!SB and !SA respectively)
         # "MON" - Monitor only, no actual guiding
         self.guide_methods = {
             "PID": self.guide_scope_pid,
@@ -132,10 +130,8 @@ class Autoguider:
         self.last_auto_threshold_interval = 60   # Interval in seconds for auto threshold recalculation
         self.auto_threshold_running = False # True while a background auto_threshold computation is in flight
 
-        self.rotation_angle = 0.0           # Float for rotation angle (-180 to 180)
-        self.pixel_scale = 3.2              # Float for pixel scale (0.1–10.0)
         self.guide_interval = 1.0           # Time period for tracking in seconds
-        self.guide_pulse = 0.4              # Correction length: time between move start and move end (seconds)
+        self.guide_arcsec = 1               # Correction step: number of arcseconds per guide move
         self.max_distance = 20              # Maximum distance to search for stars (pixels)
         self.edge_threshold = 20            # Minimum distance from the edge of the frame to consider a star valid (pixels)
         self.save_frames = False            # Save each frame to disk
@@ -183,9 +179,16 @@ class Autoguider:
             self.focus_metric = focus_metric
             return centroids
 
+    def update_threshold_image(self, frame):
+        # detect_stars only runs while a star is tracked; keep the threshold feed alive otherwise
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+        _, thresh = cv2.threshold(gray, self.gray_threshold, 255, cv2.THRESH_BINARY)
+        with self.lock:
+            self.threshold = thresh
+
     def rotate_vector(self, dx, dy):
         """Rotate (dx, dy) vector by rotation_angle (degrees) counterclockwise."""
-        angle_rad = math.radians(self.rotation_angle)
+        angle_rad = math.radians(self.camera.rotation_angle)
         new_dx = round(dx * math.cos(angle_rad) - dy * math.sin(angle_rad), 4)
         new_dy = round(dx * math.sin(angle_rad) + dy * math.cos(angle_rad), 4)
         return new_dx, new_dy
@@ -295,25 +298,9 @@ class Autoguider:
             #nothing to do
             return
 
-        # do not add corrections if some still pending
-        if self.pending_tasks>0:
-            print(f"Guide command cancelled because last correction still in progress!")
-            self.last_correction["ra"] = 0
-            self.last_correction["dec"] = 0
-            return
-
-      # Helper function to decrement the counter when a task finishes
-        def task_done_callback(future):
-            with self.task_lock:
-                self.pending_tasks -= 1
-
         # RA corrections
         if self.last_correction["ra"] != 0:
-            dir = 'w' if self.last_correction["ra"] == -1 else 'e'
-            with self.task_lock:
-                self.pending_tasks += 1
-            future = self.executor.submit(telescope.send_correction, dir, self.guide_pulse)
-            future.add_done_callback(task_done_callback)  # Decrement counter when task finishes
+            telescope.send_abs_ra_correction(self.last_correction["ra"]) # 1 arcsec correction
 
         # DEC corrections
         if self.last_correction["dec"] != 0:
@@ -385,7 +372,7 @@ class Autoguider:
     # Measure seeing based on current centroid shifts
     # If tracking multiple stars at the same time, and centroids were reset between frames,
     # this method will still calculate the seeing based on the relative shifts of the centroids
-    def measure_static_seeing(self, centroids):
+    def measure_static_seeing(self, centroids, pixel_scale):
         if len(centroids) == 0:
             return 0.0
         distances = []
@@ -401,7 +388,7 @@ class Autoguider:
         # mean absolute deviation of the per-star distances from their average
         variation = np.mean(np.abs(distances - np.mean(distances)))
 
-        return float(variation)*self.pixel_scale
+        return float(variation)*pixel_scale
 
     # Measure seeing, alt method
     # Stop tracking, observe the drift over time
@@ -462,7 +449,7 @@ class Autoguider:
         dx_rot, dy_rot = self.rotate_vector(dx, dy)
         telescope = Telescope()
         declination = telescope.dec_deg if telescope.dec_deg is not None else 0
-        ra_axis_arcsec, dec_arcsec, ra_arcsec =self.pixels_to_arcseconds(dx_rot, dy_rot, self.pixel_scale, declination)
+        ra_axis_arcsec, dec_arcsec, ra_arcsec =self.pixels_to_arcseconds(dx_rot, dy_rot, self.camera.pixel_scale, declination)
         self.last_correction = {
             "ra_px": dx_rot, "dec_px": dy_rot,
             "ra_axis_arcsec": ra_axis_arcsec, "ra_arcsec": ra_arcsec, "dec_arcsec": dec_arcsec,
@@ -567,8 +554,8 @@ class Autoguider:
             A = np.vstack([x, np.ones(len(x))]).T
             m, c = np.linalg.lstsq(A, y, rcond=None)[0]
             angle_rad = math.atan(m)
-            self.rotation_angle = math.degrees(angle_rad)
-            print(f"Calibrated rotation angle: {self.rotation_angle:.1f} degrees")
+            self.camera.rotation_angle = math.degrees(angle_rad)
+            print(f"Calibrated rotation angle: {self.camera.rotation_angle:.1f} degrees")
             result = True
 
         # next, let's calculate mean deviation from the fitted line
@@ -653,8 +640,8 @@ class Autoguider:
                 dx = float(centroid3[0] - centroid1[0])
                 dy = float(centroid3[1] - centroid1[1])
                 angle_rad = -math.atan2(dy, dx)
-                self.rotation_angle = math.degrees(angle_rad)
-                self.last_status = f"Calibrated rotation angle: {self.rotation_angle:.1f} degrees"
+                self.camera.rotation_angle = math.degrees(angle_rad)
+                self.last_status = f"Calibrated rotation angle: {self.camera.rotation_angle:.1f} degrees"
                 print(self.last_status)
                 self.write_track_log(self.last_status)
                 
@@ -662,14 +649,14 @@ class Autoguider:
                     dx = float(centroid4[0] - centroid2[0])
                     dy = float(centroid4[1] - centroid2[1])
                     dx_rot, dy_rot = self.rotate_vector(dx, dy)
-                    ra_arcsec = round(dx_rot * self.pixel_scale, 0)
+                    ra_arcsec = round(dx_rot * self.camera.pixel_scale, 0)
                     telescope.send_backlash_comp_ra(abs(ra_arcsec))
                     print(f"#################backlash ra {ra_arcsec} arcsec")
                     
                     dx = float(centroid7[0] - centroid5[0])
                     dy = float(centroid7[1] - centroid5[1])
                     dx_rot, dy_rot = self.rotate_vector(dx, dy)
-                    dec_arcsec = round(dy_rot * self.pixel_scale, 0)
+                    dec_arcsec = round(dy_rot * self.camera.pixel_scale, 0)
                     telescope.send_backlash_comp_dec(abs(dec_arcsec))
                     print(f"#################backlash dec {dec_arcsec} arcsec")
             else:
@@ -835,6 +822,7 @@ class Autoguider:
                 if len(self.tracked_centroids)==0:
                     self.star_locked = False
                     self.last_correction = dict(null_correction, timestamp=ts)
+                    self.update_threshold_image(frame)
                     
                 else:
                     # Tracking mode
@@ -850,7 +838,7 @@ class Autoguider:
                         self.star_locked = True
                         if self.calculate_drift(centroids):
                             # Send correction to telescope
-                            seeing = self.measure_static_seeing(centroids)
+                            seeing = self.measure_static_seeing(centroids, self.camera.pixel_scale)
                             self.last_correction['seeing'] = seeing
                             if self.guiding:
                                 t_g = time.perf_counter()
@@ -877,4 +865,3 @@ class Autoguider:
                 last_save_time_counter = self._save_frame(frame, ts, last_save_time_counter)
 
             time.sleep(0.01)  # Small sleep to prevent busy loop
-

@@ -13,11 +13,13 @@
 
     let offsetError = 0;
     let offsetErrorCnt = 0;
+    let pecFilteredData = null;
 
-    let PEC_TABLE_LENGTH = 50;        // 50 intervals
-    const PEC_BUCKETS_PER_INTERVAL = 2; // 100 positions / 50 intervals
-    const PEC_CAPTURE_TARGET_BUCKETS = 105; // buckets needed (100 + overlap) before capture is complete
-
+    let PEC_TABLE_LENGTH = 50;        // 50 pec buckets; possible values: 10 20 25 50 100
+    
+    const DATA_INTERVALS = 100;
+    const DATA_CAPTURE_TARGET_BUCKETS = DATA_INTERVALS+5; // buckets needed (100 + overlap) before capture is complete
+    
     // Redraw the PEC chart overlay whenever the table is hand-edited in the textarea.
     document.addEventListener('DOMContentLoaded', () => {
         const pecTableTextArea = document.getElementById('pec_table_text');
@@ -49,7 +51,7 @@
             let prevX = 0;
             for (let i = 1; i < pecTable.length; i++) {
                 const correction = pecTable[i];
-                const x = (i / intervals) * 100;
+                const x = (i / intervals) * DATA_INTERVALS;
                 const y = correction + offset;
                 points.push({ x: prevX, y });
                 points.push({ x, y });
@@ -61,12 +63,12 @@
         pecChart.update();
     }
 
-    function createZeroPECTable(numrows) {
+    function createZeroPECTable() {
         // Reset the telescope to a zero PEC table before capturing, so measured errors aren't skewed
         // by a previously applied correction.
         const pec_size = parseInt(document.getElementById('pec_size').value) || 25;
         const zeroRows = new Array(pec_size + 1).fill(0);
-        document.getElementById('pec_table_text').value = zeroRows.join('\n');
+        pecTableToTextarea(zeroRows);        
     }
 
     function startPECDataCapture() {
@@ -88,8 +90,7 @@
         pecCaptureActive = false;
         document.getElementById('pec_capture_running').classList.add('hidden');
         renderPECAnalysisTable();
-        generatePECCorrectionTable();
-        alert('PEC analysis complete. Correction table generated.');
+        alert('PEC data collection complete. Proceed with analysis.');
     }
 
 
@@ -151,41 +152,128 @@
     }
 
 
-    function generateBoundariesAndOffset() {
-
-        let bucketsPerInterval = Math.round(100 / PEC_TABLE_LENGTH); 
-        const intervals = 100;
+    function calculateOffset() {
+        // Reset so repeated calls (e.g. from the FFT slider) don't accumulate
+        offsetError = 0;
+        offsetErrorCnt = 0;
 
         // Row 0 offset: difference between the starting interval's error measured on lap 1 vs lap 2
-        for (let i = 0; i < bucketsPerInterval; i++) {
-            if(pecCaptureData[pecTrackedIntervalStart+i].count>0 && pecCaptureData[100+i].count>0) {
-                offsetError += (pecCaptureData[pecTrackedIntervalStart+i].sum / pecCaptureData[pecTrackedIntervalStart+i].count) - (pecCaptureData[100+i].sum / pecCaptureData[100+i].count);
+        let overflow = Math.round(DATA_INTERVALS / PEC_TABLE_LENGTH); 
+        for (let i = 0; i < overflow; i++) {
+            if(pecCaptureData[pecTrackedIntervalStart+i].count>0 && pecCaptureData[DATA_INTERVALS+i].count>0) {
+                offsetError += (pecCaptureData[pecTrackedIntervalStart+i].sum / pecCaptureData[pecTrackedIntervalStart+i].count) - (pecCaptureData[DATA_INTERVALS+i].sum / pecCaptureData[DATA_INTERVALS+i].count);
                 offsetErrorCnt++;
             }
         }
         offsetError = offsetErrorCnt > 0 ? offsetError / offsetErrorCnt : 0;
-        offsetErrorPerInterval = offsetError / intervals;
+        offsetErrorPerInterval = offsetError / DATA_INTERVALS;
 
 
-        for (let k = 0; k < intervals; k++) {
-            const bucket = pecCaptureData[k];
-            let err = bucket.count > 0 ? bucket.sum / bucket.count : 0;
-            let intervals_between = k > pecTrackedIntervalStart ? k - pecTrackedIntervalStart : k - pecTrackedIntervalStart+intervals;
-            err = err - offsetErrorPerInterval * intervals_between;
+        for (let k = 0; k < DATA_INTERVALS; k++) {
+            const d = pecCaptureData[k];
+            let err = d.count > 0 ? d.sum / d.count : 0;
+            let intervals_between = k >= pecTrackedIntervalStart ? k - pecTrackedIntervalStart : k - pecTrackedIntervalStart+DATA_INTERVALS;
+            err = err + offsetErrorPerInterval * intervals_between;
             pecCaptureData[k].correctedError = err;
         }
         putValuesOnChart(pecCaptureData);
     }
 
 
+    // Mixed-radix recursive FFT (split by smallest prime factor), so it works for N=100.
+    // re/im are arrays; returns {re, im}. inverse=true conjugates twiddles and scales by 1/N.
+    function _fft(re, im, inverse) {
+        const N = re.length;
+        const sign = inverse ? 1 : -1;
+        const rec = (r, i) => {
+            const n = r.length;
+            if (n === 1) return { re: [r[0]], im: [i[0]] };
+            let p = 2;
+            while (n % p !== 0) p++;
+            const m = n / p;
+            const subs = [];
+            for (let q = 0; q < p; q++) {
+                const sr = new Array(m), si = new Array(m);
+                for (let j = 0; j < m; j++) { sr[j] = r[j * p + q]; si[j] = i[j * p + q]; }
+                subs.push(rec(sr, si));
+            }
+            const outR = new Array(n), outI = new Array(n);
+            for (let k = 0; k < n; k++) {
+                let accR = 0, accI = 0;
+                for (let q = 0; q < p; q++) {
+                    const ang = sign * 2 * Math.PI * q * k / n;
+                    const c = Math.cos(ang), s = Math.sin(ang);
+                    const xr = subs[q].re[k % m], xi = subs[q].im[k % m];
+                    accR += xr * c - xi * s;
+                    accI += xr * s + xi * c;
+                }
+                outR[k] = accR;
+                outI[k] = accI;
+            }
+            return { re: outR, im: outI };
+        };
+        const out = rec(re, im);
+        if (inverse) {
+            for (let k = 0; k < N; k++) { out.re[k] /= N; out.im[k] /= N; }
+        }
+        return out;
+    }
+
+    // Computes correctedError per bucket, FFTs it, zeroes the upper half of the frequency
+    // coefficients (keeping DC and the lowest half of the positive frequencies, plus their
+    // conjugate mirrors), inverse-transforms and plots the smoothed result on the PEC chart (datasets[2]).
+    function fourierFilterPECData() {
+        if (!pecCaptureData) return;
+        calculateOffset();
+
+        const N = DATA_INTERVALS;
+        const re = new Array(N), im = new Array(N).fill(0);
+        for (let k = 0; k < N; k++) {
+            const e = pecCaptureData[k].correctedError;
+            re[k] = (e === undefined || isNaN(e)) ? 0 : e;
+        }
+
+        const spec = _fft(re, im, false);
+        const slider = document.getElementById('pec_fft_keep');
+        const keepPercent = slider ? parseFloat(slider.value) : 50;
+        const keep = Math.round(N / 2 * keepPercent / DATA_INTERVALS); // positive frequencies 0..N/2
+        for (let k = 0; k < N; k++) {
+            const freq = Math.min(k, N - k);
+            if (freq > keep) { spec.re[k] = 0; spec.im[k] = 0; }
+        }
+        const filtered = _fft(spec.re, spec.im, true);
+
+        pecChart.data.datasets[2].data = filtered.re.map((y, x) => ({ x, y }));
+        pecChart.update();
+        pecFilteredData = filtered.re;
+        return filtered.re;
+    }
+
+    // Writes the last Fourier-smoothed series into correctedError and replots the raw-error dataset.
+    function applyFourierToCorrectedError() {
+        if (!pecCaptureData || !pecFilteredData) return;
+        for (let k = 0; k < pecFilteredData.length; k++) {
+            pecCaptureData[k].correctedError = pecFilteredData[k];
+        }
+        putValuesOnChart(pecCaptureData);
+    }
+
     function putValuesOnChart(pecCaptureData) {
         if (typeof pecChart === 'undefined' || !pecChart || !pecCaptureData) return;
 
         pecChart.data.datasets[0].data = [];
+        pecChart.data.datasets[3].data = [];
         for (let pos = 0; pos < pecCaptureData.length; pos++) {
-            const y = pecCaptureData[pos].correctedError;
-            if (y === undefined || isNaN(y)) continue;
-            pecChart.data.datasets[0].data.push({ x: pos, y });
+            
+            let y = pecCaptureData[pos].correctedError;
+            if (y !== undefined && !isNaN(y)) {
+                pecChart.data.datasets[3].data.push({ x: pos, y });
+            }
+            
+            y = pecCaptureData[pos].sum / (pecCaptureData[pos].count || 1);
+            if (y !== undefined && !isNaN(y)) {
+                pecChart.data.datasets[0].data.push({ x: pos, y });
+            }
         }
         pecChart.update();
     }
@@ -210,19 +298,18 @@
 
     // NOTE : ra arcsec errors are already corrected for declination. these are error in positioning, not image errors.
 
-    const attenuationFactor = 0.5;
-
     function generatePECCorrectionTable() {
+        const attSlider = document.getElementById('pec_attenuation');
+        const attenuationFactor = attSlider ? parseFloat(attSlider.value) / 100 : 0.5;
+
         previousPecTable = parsePECTable();
         const previousValues = previousPecTable.map(correction => Number(correction) || 0);
-
-        generateBoundariesAndOffset();
 
         const mspr = parseFloat(document.getElementById('pec_mspr').value) || 12000;
         const rat = parseFloat(document.getElementById('pec_rat').value) || 144;
 
         const intervals = PEC_TABLE_LENGTH;
-        let bucketsPerInterval = Math.round(100 / intervals); 
+        let bucketsPerInterval = Math.round(DATA_INTERVALS / intervals); 
         const microstepsPerInterval = mspr / intervals;
 
         const siderealDaySeconds = 86164.0905;
@@ -234,20 +321,14 @@
 
         // Average RA error (arcsec) sampled every 5 captured positions (21 boundary points, 0..100 wrapping to 0)
         const boundaryError = [];
-        const firstInterval = pecTrackedIntervalStart/bucketsPerInterval;
 
         for (let k = 0; k <= intervals; k++) {
-            const bucket = pecCaptureData[(k * bucketsPerInterval) % 100];
-            if(bucket.count == 0) bucket=pecCaptureData[(k * bucketsPerInterval+1) % 100];
-            let err = bucket.correctedError ? bucket.correctedError : (bucket.count > 0 ? bucket.correctedError / bucket.count : 0);
-            let intervals_between = k > firstInterval ? k - firstInterval : k - firstInterval+intervals;
-            err = err - offsetErrorPerInterval * intervals_between;
+            const bucket = pecCaptureData[(k * bucketsPerInterval) % DATA_INTERVALS];
+            let err = bucket.correctedError;
             boundaryError.push(err);
         }
 
-
-        const fullCircleErrorArcsec = offsetErrorCnt > 0 ? offsetError / offsetErrorCnt : 0;
-        const offsetMicrostepsEquivalent = fullCircleErrorArcsec / nominalArcsecPerMicrostep;
+        const offsetMicrostepsEquivalent = offsetError / nominalArcsecPerMicrostep;
         const offset = (offsetMicrostepsEquivalent * baseMicrosecondsPerMicrostep) / mspr * attenuationFactor;
 
         const newPECtable = [];
@@ -267,11 +348,11 @@
         if (!tbody) return;
 
         const rows = [];
-        for (let pos = 0; pos < 100; pos++) {
+        for (let pos = 0; pos < DATA_INTERVALS; pos++) {
             const bucket = pecCaptureData[pos];
             const avg = bucket.count > 0 ? bucket.sum / bucket.count : null;
 
-            const prevPos = pos === 0 ? 99 : pos - 1;
+            const prevPos = pos === 0 ? DATA_INTERVALS-1 : pos - 1;
             const prevBucket = pecCaptureData[prevPos];
             const prevAvg = prevBucket.count > 0 ? prevBucket.sum / prevBucket.count : null;
             const delta = (avg !== null && prevAvg !== null) ? avg - prevAvg : null;
@@ -388,9 +469,12 @@
 
         function savePECdata(data) {
         // Save PEC data capture sample: pec position, RA error and timestamp
-        if (pecCaptureActive && data.pec_position !== undefined && data.last_correction.ra_axis_arcsec !== undefined) {
+        const PEC_BUCKETS_PER_INTERVAL = DATA_INTERVALS/PEC_TABLE_LENGTH;
+
+        if (pecCaptureActive && data.pec_position !== undefined && data.last_correction.ra_axis_arcsec !== undefined 
+            && data.star_locked && data.last_correction.ra_axis_arcsec!==0) {
             const pos = Math.round(Number(data.pec_position));
-            if (!isNaN(pos) && pos >= 0 && pos <= 99) {
+            if (!isNaN(pos) && pos >= 0 && pos <= DATA_INTERVALS-1) {
 
                 // The "starting interval" is whichever interval contains the position when capture began.
                 if (pecTrackedIntervalStart === null) {
@@ -402,9 +486,9 @@
                 }
 
                 var bucket = null;
-                if (pos >= pecTrackedIntervalStart && pecCaptureDataBuckets >= 100) {
+                if (pos >= pecTrackedIntervalStart && pecCaptureDataBuckets >= DATA_INTERVALS) {
                     // overflow data goes into the extra 10 buckets at the end of the array
-                    bucket = pecCaptureData[100 + (pos-pecTrackedIntervalStart)];
+                    bucket = pecCaptureData[DATA_INTERVALS + (pos-pecTrackedIntervalStart)];
                 } else {
                     bucket = pecCaptureData[pos];
                 }
@@ -416,10 +500,10 @@
                     pecCaptureDataLastBucket = pos;
                 }
 
-                const percent = Math.min(100, Math.round(pecCaptureDataBuckets / PEC_CAPTURE_TARGET_BUCKETS * 100));
+                const percent = Math.min(100, Math.round(pecCaptureDataBuckets / DATA_CAPTURE_TARGET_BUCKETS * 100));
                 document.getElementById('pec_capture_running').textContent = ` is running... ${percent}%`;
 
-                if (pecCaptureDataBuckets >= PEC_CAPTURE_TARGET_BUCKETS) {
+                if (pecCaptureDataBuckets >= DATA_CAPTURE_TARGET_BUCKETS) {
                     finishPECDataCapture();
                 }
 
@@ -438,7 +522,7 @@
 
         const reader = new FileReader();
         reader.onload = (e) => {
-            const newData = Array.from({ length: 110 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
+            const newData = Array.from({ length: DATA_INTERVALS + 10 }, () => ({ sum: 0, count: 0, lastTimestamp: null }));
 
             e.target.result.split('\n').forEach(line => {
                 const trimmed = line.trim();
@@ -447,14 +531,18 @@
                 const parts = trimmed.split(/[,\t]/).map(s => s.trim());
                 const pos = Number(parts[0]);
                 const avg = Number(parts[1]);
-                if (isNaN(pos) || pos < 0 || pos > 109 || isNaN(avg)) return; // skips header row too
-
-                newData[pos] = { sum: avg, count: 1, lastTimestamp: null };
+                if (isNaN(pos) ||  pos > DATA_INTERVALS + 9) return; // skips header row too
+                if(pos==-1) {
+                    pecTrackedIntervalStart = avg;
+                } else {
+                    newData[pos] = { sum: avg, count: 1, lastTimestamp: null };
+                }
             });
 
             pecCaptureData = newData;
             pecCaptureActive = false;
             renderPECAnalysisTable();
+            putValuesOnChart(pecCaptureData);
         };
         reader.readAsText(file);
         event.target.value = '';
@@ -467,12 +555,13 @@
             return;
         }
 
-        const lines = ['pos,avg,count,delta'];
-        for (let pos = 0; pos < 110; pos++) {
+        const lines = ['pos,avg,count,delta'];        
+        lines.push(`-1,${pecTrackedIntervalStart},0,0`);
+        for (let pos = 0; pos < DATA_INTERVALS+10; pos++) {
             const bucket = pecCaptureData[pos];
             const avg = bucket.count > 0 ? bucket.sum / bucket.count : '';
 
-            const prevPos = pos === 0 ? 99 : pos - 1;
+            const prevPos = pos === 0 ? DATA_INTERVALS - 1 : pos - 1;
             const prevBucket = pecCaptureData[prevPos];
             const prevAvg = prevBucket.count > 0 ? prevBucket.sum / prevBucket.count : null;
             const delta = (bucket.count > 0 && prevAvg !== null) ? (avg - prevAvg) : '';

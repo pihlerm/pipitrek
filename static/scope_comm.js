@@ -43,20 +43,6 @@
     }
 
 
-    function submitProperty(name, value) {
-        fetch('/set_direct_camera_property', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ "name" : name, "value" : value }),
-        })
-        .then(response => console.log(`Property ${name} set to ${value}`))
-        .catch(error => console.error(`Error setting property ${name}:`, error));
-    }
-
-
-
     function setPier(pier) {
         scopeSubmitSetting("pier", pier);
     }
@@ -271,17 +257,6 @@
         submitSetting("max_star_size", max_star_size);
     }
 
-    function submitRotationAngle() {
-        const rotation_angle = document.getElementById('rotation_angle').value;
-        document.getElementById('rotation_angle_value').textContent = rotation_angle;
-        submitSetting("rotation_angle", rotation_angle);
-    }
-
-    function submitPixelScale() {
-        const pixel_scale = document.getElementById('pixel_scale').value;
-        document.getElementById('pixel_scale_value').textContent = pixel_scale;
-        submitSetting("pixel_scale", pixel_scale);
-    }
 
     function submitGuideInterval() {
         const guide_interval = document.getElementById('guide_interval').value;
@@ -290,95 +265,16 @@
         submitSetting("guide_interval", guide_interval);
     }
     
-    function submitGuidePulse() {
-        const guide_pulse = document.getElementById('guide_pulse').value;
-        document.getElementById('guide_pulse_value').textContent = guide_pulse;
-        submitSetting("guide_pulse", guide_pulse);
+    function submitGuideArcsec() {
+        const guide_arcsec = document.getElementById('guide_arcsec').value;
+        document.getElementById('guide_arcsec_value').textContent = guide_arcsec;
+        submitSetting("guide_arcsec", guide_arcsec);
     }
 
     function submitGuideMethod(value, axis) {
         submitSetting("guide_method", value, axis);
     }
     
-    function submitIntegrate_frames() {
-        const integrate_frames = document.getElementById('integrate_frames').value;
-        document.getElementById('integrate_frames_value').textContent = integrate_frames;
-        submitCameraProperties(JSON.stringify({ "integrate_frames":integrate_frames }));
-    }
-
-    function submitCameraFPS(value) {
-        submitCameraProperties(JSON.stringify({ "camera_fps":value }));
-    }
-    function submitVideoMode(value) {
-        submitCameraProperties(JSON.stringify({ "video_mode":value }));
-    }
-    function submitResolution(value) {
-        const [width, height] = value.split('x').map(Number); // Split and convert to numbers
-        submitCameraProperties(JSON.stringify({ width, height }));
-    }
-
-    function submitCameraColor(value) {        
-        submitCameraProperties(JSON.stringify({ "camera_color" : value }));
-    }
-
-    function submitExposure(value) {        
-        document.getElementById('camera_exposure_value').textContent = value;
-        submitCameraProperties(JSON.stringify({ "camera_exposure" : value }));
-    }
-
-    function selectCamera(value) {        
-        submitCameraProperties(JSON.stringify({ "camera_index" : value })).then(() => {
-            loadCameraProperties();
-        });        
-    }
-
-
-    function captureHotPixelMask() {
-        submitSetting("hot_pixel_mask", true);
-    }
-
-    function clearHotPixelMask() {
-        submitSetting("hot_pixel_mask", false);
-    }
-
-    function populateCameraList() {
-        fetch('/get_camera_list')
-            .then(response => response.json())
-            .then(cameras => {
-                const cameraSelect = document.getElementById('camera_list');
-                cameraSelect.innerHTML = '';
-                cameras.forEach(camera => {
-                    const option = document.createElement('option');
-                    option.value = camera.index;
-                    option.textContent = `${camera.name} (Index: ${camera.index})`;
-                    cameraSelect.appendChild(option);
-                });
-            })
-            .catch(error => {
-                console.error('Error fetching camera list:', error);
-            });
-    }
-
-    function submitCameraProperties(properties) {
-        return fetch('/set_camera_properties', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: properties,
-        }).then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        }).then(data => {
-            console.log('Camera properties updated:', data);
-        }).catch(error => {
-            console.error('Error updating camera properties:', error);
-        });
-    }
-
-
     
     function submitPID() {
         const ra_pid_p = document.getElementById('ra_pid_p').value;
