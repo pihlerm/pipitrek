@@ -6,6 +6,7 @@ import time
 import subprocess
 import json
 import queue
+from autoguider import Autoguider
 from comm.virtual_port import VirtualSerialPort
 from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
@@ -137,7 +138,9 @@ class Telescope:
             dec_deg = self.dec_deg
         if pier is None:
             pier = self.scope_info.get('pier')
-
+        if ra_deg is None or dec_deg is None:
+            # allow unknown positions
+            return True
         local_ra_deg, local_dec_deg = self.calculate_local_orientation(ra_deg, dec_deg, pier)
         return self.is_orientation_allowed(local_ra_deg, local_dec_deg, pier)
 
@@ -148,6 +151,10 @@ class Telescope:
             dec_deg = self.dec_deg
         if pier is None:
             pier = self.scope_info.get('pier')
+
+        if ra_deg is None or dec_deg is None:
+            # unknown position
+            return False
 
         local_ra_deg, local_dec_deg = self.calculate_local_orientation(ra_deg, dec_deg, pier)
         if not self.is_orientation_allowed(local_ra_deg, local_dec_deg, pier):
@@ -182,6 +189,11 @@ class Telescope:
             ra_deg = self.ra_deg
         if dec_deg is None:
             dec_deg = self.dec_deg
+
+        if ra_deg is None or dec_deg is None:
+            # unknown position
+            return True
+        
         # Convert celestial coordinates to local horizontal coordinates
         self.local_lst_hours = calculate_lst(self.longitude)
         ha_deg = (self.local_lst_hours * 15 - ra_deg) % 360
@@ -355,7 +367,8 @@ class Telescope:
                             str = data.decode()
                             if(str.startswith("!O#")):
                                 print("Orientation command received from BT serial")
-                                result = TelescopeInitializePositionTask(self).execute()
+                                autoguider = Autoguider()
+                                result = TelescopeInitializePositionTask(self,autoguider.camera,autoguider).execute()
                                 bt.write(json.dumps(result).encode('utf-8'))
                             else:
                                 self.write_scope(data)  # Write it to scope
@@ -515,9 +528,13 @@ class Telescope:
         try:
             cmd = PTCEnablePEC(enable)
             cmd.execute(self)
+            time.sleep(0.5)
+            self.get_info()
+            return True, None
         except ValueError as ve:
             print(ve)
-
+            return False, ve
+        
     def getSlewDistance(self):
         resp = LXDistance().execute(self).decode().rstrip('#')
         self.scope_info["slewing"] = (resp== "1")
@@ -526,15 +543,21 @@ class Telescope:
     def send_tracking(self, tracking=True):
         try:
             PTCSetTracking(tracking).execute(self)
+            return True
         except ValueError as ve:
             print(ve)
+            return False
 
     def send_pier(self, pier):
         try:
             resp = PTCSetPier(pier).execute(self)
+            time.sleep(0.5)
+            self.get_info()
             print(resp)
+            return True, None
         except ValueError as ve:
             print(ve)
+            return False, ve
 
     def send_correction(self, direction, t=0.5):
         LXMove(direction).execute(self)
@@ -553,14 +576,6 @@ class Telescope:
     def send_backlash_comp_dec(self, comp):
         PTCSetBacklashDEC(comp).execute(self)
 
-    def send_camera(self, shots, exposure):
-        try:
-            PTCCameraSetExp(exposure).execute(self)
-            PTCCameraSetShots(shots).execute(self)
-            return True
-        except ValueError as ve:
-            print(f"{ve}")
-            return False
 
     def get_info(self):
         cmd = PTCInfo()
@@ -635,22 +650,6 @@ class Telescope:
                 line+=1
             else:
                 data["bc"] = { "ra": 0, "dec": 0 }
-
-            # Camera
-            camera_parts = lines[line].split()
-            if camera_parts[0]=="Cam":
-                data["camera"] = {
-                    "exposure": int(camera_parts[1].split(":")[1]),
-                    "shots": int(camera_parts[2].split(":")[1]),
-                    "state": camera_parts[3]
-                }
-                line+=1
-            else:
-                data["camera"] = {
-                    "exposure": 0,
-                    "shots": 0,
-                    "state": "I"
-                }
 
             # Tracking
             data["tracking"] = (lines[line].split()[1]=="on")

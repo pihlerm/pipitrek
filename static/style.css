@@ -284,7 +284,20 @@ iframe {
 .chart-controls {
     display: flex;
     flex-direction: column;
-    flex: 0 0 117px;
+    width:120px;
+    flex: 0 0 120px;
+}
+
+.detail-feed-container {
+    display: flex;
+    justify-content: center;
+    margin-top:6px;
+    margin-bottom:6px;
+}
+
+.correction-value {
+    font-family: "Courier New", monospace;
+    font-variant-numeric: tabular-nums;
 }
 
 .chart-canvases {
@@ -511,6 +524,16 @@ iframe {
     vertical-align: middle;
 }
 
+#autoguider_panel {
+    table-layout: fixed;
+    width: 100%;
+    max-width: 100%;
+}
+
+#autoguider_panel td:first-child {
+    width: auto;
+}
+
 .parameters-table td {
     padding: 0px;
     align-items: center;
@@ -518,7 +541,7 @@ iframe {
 }
 
 .parameters-table td:first-child {
-    width: 240px;
+    width: 200px;
     text-align: left;
     align-items: center;
     font-weight: normal;

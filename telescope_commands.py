@@ -113,27 +113,12 @@ class PTCInfo(PipiTelescopeCommand):
     def __init__(self):
         super().__init__("!IN#")
 
-class PTCCameraStart(PipiTelescopeCommand):
-    def __init__(self, start ):
-        if start:
-            super().__init__("!CO#")
-        else:
-            super().__init__("!CX#")
-
 class PTCLockMenus(PipiTelescopeCommand):
     def __init__(self, lock ):
         if lock:
             super().__init__("!NL#")
         else:
             super().__init__("!NU#")
-
-class PTCCameraSetExp(PipiTelescopeCommand):
-    def __init__(self, exposure ):
-        super().__init__(f"!CE{int(exposure):03d}#")
-
-class PTCCameraSetShots(PipiTelescopeCommand):
-    def __init__(self, shots):
-        super().__init__(f"!CN{int(shots):03d}#")
 
 class PTCSetBacklashRA(PipiTelescopeCommand):
     def __init__(self, comp):

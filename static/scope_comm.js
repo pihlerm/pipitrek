@@ -44,7 +44,7 @@
 
 
     function setPier(pier) {
-        scopeSubmitSetting("pier", pier);
+        scopeSubmitJSON("/set_pier", { pier: pier });
     }
 
     function setTracking(isTracking) {
@@ -87,21 +87,6 @@
         );
     }
 
-
-    function submitCamera() {
-        const shots = document.getElementById('shots-input').value.trim();
-        const exposure = document.getElementById('exposure-input').value.trim();
-        scopeSubmitJSON('/set_camera',
-            { shots: shots, exposure: exposure }
-        );
-    }
-
-    function startCamera() {
-        btnCamStart = document.getElementById('camera-shooting');
-        scopeSubmitJSON('/command_camera',
-            {action: btnCamStart.innerText}
-        );
-    }
 
     function submitBacklash() {
         const ra = document.getElementById('bc_ra-input').value.trim();

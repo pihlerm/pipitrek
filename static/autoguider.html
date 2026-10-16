@@ -23,7 +23,6 @@
     <script src="pecanalysis.js"></script>
     <script src="tasks.js"></script>
     <script src="menu.js"></script>
-    <script src="menu.js"></script>
     <script src="scope_comm.js"></script>
     
     <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
@@ -65,6 +64,7 @@
                 <button class="command-button" id="pec_panel_button" onclick="showPanel('pec_panel')" title="Show PEC analysis panel">PEC</button>            
                 <button class="command-button" id="backlash_panel_button" onclick="showPanel('backlash_panel')" title="Show backlash calibration panel">Backlash</button>            
                 <button class="command-button" id="tasks_panel_button" onclick="showPanel('tasks_panel')" title="Show tasks panel">Tasks</button>            
+                <button class="command-button" id="dslr_panel_button" onclick="showPanel('dslr_panel')" title="DSLR camera control panel">DSLR</button>
                 <button class="command-button" id="terminal_frame_button" onclick="showPanel('terminal_frame')" title="Show Linux terminal panel">Terminal</button>
             </td>
         </tr>
@@ -212,24 +212,6 @@
                         <div class = 'boxy'>
                             <div class = 'two_buttons'>
                                 <div>
-                                    Camera :
-                                    <input class="num_input" type="text" id="shots-input" placeholder="0">
-                                    <label for="shots-input">shots </label>
-                                </div>
-                                <div>
-                                    <input class="num_input" type="text" id="exposure-input" placeholder="30">
-                                    <label for="exposure-input">sec</label>
-                                </div>
-                            </div>
-                            <div class = 'two_buttons'>
-                                <button class="command-button" onclick="submitCamera()" title="Set the camera parameters.">SET</button>
-                                <button id="camera-shooting" class="command-button" onclick="startCamera()" title="Start imaging camera.">START</button>
-                            </div>
-                        </div>
-
-                        <div class = 'boxy'>
-                            <div class = 'two_buttons'>
-                                <div>
                                     <div>
                                         Backlash comp
                                     </div>
@@ -268,20 +250,20 @@
                         </div>
                     </div>
                 </div>
-                <div id="terminal_frame" class="hidden">
-                    <button class="command-button" onclick="shutdown()">Shutdown</button>
-                    <button class="command-button" onclick="showLog()">Show Log</button>
-                    <iframe id="terminal_iframe" src="/static/terminal.html"></iframe>
-                </div>
                 
-                <table id="autoguider_panel" class="parameters-table hidden">                   
+                <table id="autoguider_panel" class="parameters-table hidden">
+                    <colgroup>
+                        <col style="width:155px;">
+                        <col style="width:260px;">
+                        <col>
+                    </colgroup>
                     <tr class = "controller-row">
                         <td colspan="3">
                             <hr style="border: 1px solid #ccc; width: 100%;">
                         </td>
                     </tr>
                     <tr class = "controller-row">
-                        <td colspan="2">
+                        <td colspan="3">
                             <h2>Autoguider controls</h2>
                         </td>
                     </tr>
@@ -292,19 +274,22 @@
                     </tr>
                     <tr class = "controller-row">
                         <td>
-                            <span id="star-lock-state" class="no-lock">NO LOCK</span><br>
-                            <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input><br>                            
-                            loop:<span id="last_loop_time">0</span> s<br>
-                            frame:<span id="last_frame_time">0</span> s
+                            <div>
+                                <span id="star-lock-state" class="no-lock">NO LOCK</span><br>
+                                <input type="checkbox" id="guiding" onchange="setGuiding(this.checked)">Guiding</input>
+                            </div>
                         </td>
-                        <td style="width:300px; display:flex; align-items:flex-start; gap:10px;">
-                                <img id="detail_feed" src="/static/img/Airy.png" alt="Not Available"></img>
-                                <div style="white-space:nowrap;">R px:<span id="ra_px">0</span> arcs:<span id="ra_arcsec">0.0</span> rms:<span id="ra_rms">0.0</span><br>
-                                     D px:<span id="dec_px">0</span> arcs:<span id="dec_arcsec">0.0</span> rms:<span id="dec_rms">0.0</span><br>
-                                    focus:<span id="focus_metric">0</span> seeing:<span id="seeing_metric">0</span>arcs
-                                </div>
-                        </td>                        
+                        <td>
+                            <div>
+                               loop:<span id="last_loop_time">0</span>s<br>
+                               frame:<span id="last_frame_time">0</span>s
+                            </div>
+                        </td>
+                        <td>
+                            <div ></div>
+                        </td>
                     </tr>
+
                     <tr class = "controller-row">
                         <td colspan="3">
                             <hr style="border: 1px solid #ccc; width: 100%;">
@@ -340,7 +325,9 @@
                                 <input class="num_input" type="text" id="save_frames_every" placeholder="10" value="10">frame(s)
                             </div>
                         </td>
-                    </tr>
+                        <td style="display:flex; align-items:flex-start; gap:10px;">
+                        </td>                        
+                  </tr>
 
                     <tr class = "controller-row">
                         <td><label for="guide_interval">Guide interval:</label></td>
@@ -511,10 +498,8 @@
                     <tr class = "controller-row">
                         <td><label for="rotation_angle">Rotation Angle (deg):</label></td>
                         <td>
-                            <input type="range" class="normal-range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="0" step="1" oninput="submitRotationAngle()">
+                            <input type="range" class="normal-range" id="rotation_angle" name="rotation_angle" min="-180" max="180" value="0" step="0.1" oninput="submitRotationAngle()">
                             <span id="rotation_angle_value">0</span>
-                        </td>
-                        <td>
                             <button class="command-button" onclick="calibrate(false)" title="Calibrate autoguider camera RA/DEC axis orientation">Calibrate</button>                            
                         </td>
                     </tr>
@@ -966,6 +951,65 @@
                         </td>
                     </tr>
                 </table>
+
+                <table id="dslr_panel" class="parameters-table hidden">                   
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="2">
+                            <h2>DSLR controls</h2>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <button class="command-button" type="button" onclick="dslrTrigger()" id="dslr_trigger_button">Trigger</button>
+                            <button class="command-button" type="button" onclick="dslrAbort()" id="dslr_abort_button" style="display:none;">Abort</button>
+                            <input class="two_buttons_input" type="text" id="dslr_trigger_seconds" style="margin-left:5px;width:40px;" value="1">
+                            <label for="dslr_trigger_seconds">seconds</label>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <button                             class="command-button dslr-idle-only" type="button" onclick="dslrMount()">Mount</button>
+                                                        <button class="command-button dslr-idle-only" type="button" onclick="dslrUnmount()">Unmount</button>
+                            <span style="margin-left:10px; font-size:16px;">Mount state:</span>
+                            <span id="dslr_status" style="margin-left:10px; font-size:16px;">Unknown</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <button class="command-button" type="button" onclick="dslrList()">List</button>
+                            <button class="command-button dslr-idle-only" type="button" onclick="dslrSynchronize()">Synchronize</button>
+                            <button class="command-button" type="button" onclick="dslrDownloadRaw()">Download</button>
+                            <span id="dslr_message" style="margin-left:10px; font-size:14px;"></span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
+                        <td colspan="3">
+                            <div id="dslr_image_list" style="height:520px; overflow-y:auto; margin-top:6px;"></div>
+                        </td>
+                    </tr>
+                </table>
+
+                <div id="terminal_frame" class="hidden">
+                    <button class="command-button" onclick="shutdown()">Shutdown</button>
+                    <button class="command-button" onclick="showLog()">Show Log</button>
+                    <iframe id="terminal_iframe" src="/static/terminal.html"></iframe>
+                </div>
+
             </td>
         </tr>
     </table>
@@ -975,6 +1019,19 @@
             <button class="command-button active" id="errors_button" onclick="showCorrectionsChart()">Errors</button>
             <button class="command-button" id="pec_button" onclick="showPECChart()">PEC</button>
             <button class="command-button" id="reset_button" onclick="resetChart()">Reset</button>
+            <div class="detail-feed-container">
+                <img id="detail_feed" src="/static/img/Airy.png" alt="Not Available">
+            </div>
+            <div style="display:flex; align-items:flex-start; gap:10px;" >
+                <div class="correction-value" style="white-space:nowrap;">
+                    R<span id="ra_px" >0</span>px <span id="ra_arcsec" >0.0</span>as<br>
+                    <b><span id="ra_rms">0.0</span>rms<br></b>
+                    D<span id="dec_px" >0</span>px <span id="dec_arcsec" >0.0</span>as<br>
+                    <b><span id="dec_rms">0.0</span>rms<br></b>
+                    focus:<span id="focus_metric">0</span><br>
+                    seeing:<span id="seeing_metric">0</span>as
+                </div>
+            </div>                        
         </div>
         <div class="chart-canvases">
             <canvas id="correctionsChart" width="1760px" height="300px"></canvas>
@@ -1014,6 +1071,7 @@
 
 <script src="loupe.js"></script>
 <script src="camera.js"></script>
+<script src="dslr.js"></script>
 
 <script type="module">
     import { TelescopeSim } from '/static/vr/telescope_sim_novr.js';
@@ -1033,9 +1091,10 @@
     telescopeSim.resize(controlContainer.clientWidth, controlContainer.clientHeight);
 </script>
 <script>
-
+    var rotation_angle=0;
     const PEC_wheel = make_wheel();
     const gotoBox = document.getElementById('goto-box');
+    var platesolving=false;
 
     var blockUpdate = false;
     function handleMouseOverGotoBox(event) {
@@ -1111,7 +1170,7 @@
                 const bluetoothIndicator = document.getElementById('indicator-bluetooth');
                 const telescopeServerIndicator = document.getElementById('indicator-telescope-server');
                 const telescopeStatusIndicator = document.getElementById('indicator-telescope-status');
-
+                updateScopeInfo(data.info);
                 if (bluetoothIndicator) {
                     bluetoothIndicator.classList.toggle('on', data.bluetooth);
                 }
@@ -1123,6 +1182,8 @@
                     telescopeStatusIndicator.classList.toggle('on', data.status == "ok");
                 }
 
+            } else if (data.function === "dslrStatus") {
+                dslrProcessStatus(data.status);
             }
         };
 
@@ -1141,86 +1202,72 @@
         setPECEnabled(enable);
     }
 
-
-    function updateScopeInfo() {
+    function getScopeInfo() {
         fetch('/scope_info')
             .then(response => response.json())
             .then(data => {
-                if(data.text) setInfo(data["text"])
-
-                const setupIndicator = document.getElementById('indicator-setup');
-                if (setupIndicator) {
-                    const needsSetup = !!(data.coordinates &&
-                        (data.coordinates.ra.includes('?') || data.coordinates.dec.includes('?')));
-                    setupIndicator.classList.toggle('flash-red', needsSetup);
-                    setupIndicator.classList.toggle('on', !needsSetup);
-                }
-
-                if(data.pier) {
-                    document.getElementById('pier_w').checked = (data.pier === 'W');
-                    document.getElementById('pier_e').checked = (data.pier === 'E');
-                    telescopeSim.setPier(data.pier=='W');
-                }
-
-                document.getElementById('tracking').checked = data.tracking;
-                document.getElementById('joy-lock').checked = data.locked;
-
-                document.getElementById('quiet').checked = (data.quiet);
-                const silentIndicator = document.getElementById('indicator-silent');
-                if (silentIndicator) silentIndicator.classList.toggle('flash-red', !!data.quiet);
-                btnCamStart = document.getElementById('camera-shooting');
-                const cameraIndicator = document.getElementById('indicator-camera');
-                if(data.camera) {
-                    const isShooting = data.camera.state === 'S';
-                    if(isShooting) {
-                        btnCamStart.innerText = 'STOP';
-                        btnCamStart.style.backgroundColor = 'lightcoral'; // Change to light red
-                    } else {
-                        btnCamStart.innerText = 'START';
-                        btnCamStart.style.backgroundColor = ''; // Reset to default
-                    }
-                    if (cameraIndicator) cameraIndicator.classList.toggle('flash-green', isShooting);
-                }
-                if(data.pec) {
-                    PEC_wheel.setPECPositon(data.pec.progress);
-                    const pecEnabledButton = document.getElementById('pec-enabled-button');
-                    if (pecEnabledButton) {
-                        const isEnabled = !!data.pec.enabled;
-                        pecEnabledButton.classList.toggle('active', isEnabled);
-                        pecEnabledButton.textContent = isEnabled ? 'ON' : 'OFF';
-                    }
-                }
-                if(data.coordinates) {
-                    document.getElementById('ra_current').textContent = data.coordinates.ra;
-                    document.getElementById('dec_current').textContent = data.coordinates.dec;
-                    if(!blockUpdate) telescopeSim.pointTelescope(data.coordinates.ra, data.coordinates.dec);
-                    if(!data.coordinates.ra.includes('?') && !data.coordinates.dec.includes('?')) {
-                        updateTelescopeFovOverlay();
-                        updateHorizonOverlay();
-                    }
-                }
-
-                if(data.bc) {
-                    document.getElementById('bc_ra-input').textContent = data.bc.ra;
-                    document.getElementById('bc_dec-input').textContent = data.bc.dec;
-                }
-
-                if (data.slewing !== undefined) {
-                    handleSlewingEffect(data.slewing);
-                }
-
-                const slewingIndicator = document.getElementById('indicator-slewing');
-                if (slewingIndicator) slewingIndicator.classList.toggle('flash-red', !!data.slewing);
-
-                const trackingIndicator = document.getElementById('indicator-tracking');
-                if (trackingIndicator) trackingIndicator.classList.toggle('on', !!data.tracking);
-            })
-        .catch(error => scopeAppendToResult('Error:', error));
+                updateScopeInfo(data);
+            });
     }
 
-    setInterval(updateScopeInfo, 1000);
+    function updateScopeInfo(data) {
+        if(data.text) setInfo(data["text"])
 
+        const setupIndicator = document.getElementById('indicator-setup');
+        if (setupIndicator) {
+            const needsSetup = !!(data.coordinates &&
+                (data.coordinates.ra.includes('?') || data.coordinates.dec.includes('?'))) || platesolving;
+            setupIndicator.classList.toggle('flash-red', needsSetup);
+            setupIndicator.classList.toggle('on', !needsSetup);
+        }
 
+        if(data.pier) {
+            document.getElementById('pier_w').checked = (data.pier === 'W');
+            document.getElementById('pier_e').checked = (data.pier === 'E');
+            telescopeSim.setPier(data.pier=='W');
+        }
+
+        document.getElementById('tracking').checked = data.tracking;
+        document.getElementById('joy-lock').checked = data.locked;
+
+        document.getElementById('quiet').checked = (data.quiet);
+        const silentIndicator = document.getElementById('indicator-silent');
+        if (silentIndicator) silentIndicator.classList.toggle('flash-red', !!data.quiet);
+
+        if(data.pec) {
+            PEC_wheel.setPECPositon(data.pec.progress);
+            const pecEnabledButton = document.getElementById('pec-enabled-button');
+            if (pecEnabledButton) {
+                const isEnabled = !!data.pec.enabled;
+                pecEnabledButton.classList.toggle('active', isEnabled);
+                pecEnabledButton.textContent = isEnabled ? 'ON' : 'OFF';
+            }
+        }
+        if(data.coordinates) {
+            document.getElementById('ra_current').textContent = data.coordinates.ra;
+            document.getElementById('dec_current').textContent = data.coordinates.dec;
+            if(!blockUpdate) telescopeSim.pointTelescope(data.coordinates.ra, data.coordinates.dec);
+            if(!data.coordinates.ra.includes('?') && !data.coordinates.dec.includes('?')) {
+                updateTelescopeFovOverlay();
+                updateHorizonOverlay();
+            }
+        }
+
+        if(data.bc) {
+            document.getElementById('bc_ra-input').textContent = data.bc.ra;
+            document.getElementById('bc_dec-input').textContent = data.bc.dec;
+        }
+
+        if (data.slewing !== undefined) {
+            handleSlewingEffect(data.slewing);
+        }
+
+        const slewingIndicator = document.getElementById('indicator-slewing');
+        if (slewingIndicator) slewingIndicator.classList.toggle('flash-red', !!data.slewing);
+
+        const trackingIndicator = document.getElementById('indicator-tracking');
+        if (trackingIndicator) trackingIndicator.classList.toggle('on', !!data.tracking);
+    }
 
 
 
@@ -1600,10 +1647,14 @@
         document.getElementById('last_loop_time').textContent = data.last_loop_time;
         document.getElementById('last_frame_time').textContent = data.last_frame_time;
 
-        document.getElementById('ra_px').textContent = data.last_correction.ra_px.toFixed(2);
-        document.getElementById('dec_px').textContent = data.last_correction.dec_px.toFixed(2);
-        document.getElementById('ra_arcsec').textContent = data.last_correction.ra_arcsec.toFixed(2);
-        document.getElementById('dec_arcsec').textContent = data.last_correction.dec_arcsec.toFixed(2);
+        const formatSigned = value => {
+            const formatted = value.toFixed(2);
+            return formatted.startsWith('-') ? formatted : `+${formatted}`;
+        };
+        document.getElementById('ra_px').textContent = formatSigned(data.last_correction.ra_px);
+        document.getElementById('dec_px').textContent = formatSigned(data.last_correction.dec_px);
+        document.getElementById('ra_arcsec').textContent = formatSigned(data.last_correction.ra_arcsec);
+        document.getElementById('dec_arcsec').textContent = formatSigned(data.last_correction.dec_arcsec);
         document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
         document.getElementById('seeing_metric').textContent = data.last_correction.seeing.toFixed(2);
         
@@ -1701,7 +1752,7 @@
         }
 
         
-        drawAxes(data.rotation_angle);
+        drawAxes(rotation_angle);
         drawAnalysisCircles();
 
         // Update the chart with new data
@@ -2183,6 +2234,7 @@
                                'autoguider_panel', 
                                'camera_panel', 
                                'terminal_frame', 
+                               'dslr_panel', 
                                'analysis_panel', 
                                'pec_panel', 
                                'backlash_panel', 
@@ -2192,13 +2244,21 @@
         }
         document.getElementById(panel).classList.remove('hidden');
 
+        if (panel === 'camera_panel') {
+            startCameraPropertiesRefresh();
+        } else {
+            stopCameraPropertiesRefresh();
+        }
+
         if (panel === 'pec_panel') showPECChart();
         if (panel === 'autoguider_panel') showCorrectionsChart();
+        if (panel === 'dslr_panel') dslrCheckStatus();
 
         for (const panelButtonId of ['control_frame_button', 
                                      'autoguider_panel_button', 
                                      'camera_panel_button', 
                                      'terminal_frame_button', 
+                                     'dslr_panel_button', 
                                      'analysis_panel_button', 
                                      'pec_panel_button', 
                                      'backlash_panel_button', 
@@ -2212,6 +2272,8 @@
     function isPanelVisible(panel) {
         return !document.getElementById(panel).classList.contains('hidden');
     }
+
+
 
     function showPECInstructions() {
         document.getElementById('pec-instructions-modal').classList.remove('hidden');
@@ -2266,6 +2328,9 @@
     
     function confirmSetupPlateSolve() {
         if (confirm("Do you want to perform plate solve to determine telescope position?")) {
+            
+            document.getElementById('indicator-setup').classList.add('flash-red');
+            platesolving = true;
             plateSolve(true);
         }
     }
@@ -2291,6 +2356,8 @@
                 if(setto) {
                     submitRotationAngle();
                     submitPixelScale();
+                    document.getElementById('indicator-setup').classList.remove('flash-red');
+                    platesolving = false;
                 }
             }
         })

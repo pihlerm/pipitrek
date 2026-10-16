@@ -157,15 +157,20 @@ class Autoguider:
     def write_track_log(self, log_entry):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         day = datetime.datetime.now().strftime("%Y-%m-%d")
-        with open(f"tracking_{day}.log", "a") as log_file:
+        os.makedirs("log", exist_ok=True)
+        with open(f"log/tracking_{day}.log", "a") as log_file:
             log_file.write(f"{timestamp}, {log_entry}\n")
 
 
     def detect_stars(self, frame, search_near_centroids, max_distance=None, max_stars=1):
         if max_distance is None:
             max_distance = self.max_distance
+        if self.camera is None:
+            return []
         if frame is None:
             frame = self.camera.frame
+            if frame is None:
+                return []
         with self.lock:
             centroids, detail, thresh, focus_metric = self.analyzer.detect_stars(frame, 
                                                                  search_near=search_near_centroids, 
@@ -300,13 +305,13 @@ class Autoguider:
 
         # RA corrections
         if self.last_correction["ra"] != 0:
-            telescope.send_abs_ra_correction(self.last_correction["ra"]) # 1 arcsec correction
+            telescope.send_abs_ra_correction(-2*raerr) # 1 arcsec correction
 
         # DEC corrections
         if self.last_correction["dec"] != 0:
-            telescope.send_abs_dec_correction(self.last_correction["dec"]) # 1 arcsec correction
+            telescope.send_abs_dec_correction(-2*decerr) # 1 arcsec correction
             
-
+    
     def guide_scope_rel(self, ra_arcsec_error, dec_arcsec_error, axis):
         # this should be PID controller!        
 

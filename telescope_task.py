@@ -2,10 +2,10 @@ from __future__ import annotations
 import datetime
 import os
 import cv2
+from dslr import DSLR
 from platesolver import PlateSolver
 from telescope import Telescope
 from conversions import *
-from telescope_commands import PTCCameraStart
 
 class TelescopeTask:
     def __init__(self, telescope:Telescope, autoguider=None, camera=None):
@@ -64,7 +64,8 @@ class TelescopeTask:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         day = datetime.datetime.now().strftime("%Y-%m-%d")
         
-        with open(f"task_{day}.log", "a") as log_file:
+        os.makedirs("log", exist_ok=True)
+        with open(f"log/task_{day}.log", "a") as log_file:
             log_file.write(f"{timestamp}, {self.name}, {log_entry}\n")
 
     def _init_autoguider_and_camera(self, autoguider=None, camera=None):
@@ -89,11 +90,14 @@ class TelescopeImagingTask(TelescopeTask):
         self.target_dec = target_dec
         self.exposure_time = exposure_time
         self.exposure_count = exposure_count
+        self.remaining_exposures = exposure_count
+
         self.time = (self.exposure_time+1) * self.exposure_count
         self._subtask = None
         self.last_position_check = 0
         self.autoguide = autoguide
         self.plate_solve = plate_solve
+        self.dslr = DSLR()
 
     def reposition(self):
         if self.target_ra is None or self.target_dec is None:
@@ -171,8 +175,8 @@ class TelescopeImagingTask(TelescopeTask):
                     self._log("Meridian flip required. Performing flip...")
                     self._log("Stopping camera for meridian flip.")
                     self.telescope.get_info()
-                    remaining = self.telescope.scope_info["camera"]["shots"]
-                    PTCCameraStart(False).execute(self.telescope)
+                    
+                    self.dslr.abort_trigger()
                     
                     self.pause_guiding()
 
@@ -201,18 +205,12 @@ class TelescopeImagingTask(TelescopeTask):
                         if result['status'] != 'ok':
                             return self._exit(result)
                         
-                    self._log("Starting camera.")
-                    self.telescope.send_camera(remaining,self.exposure_time)
-                    PTCCameraStart(True).execute(self.telescope)
                 else:
-                    PTCCameraStart(False).execute(self.telescope)
+                    self.dslr.abort_trigger()
                     return self._exit({'status': 'error', 'message': 'Telescope in forbidden position. Aborting job.'})
         
         return {'status': 'ok'}
 
-    def _camera_finished(self):
-        self.telescope.get_info()
-        return self.telescope.scope_info["camera"]["state"] == "I"
 
     def execute(self):
         # during this task, we should monitor telescope position and watch for meridian flip.
@@ -238,19 +236,34 @@ class TelescopeImagingTask(TelescopeTask):
                 return self._exit(result)
 
         self._start_timer()
-        self.telescope.send_camera(self.exposure_count,self.exposure_time)
-        PTCCameraStart(True).execute(self.telescope)
         self._log("Starting camera.")
+        if self.dslr.is_mounted():
+            self._log("DSLR mounted, unmounting now.")
+            ok,msg = self.dslr.unmount()
+            if not ok:
+                return self._exit({'status': 'error', 'message': msg})
+
         last_position_check=time.time()
-        while not self._camera_finished():
+        while self.remaining_exposures > 0:
             if self.needs_stop:
                 return self._exit({'status': 'stopped', 'message': 'Task stopped due to user request.'})
-            time.sleep(self.exposure_time/2)
+            
+            if not self.dslr.is_triggered():
+                if self.remaining_exposures > 0:
+                    time.sleep(1)
+                    ok,msg = self.dslr.trigger(self.exposure_time)
+                    self.remaining_exposures -= 1
+                    if not ok:
+                        return self._exit({'status': 'error', 'message': msg})
 
             # Check telescope position periodically
-            status= self.position_check()
-            if status['status'] != 'ok':
-                return self._exit(status)  
+            if time.time() - last_position_check > 10:  # check position every 10 seconds
+                last_position_check = time.time()
+                status= self.position_check()
+                if status['status'] != 'ok':
+                    self.dslr.abort_trigger()
+                    return self._exit(status)  
+            time.sleep(0.1)
 
         return self._exit({'status': 'ok', 'message': 'Imaging task completed with success.'})
 
@@ -260,8 +273,7 @@ class TelescopeImagingTask(TelescopeTask):
         # Implement emergency stop logic for the telescope task here
         if self._subtask:
             self._subtask.stop()
-        self.telescope.send_camera(0,self.exposure_time)
-        PTCCameraStart(False).execute(self.telescope)
+        self.dslr.abort_trigger()
         self.executed=True
         return self._exit({'status': 'stopped', 'message': 'Task stopped due to user request.'})
 
@@ -269,9 +281,8 @@ class TelescopeImagingTask(TelescopeTask):
         # Implement the logic to estimate the time required to finish
         if self._subtask:
             return self._subtask.time_estimate() + self.time
-        else:
-            self.telescope.get_info()
-            return self.telescope.scope_info["camera"]["exposure"]*self.telescope.scope_info["camera"]["shots"]
+        else:            
+            return self.remaining_exposures * self.exposure_time
 
 
 class TelescopeSlewingTask(TelescopeTask):

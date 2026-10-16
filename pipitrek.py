@@ -1,6 +1,8 @@
 import datetime
 import time as _startup_clock
 
+from dslr import DSLR
+
 _startup_started = _startup_clock.perf_counter()
 _startup_last = _startup_started
 
@@ -83,6 +85,7 @@ autoguider_thread = None
 all_settings = None
 telescope = None
 camera = None
+dslr = DSLR()
 telescopeserver = None
 global_server = None
 telescope_task_scheduler = None
@@ -185,17 +188,26 @@ def autoguider_socket(ws):
 @sock.route('/telescope_socket')
 def telescope_socket(ws):
     last_yield = time.time()-5
+    last_yield_dslr = time.time()-4
     while True:
         try:
             start = time.time()
             if start - last_yield > 5:
                 properties = {"function": "telescopeStatus",
                               "status": telescope.get_status(),
+                              "info": telescope.scope_info,
                               "bluetooth": telescope.bt_serial.is_open,
                               "telescope_server_client_ip": telescopeserver.get_client_address()
                               }
                 ws.send(json.dumps(properties))
                 last_yield = start
+            
+            if start - last_yield_dslr > 3:
+                properties = {"function": "dslrStatus",
+                              "status": dslr.get_status()
+                              }
+                ws.send(json.dumps(properties))
+                last_yield_dslr = start
 
             slew_request = None
             if telescopeserver.slew_request is not None:
@@ -294,7 +306,7 @@ def get_log_endpoint(day):
         lineindex = []
         log_index[day] = lineindex
 
-    with open(f"pipitrek.log", "r") as log_file:
+    with open(f"log/pipitrek.log", "r") as log_file:
         if from_line < len(lineindex):
             log_file.seek(lineindex[from_line])
         else:
@@ -321,8 +333,6 @@ def scope_info():
 def set_tracking():
     tracking = request.form.get('tracking', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
     telescope.send_tracking(tracking)
-    time.sleep(0.1)
-    telescope.get_info()
     return jsonify({'status': 'success', 'message': f'Tracking set to {tracking}'})
 
 @app.route('/set_quiet', methods=['POST'])
@@ -339,24 +349,13 @@ def set_locked():
 
 @app.route('/set_pier', methods=['POST'])
 def set_pier():
-    pier = request.form.get('pier')
-    bok = telescope.send_pier(pier)
-    time.sleep(0.1)
-    telescope.get_info()
-    if bok:
+    pier = request.json.get('pier')
+    ok, msg = telescope.send_pier(pier)
+    if ok:
         return jsonify({'status': 'success', 'message': f'Pier set to {pier}'})
     else:
-        return jsonify({'status': 'error', 'message': 'Invalid pier value'}), 400
+        return jsonify({'status': 'error', 'message': f'{msg}'})
     
-@app.route('/set_camera', methods=['POST'])
-def set_camera():
-    data = request.json
-    shots = data.get('shots')
-    exposure = data.get('exposure')
-    if telescope.send_camera(shots, exposure):
-        return jsonify({'status': 'success', 'message': f'Camera set to shots {shots} and exposure {exposure}'})
-    else:
-        return jsonify({'status': 'error', 'message': 'Invalid numbers'}), 400
 
 @app.route('/set_backlash', methods=['POST'])
 def set_backlash():
@@ -376,21 +375,6 @@ def command_slew_request():
     telescope.slew_request = (ra,dec)
     return jsonify({'status': 'success', 'message': f'slew_request set'})
 
-
-@app.route('/command_camera', methods=['POST'])
-def command_camera():
-    data = request.json
-    action = data.get('action')
-    if action=='START':
-       PTCCameraStart(True).execute(telescope)
-       print(f"camera START")
-       return jsonify({'status': 'success', 'message': f'Camera START'})
-    elif  action=='STOP':
-       PTCCameraStart(False).execute(telescope)
-       print(f"camera STOP")
-       return jsonify({'status': 'success', 'message': f'Camera STOP'})
-    else:
-        return jsonify({'status': 'error', 'message': f'Invalid camera action {action}'}), 400
 
 @app.route('/control_move', methods=['POST'])
 def control_move():
@@ -775,6 +759,8 @@ def form_properties():
     properties = {
         "tracked_centroids": autoguider.tracked_centroids,
         "current_centroids": autoguider.current_centroids,
+        "width": autoguider.camera.width if autoguider.camera else 1920,
+        "height": autoguider.camera.height if autoguider.camera else 1080,
         "pec_position": telescope.scope_info["pec"]["progress"],
         "save_frames" : autoguider.save_frames,
         "max_drift_ra": autoguider.max_drift_ra,
@@ -984,6 +970,100 @@ def calibrate():
     else:
         return jsonify({'status': 'error', 'message': "Failed to calibrate"}), 400
 
+
+# DSLR
+@app.route('/dslr_mount', methods=['POST'])
+def dslr_mount():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    mount = bool(request.json.get('mount', False))
+    if mount:
+        success, message = dslr.mount()
+    else:
+        success, message = dslr.unmount()
+    
+    return jsonify({'status': 'success' if success else 'error', 'message': message}), 200
+
+
+@app.route('/dslr_get_image_list', methods=['POST'])
+def dslr_get_image_list():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    try:
+        images = dslr.list_images()
+        local_images = dslr.list_local_images()
+        new_images = dslr.check_new_images()
+        return jsonify({'status': 'success', 'images': sorted(images), 'new_images': sorted(new_images), 'local_images': sorted(local_images)}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/dslr_download_new_images', methods=['POST'])
+def dslr_download_new_images():
+    if dslr is None or not dslr.is_mounted():
+        return jsonify({'status': 'error', 'message': 'DSLR not available or not mounted'}), 503
+    try:
+        downloaded = [os.path.basename(p) for p in dslr.download_new_images()]
+        return jsonify({'status': 'success', 'downloaded': downloaded}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/dslr_get_image', methods=['POST'])
+def dslr_get_image():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    try:
+        filename = request.json.get('filename')
+        image = dslr.get_image(filename)
+        return jsonify({'status': 'success', 'image': image}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/dslr_trigger', methods=['POST'])
+def dslr_trigger():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    try:
+        duration = request.json.get('duration', 30.0)
+        count = request.json.get('count', 1)
+        result, rmsg =dslr.trigger(duration, count)
+
+        if not result:
+            return jsonify({'status': 'error', 'message': rmsg}), 200
+        return jsonify({'status': 'success', 'message': 'DSLR triggered'}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/dslr_trigger_abort', methods=['POST'])
+def dslr_trigger_abort():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    try:
+        result, rmsg =dslr.abort_trigger()
+        if not result:
+            return jsonify({'status': 'error', 'message': rmsg}), 200
+        return jsonify({'status': 'success', 'message': 'DSLR trigger aborted'}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/dslr_get_state', methods=['POST'])
+def dslr_get_state():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    
+    properties = dslr.get_status()
+    properties['status'] = 'success'
+    return jsonify(properties), 200
+
+@app.route('/dslr_get_raw_images', methods=['POST'])
+def dslr_get_raw_images():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    
+    imagelist = request.json.get('images', [])
+    dest = os.path.join(app.static_folder, 'astroImages', 'download.zip')
+    zipname = dslr.get_raw_images(imagelist,dest)
+    raw_image_url = f'/static/astroImages/{zipname}'
+    return jsonify({'status': 'success', 'raw_images': raw_image_url}), 200
 
 # ANALYSIS
 @app.route('/analyze', methods=['POST'])

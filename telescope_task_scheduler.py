@@ -158,7 +158,7 @@ class TelescopeTaskScheduler:
             lineindex = []
             self.task_log_index[day] = lineindex
 
-        with open(f"task_{day}.log", "r") as log_file:
+        with open(f"log/task_{day}.log", "r") as log_file:
             if from_line < len(lineindex):
                 log_file.seek(lineindex[from_line])
             else:
