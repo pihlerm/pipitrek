@@ -510,7 +510,7 @@ def command_goto():
     ra = data.get('ra')
     dec = data.get('dec')
     print(f"GOTO command received: RA={ra}, DEC={dec}")
-    ret = TelescopeSlewingTask(telescope, ra, dec).execute()
+    ret = TelescopeSlewingTask(telescope, ra, dec, autoguider=autoguider).execute()
     return jsonify(ret)
 
 @app.route('/command_goto_direct', methods=['POST'])
@@ -520,7 +520,7 @@ def command_goto_direct():
     dec = data.get('dec')
     print(f"DIRECT GOTO command received: RA={ra}, DEC={dec}")
     ret = telescope.send_go_to(ra, dec)
-    print(f"DIRECTLY Moving to segment: RA={ra}, DEC={dec}, PIER={segment_pier}")
+    print(f"DIRECTLY Moving to segment: RA={ra}, DEC={dec}")
     return jsonify(ret)
 
 @app.route('/command_set_to', methods=['POST'])
@@ -754,8 +754,6 @@ def set_camera_properties():
 
 # AUTOGUIDER
 def form_properties():
-    telescope = Telescope()
-
     properties = {
         "tracked_centroids": autoguider.tracked_centroids,
         "current_centroids": autoguider.current_centroids,
@@ -774,7 +772,7 @@ def form_properties():
         "guiding": autoguider.guiding,
         "guide_interval": autoguider.guide_interval,
         "guide_arcsec": autoguider.guide_arcsec,
-        "last_correction": autoguider.last_correction,
+        "last_errors": autoguider.last_errors,
         "star_locked": autoguider.star_locked,
         "focus_metric": autoguider.focus_metric,
         "last_loop_time": autoguider.last_loop_time,
@@ -785,7 +783,8 @@ def form_properties():
         "ra_pid_d": autoguider.ra_pid.Kd,
         "dec_pid_p": autoguider.dec_pid.Kp,
         "dec_pid_i": autoguider.dec_pid.Ki,
-        "dec_pid_d": autoguider.dec_pid.Kd
+        "dec_pid_d": autoguider.dec_pid.Kd,
+        "error_filter_tau": autoguider.error_filter_tau
     }
     # Encode the centroid_image as Base64
     if autoguider.centroid_image is not None:
@@ -813,6 +812,12 @@ def set_pid():
     
     autoguider.ra_pid.Kd = float(data.get('ra_pid_d', 0.2))
     autoguider.dec_pid.Kd = float(data.get('dec_pid_d', 0.2))
+    return jsonify({"status": "success"}), 200
+
+@app.route('/autoguider_set_tau', methods=['POST'])
+def autoguider_set_tau():
+    data = request.json
+    autoguider.error_filter_tau = float(data.get('error_filter_tau', 3))    
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_threshold', methods=['POST'])
@@ -866,12 +871,15 @@ def set_guide_interval():
 
 @app.route('/set_guide_method', methods=['POST'])
 def set_guide_method():
-    guide_method = request.form.get('guide_method', type=str, default='PID')
+    guide_method = request.form.get('guide_method', type=str, default='REL')
     axis = request.form.get('axis', type=str, default='ra')
-    if axis == 'ra':
-        autoguider.guide_method_ra = guide_method
-    elif axis == 'dec':
-        autoguider.guide_method_dec = guide_method
+    try:
+        if axis == 'ra':
+            autoguider.set_ra_guide_method(guide_method)
+        elif axis == 'dec':
+            autoguider.set_dec_guide_method(guide_method)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_guide_arcsec', methods=['POST'])
@@ -1089,7 +1097,7 @@ def plateSolve():
 def orient():
     if camera is None or not camera.running:
         return jsonify({"status": "error", "message": "Camera is not running"}) , 503
-    retval = TelescopeInitializePositionTask(telescope, camera, autoguider).execute()
+    retval = TelescopeInitializePositionTask(telescope, camera).execute()
     status = retval.get('status') == 'error' and 503 or 200
     return jsonify(retval), status
 
@@ -1220,8 +1228,6 @@ if __name__ == '__main__':
     _startup_log("telescope object initialized; waiting 2 seconds for Arduino")
     time.sleep(2) # wait arduino
     all_settings.set_telescope_settings(telescope)
-    _startup_log("starting telescope bridge")
-    telescope.start_bridge()
     _startup_log("telescope started")
 
     _startup_log("setting up autoguider camera")
@@ -1239,13 +1245,16 @@ if __name__ == '__main__':
         camera = None
 
     _startup_log("setting up autoguider")
-    autoguider = Autoguider()
+    autoguider = Autoguider(telescope)
     all_settings.set_autoguider_settings(autoguider)
     _startup_log("starting autoguider thread")
     autoguider_thread = Thread(target=autoguider.run_autoguider)
     autoguider_thread.start()
     _startup_log("autoguider thread started")
 
+    _startup_log("starting telescope bridge")
+    telescope.start_bridge(autoguider, camera)
+    
     _startup_log("initializing telescope task scheduler")
     telescope_task_scheduler = TelescopeTaskScheduler(camera, telescope, autoguider)
     _startup_log("telescope task scheduler initialized")

@@ -14,12 +14,13 @@ from telescope_task import *
 TASK_BUILDERS = {
     'Slew': lambda t, tel, cam, ag: TelescopeSlewingTask(tel, t.get('target_ra'), t.get('target_dec'), ag),
     'Imaging': lambda t, tel, cam, ag: TelescopeImagingTask(tel, float(t.get('exposure_time')), int(t.get('exposure_count')), camera=cam, autoguider=ag),
-    'MeridianFlip': lambda t, tel, cam, ag: TelescopeMeridianFlipTask(tel),
-    'InitializePosition': lambda t, tel, cam, ag: TelescopeInitializePositionTask(tel, cam, ag),
+    'MeridianFlip': lambda t, tel, cam, ag: TelescopeMeridianFlipTask(tel,ag),
+    'InitializePosition': lambda t, tel, cam, ag: TelescopeInitializePositionTask(tel, cam),
     'StartAutoguider': lambda t, tel, cam, ag: TelescopeStartAutoguiderTask(tel, ag, calibrate_axis=(t.get('calibrate_axis'))),
     'StopAutoguider': lambda t, tel, cam, ag: TelescopeStopAutoguiderTask(tel, ag),
-    'Park': lambda t, tel, cam, ag: TelescopeParkTask(tel),
+    'Park': lambda t, tel, cam, ag: TelescopeParkTask(tel, ag),
     'FullPipi': lambda t, tel, cam, ag: TelescopeImagingTask(tel, float(t.get('exposure_time')), int(t.get('exposure_count')), camera=cam, autoguider=ag, target_ra=t.get('target_ra'), target_dec=t.get('target_dec'),autoguide=t.get('autoguide'),plate_solve=t.get('plate_solve')),
+    'Shutdown': lambda t, tel, cam, ag: TelescopeShutdownTask(tel, ag),
 }
 
 
@@ -220,21 +221,21 @@ class TelescopeTaskScheduler:
                 print("Telescope position is not allowed. Waiting for meridian flip or repositioning.")
                 if self.telescope.does_position_require_flip():
                     print("Telescope requires meridian flip.")
-                    result = TelescopeMeridianFlipTask(self.telescope).execute()
+                    result = TelescopeMeridianFlipTask(self.telescope, self.autoguider).execute()
                     if not result or result.get('status') == 'error':
                         print("Meridian flip failed. Proceeding to shut down the telescope.")
-                        TelescopeShutdownTask(self.telescope).execute()
+                        TelescopeShutdownTask(self.telescope, self.autoguider).execute()
                         return False
                     else:
                         print("Meridian flip succeeded.")
                         return True
                 elif self.telescope.is_position_below_horizon():
                     print("Telescope is below the horizon.")
-                    TelescopeShutdownTask(self.telescope).execute()
+                    TelescopeShutdownTask(self.telescope, self.autoguider).execute()
                     return False
                 else:
                     print("Unknown problem with telescope position.")
-                    TelescopeShutdownTask(self.telescope).execute()
+                    TelescopeShutdownTask(self.telescope, self.autoguider).execute()
                     return False
         return True
 

@@ -380,6 +380,13 @@
                         </td>
                     </tr>
                     <tr class = "controller-row">
+                        <td><label for="error_filter_tau">Error filter tau (s):</label></td>
+                        <td>
+                            <input type="range" class="normal-range" id="error_filter_tau" name="error_filter_tau" min="0" max="10" step="0.1" value="3" onchange="submitTau()" title="Low-pass filter time constant for guiding errors, 0 = off">
+                            <span id="error_filter_tau_value">3</span>
+                        </td>
+                    </tr>
+                    <tr class = "controller-row">
                         <td><label>RA Guide method:</label></td>
                         <td>
                             <div>
@@ -387,8 +394,6 @@
                                 <label for="ra_methodABS">ABS</label>
                                 <input type="radio" id="ra_methodREL" name="guide_method_ra" value="REL" onchange="submitGuideMethod(this.value,'ra')">
                                 <label for="ra_methodREL">REL</label>
-                                <input type="radio" id="ra_methodPID" name="guide_method_ra" value="PID" onchange="submitGuideMethod(this.value,'ra')" checked>
-                                <label for="ra_methodPID">PID</label>
                                 <input type="radio" id="ra_methodMON" name="guide_method_ra" value="MON" onchange="submitGuideMethod(this.value,'ra')">
                                 <label for="ra_methodMON">MON</label>
                             </div>
@@ -405,21 +410,27 @@
                         <td><label for="ra_pid_p">RA  PID p:</label></td>
                         <td>
                             <input type="range" class="normal-range" id="ra_pid_p" name="ra_pid_p" min="0.0" max="10.0" step="0.01" value="0.0" onchange="submitPID()">
-                            <span id="ra_pid_p_value">0.0</span>
+                        </td>
+                        <td>
+                            <input type="number" class="pid-value-input" id="ra_pid_p_value" min="0" step="0.01" value="0.0" style="width:5em" onchange="setPidFromInput('ra_pid_p')">
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="ra_pid_i">RA  PID i:</label></td>
                         <td>
                             <input type="range" class="normal-range" id="ra_pid_i" name="ra_pid_i" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
-                            <span id="ra_pid_i_value">0.0</span>
+                        </td>
+                        <td>
+                            <input type="number" class="pid-value-input" id="ra_pid_i_value" min="0" step="0.01" value="0.0" style="width:5em" onchange="setPidFromInput('ra_pid_i')">
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="ra_pid_d">RA  PID d:</label></td>
                         <td>
                             <input type="range" class="normal-range" id="ra_pid_d" name="ra_pid_d" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
-                            <span id="ra_pid_d_value">0.0</span>
+                        </td>
+                        <td>
+                            <input type="number" class="pid-value-input" id="ra_pid_d_value" min="0" step="0.01" value="0.0" style="width:5em" onchange="setPidFromInput('ra_pid_d')">
                         </td>
                     </tr>
                     <tr class = "controller-row">
@@ -430,8 +441,6 @@
                                 <label for="dec_methodABS">ABS</label>
                                 <input type="radio" id="dec_methodREL" name="guide_method_dec" value="REL" onchange="submitGuideMethod(this.value,'dec')">
                                 <label for="dec_methodREL">REL</label>
-                                <input type="radio" id="dec_methodPID" name="guide_method_dec" value="PID" onchange="submitGuideMethod(this.value,'dec')">
-                                <label for="dec_methodPID">PID</label>
                                 <input type="radio" id="dec_methodMON" name="guide_method_dec" value="MON" onchange="submitGuideMethod(this.value,'dec')" checked>
                                 <label for="dec_methodMON">MON</label>
                             </div>
@@ -448,21 +457,27 @@
                         <td><label for="dec_pid_p">DEC PID p:</label></td>
                         <td>
                             <input type="range" class="normal-range" id="dec_pid_p" name="dec_pid_p" min="0.0" max="10.0" step="0.01" value="0.0" onchange="submitPID()">
-                            <span id="dec_pid_p_value">0.0</span>
+                        </td>
+                        <td>
+                            <input type="number" class="pid-value-input" id="dec_pid_p_value" min="0" step="0.01" value="0.0" style="width:5em" onchange="setPidFromInput('dec_pid_p')">
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="dec_pid_i">DEC PID i:</label></td>
                         <td>
                             <input type="range" class="normal-range" id="dec_pid_i" name="dec_pid_i" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
-                            <span id="dec_pid_i_value">0.0</span>
+                        </td>
+                        <td>
+                            <input type="number" class="pid-value-input" id="dec_pid_i_value" min="0" step="0.01" value="0.0" style="width:5em" onchange="setPidFromInput('dec_pid_i')">
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td><label for="dec_pid_d">DEC PID d:</label></td>
                         <td>
                             <input type="range" class="normal-range" id="dec_pid_d" name="dec_pid_d" min="0.0" max="5.0" step="0.01" value="0.0" onchange="submitPID()">
-                            <span id="dec_pid_d_value">0.0</span>
+                        </td>
+                       <td>
+                            <input type="number" class="pid-value-input" id="dec_pid_d_value" min="0" step="0.01" value="0.0" style="width:5em" onchange="setPidFromInput('dec_pid_d')">
                         </td>
                     </tr>
                 </table>
@@ -1340,6 +1355,8 @@
                 { label: 'RA error (arcsec)', data: [], borderColor: 'purple', fill: false, pointRadius: 0 },
                 { label: 'DEC error (arcsec)', data: [], borderColor: 'brown', fill: false, pointRadius: 0 },
                 { label: 'No star lock', data: [], borderColor: 'red', backgroundColor: 'transparent', showLine: false, pointStyle: 'circle', pointRadius: 3, pointBorderWidth: 2 },
+                { label: 'RA error filtered (arcsec)', data: [], borderColor: 'magenta', borderWidth: 3, fill: false, pointRadius: 0 },
+                { label: 'DEC error filtered (arcsec)', data: [], borderColor: 'cyan', borderWidth: 3, fill: false, pointRadius: 0 },
                 ],
             },
             options: {
@@ -1572,7 +1589,7 @@
         if (!isRangeSlider(slider)) return;
 
         const label = document.getElementById(`${slider.id}_value`);
-        if (label) label.textContent = slider.value;
+        if (label) setLabelValue(label, slider.value);
         if (isSliderUnlocked(slider)) scheduleSliderLock(slider);
     }, true);
 
@@ -1622,7 +1639,7 @@
 
         slider.value = value;
         const label = document.getElementById(`${id}_value`);
-        if (label) label.textContent = displayValue;
+        if (label) setLabelValue(label, displayValue);
     }
 
 
@@ -1651,12 +1668,12 @@
             const formatted = value.toFixed(2);
             return formatted.startsWith('-') ? formatted : `+${formatted}`;
         };
-        document.getElementById('ra_px').textContent = formatSigned(data.last_correction.ra_px);
-        document.getElementById('dec_px').textContent = formatSigned(data.last_correction.dec_px);
-        document.getElementById('ra_arcsec').textContent = formatSigned(data.last_correction.ra_arcsec);
-        document.getElementById('dec_arcsec').textContent = formatSigned(data.last_correction.dec_arcsec);
+        document.getElementById('ra_px').textContent = formatSigned(data.last_errors.ra_px);
+        document.getElementById('dec_px').textContent = formatSigned(data.last_errors.dec_px);
+        document.getElementById('ra_arcsec').textContent = formatSigned(data.last_errors.ra_arcsec);
+        document.getElementById('dec_arcsec').textContent = formatSigned(data.last_errors.dec_arcsec);
         document.getElementById('focus_metric').textContent = data.focus_metric.toFixed(1);
-        document.getElementById('seeing_metric').textContent = data.last_correction.seeing.toFixed(2);
+        document.getElementById('seeing_metric').textContent = data.last_errors.seeing.toFixed(2);
         
         setSliderFromServer('threshold', data.gray_threshold);
         document.getElementById('auto_threshold').checked = data.auto_threshold;
@@ -1682,6 +1699,7 @@
         document.getElementById('guide_arcsec_value').textContent = data.guide_arcsec.toFixed(2);
         document.getElementById('guide_interval_auto').textContent = Number(data.guide_interval) === 0 ? 'auto' : '';
 
+        setSliderFromServer('error_filter_tau', data.error_filter_tau);
         setSliderFromServer('ra_pid_p', data.ra_pid_p);
         setSliderFromServer('ra_pid_i', data.ra_pid_i);
         setSliderFromServer('ra_pid_d', data.ra_pid_d);
@@ -1757,17 +1775,21 @@
 
         // Update the chart with new data
         // Python time.time() is in seconds; JS needs milliseconds. Fall back to local time if missing.
-        const ts = (data.last_correction && data.last_correction.timestamp)
-            ? data.last_correction.timestamp * 1000
+        const ts = (data.last_errors && data.last_errors.timestamp)
+            ? data.last_errors.timestamp * 1000
             : Date.now();
 
-        const lc = data.star_locked ? data.last_correction : null;
+        const lc = data.star_locked ? data.last_errors : null;
         const values = lc ? [
-            lc.ra, lc.dec, lc.ra_speed/10.0, lc.dec_speed/10.0, lc.ra_arcsec, lc.dec_arcsec
+            lc.ra_abs_correction, lc.dec_abs_correction, lc.ra_speed_correction/10.0, lc.dec_speed_correction/10.0, lc.ra_arcsec, lc.dec_arcsec
         ] : [null, null, null, null, null, null];
         values.forEach((y, i) => correctionsChart.data.datasets[i].data.push({ x: ts, y: y }));
         // Red circle on the zero line when no star is locked
         correctionsChart.data.datasets[6].data.push({ x: ts, y: data.star_locked ? null : 0 });
+        const raF = lc && lc.ra_arcsec_filtered !== undefined ? lc.ra_arcsec_filtered : null;
+        const decF = lc && lc.dec_arcsec_filtered !== undefined ? lc.dec_arcsec_filtered : null;
+        correctionsChart.data.datasets[7].data.push({ x: ts, y: raF });
+        correctionsChart.data.datasets[8].data.push({ x: ts, y: decF });
 
         // Limit the number of data points to avoid overcrowding
         correctionsChart.data.datasets.forEach(dataset => {
@@ -1781,10 +1803,10 @@
 
 
         // Update the PEC chart
-        if (data.pec_position && data.last_correction.ra_axis_arcsec !== undefined && data.star_locked && data.last_correction.ra_axis_arcsec!==0) {
+        if (data.pec_position && data.last_errors.ra_axis_arcsec !== undefined && data.star_locked && data.last_errors.ra_axis_arcsec!==0) {
             pecChart.data.datasets[0].data.push({
                 x: data.pec_position, // PEC progress (x-axis)
-                y: data.last_correction.ra_arcsec, // RA error (y-axis)
+                y: data.last_errors.ra_arcsec, // RA error (y-axis)
             });
 
             // Limit the number of points to avoid overcrowding

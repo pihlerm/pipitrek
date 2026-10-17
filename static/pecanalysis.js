@@ -471,8 +471,8 @@
         // Save PEC data capture sample: pec position, RA error and timestamp
         const PEC_BUCKETS_PER_INTERVAL = DATA_INTERVALS/PEC_TABLE_LENGTH;
 
-        if (pecCaptureActive && data.pec_position !== undefined && data.last_correction.ra_axis_arcsec !== undefined 
-            && data.star_locked && data.last_correction.ra_axis_arcsec!==0) {
+        if (pecCaptureActive && data.pec_position !== undefined && data.last_errors.ra_axis_arcsec !== undefined 
+            && data.star_locked && data.last_errors.ra_axis_arcsec!==0) {
             const pos = Math.round(Number(data.pec_position));
             if (!isNaN(pos) && pos >= 0 && pos <= DATA_INTERVALS-1) {
 
@@ -492,7 +492,7 @@
                 } else {
                     bucket = pecCaptureData[pos];
                 }
-                bucket.sum += data.last_correction.ra_axis_arcsec;
+                bucket.sum += data.last_errors.ra_axis_arcsec;
                 bucket.count += 1;
                 bucket.lastTimestamp = Date.now();
                 if(pos !== pecCaptureDataLastBucket) {

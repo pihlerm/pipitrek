@@ -261,20 +261,41 @@
     }
     
     
+    function setLabelValue(label, value) {
+        if (label.tagName === 'INPUT') {
+            if (document.activeElement !== label) label.value = value;
+        } else {
+            label.textContent = value;
+        }
+    }
+
+    function setPidFromInput(id) {
+        const box = document.getElementById(id + '_value');
+        const slider = document.getElementById(id);
+        const value = parseFloat(box.value);
+        if (isNaN(value) || value < 0) {
+            box.value = slider.value;
+            return;
+        }
+        if (value > parseFloat(slider.max)) slider.max = value;
+        slider.value = value;
+        submitPID();
+    }
+
     function submitPID() {
         const ra_pid_p = document.getElementById('ra_pid_p').value;
         const ra_pid_i = document.getElementById('ra_pid_i').value;
         const ra_pid_d = document.getElementById('ra_pid_d').value;
-        document.getElementById('ra_pid_p_value').textContent = ra_pid_p;
-        document.getElementById('ra_pid_i_value').textContent = ra_pid_i;
-        document.getElementById('ra_pid_d_value').textContent = ra_pid_d;
+        setLabelValue(document.getElementById('ra_pid_p_value'), ra_pid_p);
+        setLabelValue(document.getElementById('ra_pid_i_value'), ra_pid_i);
+        setLabelValue(document.getElementById('ra_pid_d_value'), ra_pid_d);
 
         const dec_pid_p = document.getElementById('dec_pid_p').value;
         const dec_pid_i = document.getElementById('dec_pid_i').value;
         const dec_pid_d = document.getElementById('dec_pid_d').value;
-        document.getElementById('dec_pid_p_value').textContent = dec_pid_p;
-        document.getElementById('dec_pid_i_value').textContent = dec_pid_i;
-        document.getElementById('dec_pid_d_value').textContent = dec_pid_d;
+        setLabelValue(document.getElementById('dec_pid_p_value'), dec_pid_p);
+        setLabelValue(document.getElementById('dec_pid_i_value'), dec_pid_i);
+        setLabelValue(document.getElementById('dec_pid_d_value'), dec_pid_d);
 
         fetch('/set_pid', {
             method: 'POST',
@@ -286,6 +307,16 @@
     }
 
 
+
+    function submitTau() {
+        const error_filter_tau = document.getElementById('error_filter_tau').value;
+        document.getElementById('error_filter_tau_value').textContent = error_filter_tau;
+        fetch('/autoguider_set_tau', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error_filter_tau }),
+        })
+    }
 
     function acquire() {
         fetch('/acquire', { method: 'POST' })

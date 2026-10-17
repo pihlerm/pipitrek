@@ -25,6 +25,7 @@ class Settings:
         self.settings["autoguider"]["guide_method_dec"] = autoguider.guide_method_dec
         self.settings["autoguider"]["max_star_size"] = autoguider.max_star_size
         self.settings["autoguider"]["auto_threshold"] = autoguider.auto_threshold
+        self.settings["autoguider"]["error_filter_tau"] = autoguider.error_filter_tau
         self.settings["autoguider"]["pid"] =  { "ra" : {},"dec": {}}
         self.settings["autoguider"]["pid"]["ra"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
         self.settings["autoguider"]["pid"]["dec"] = { "p":autoguider.dec_pid.Kp, "i": autoguider.dec_pid.Ki, "d": autoguider.dec_pid.Kd }
@@ -65,6 +66,7 @@ class Settings:
             autoguider.guide_method_dec = ag.get("guide_method_dec", "MON")
             autoguider.max_star_size = int(ag.get("max_star_size", 200))
             autoguider.auto_threshold = bool(ag.get("auto_threshold", True))
+            autoguider.error_filter_tau = float(ag.get("error_filter_tau", 3))
 
             pid_settings = ag.get("pid")
             if pid_settings is not None:

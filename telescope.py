@@ -6,7 +6,6 @@ import time
 import subprocess
 import json
 import queue
-from autoguider import Autoguider
 from comm.virtual_port import VirtualSerialPort
 from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
@@ -305,11 +304,11 @@ class Telescope:
             print(f"scope read: {data}")
         return data
 
-    def start_bridge(self):
+    def start_bridge(self,autoguider,camera):
         if self._thread is not None and self._thread.is_alive():
             print("telescope bridge already running...")
             return
-        self._thread = Thread(target=self.run_serial_bridge)
+        self._thread = Thread(target=self.run_serial_bridge, args=(autoguider,camera))
         self._thread.start()
 
     def stop_bridge(self):
@@ -322,7 +321,7 @@ class Telescope:
             print("Warning: Telescope bridge thread did not stop in time")
 
 
-    def run_serial_bridge(self):
+    def run_serial_bridge(self,autoguider,camera):
         self.running = True
         
         bt = self.bt_serial
@@ -366,9 +365,8 @@ class Telescope:
                         if data:                         
                             str = data.decode()
                             if(str.startswith("!O#")):
-                                print("Orientation command received from BT serial")
-                                autoguider = Autoguider()
-                                result = TelescopeInitializePositionTask(self,autoguider.camera,autoguider).execute()
+                                print("Orientation command received from BT serial")                                
+                                result = TelescopeInitializePositionTask(self,camera).execute()
                                 bt.write(json.dumps(result).encode('utf-8'))
                             else:
                                 self.write_scope(data)  # Write it to scope
@@ -494,7 +492,7 @@ class Telescope:
     def get_current_position(self):
         ra = LXGetRa().execute(self).decode().rstrip('#')
         dec = LXGetDec().execute(self).decode().rstrip('#')
-        #print(f"received coordinates {ra} {dec}")
+        print(f"received coordinates {ra} {dec}")
         try:
             ra_deg =  lx200_to_ra_deg(ra)
             dec_deg = lx200_to_dec_deg(dec)            

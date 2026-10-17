@@ -8,7 +8,7 @@ from telescope import Telescope
 from conversions import *
 
 class TelescopeTask:
-    def __init__(self, telescope:Telescope, autoguider=None, camera=None):
+    def __init__(self, telescope:Telescope):
         self.name = self.__class__.__name__
         self.telescope = telescope
         self.executed = False
@@ -17,7 +17,6 @@ class TelescopeTask:
         self.time = 0
         self.start_time = 0
         self.end_time = 0
-        self._init_autoguider_and_camera(autoguider, camera)
 
     def _start_timer(self):
         self.start_time = time.time()
@@ -68,24 +67,13 @@ class TelescopeTask:
         with open(f"log/task_{day}.log", "a") as log_file:
             log_file.write(f"{timestamp}, {self.name}, {log_entry}\n")
 
-    def _init_autoguider_and_camera(self, autoguider=None, camera=None):
-        if autoguider is None:
-            from autoguider import Autoguider  # deferred: autoguider.py imports telescope.py, which imports this module
-            self.autoguider = Autoguider()
-        else:
-            self.autoguider = autoguider
-        if camera is None:            
-            self.camera = self.autoguider.camera
-        else:
-            self.camera = camera
-
 
 
 class TelescopeImagingTask(TelescopeTask):
     def __init__(self, telescope:Telescope, exposure_time, exposure_count, 
                  camera=None, autoguider=None,target_ra = None, target_dec=None, 
                  autoguide=False, plate_solve=False):
-        super().__init__(telescope, autoguider, camera)
+        super().__init__(telescope)
         self.target_ra = target_ra
         self.target_dec = target_dec
         self.exposure_time = exposure_time
@@ -95,6 +83,10 @@ class TelescopeImagingTask(TelescopeTask):
         self.time = (self.exposure_time+1) * self.exposure_count
         self._subtask = None
         self.last_position_check = 0
+        self.autoguider = autoguider
+        self.camera = camera
+        if self.camera is None and self.autoguider is not None:
+            self.camera = self.autoguider.camera
         self.autoguide = autoguide
         self.plate_solve = plate_solve
         self.dslr = DSLR()
@@ -107,7 +99,7 @@ class TelescopeImagingTask(TelescopeTask):
         self.autoguider.enable_guiding(False)        
         time.sleep(2)  # small delay to allow the guider loop to respond
 
-        self._subtask = TelescopeSlewingTask(self.telescope, self.target_ra, self.target_dec, autoguider=self.autoguider, camera=self.camera)
+        self._subtask = TelescopeSlewingTask(self.telescope, self.target_ra, self.target_dec, autoguider=self.autoguider)
         result = self._subtask.execute()
         self._subtask = None
         if result.get('status') != 'ok':
@@ -119,7 +111,7 @@ class TelescopeImagingTask(TelescopeTask):
                 return self._exit({'status': 'error', 'message': 'Failed to initialize telescope position'})
 
             # Repeat the slewing to ensure the telescope is accurately positioned at the target coordinates
-            self._subtask = TelescopeSlewingTask(self.telescope, self.target_ra, self.target_dec, autoguider=self.autoguider, camera=self.camera)
+            self._subtask = TelescopeSlewingTask(self.telescope, self.target_ra, self.target_dec, autoguider=self.autoguider)
             result = self._subtask.execute()
             self._subtask = None
             if result.get('status') != 'ok':
@@ -130,7 +122,7 @@ class TelescopeImagingTask(TelescopeTask):
     def initialize_position(self):
         if not self.plate_solve:
             return {'status': 'ok'}
-        self._subtask = TelescopeInitializePositionTask(self.telescope, self.camera, self.autoguider)
+        self._subtask = TelescopeInitializePositionTask(self.telescope, self.camera)
         time.sleep(2)  # small delay to allow telescope settling
         result = self._subtask.execute()
         self._subtask = None
@@ -183,7 +175,7 @@ class TelescopeImagingTask(TelescopeTask):
                     if self.needs_stop:
                         return self._exit({'status': 'stopped', 'message': 'Task stopped due to user request.'})
                         
-                    self._subtask = TelescopeMeridianFlipTask(self.telescope)
+                    self._subtask = TelescopeMeridianFlipTask(self.telescope, self.autoguider)
                     self._subtask.execute()
                     self._subtask = None
 
@@ -286,11 +278,12 @@ class TelescopeImagingTask(TelescopeTask):
 
 
 class TelescopeSlewingTask(TelescopeTask):
-    def __init__(self, telescope:Telescope, target_ra, target_dec, autoguider=None, camera=None):
-        super().__init__(telescope, autoguider, camera)
+    def __init__(self, telescope:Telescope, target_ra, target_dec, autoguider=None):
+        super().__init__(telescope)
         self.target_ra_deg = lx200_to_ra_deg(target_ra)
         self.target_dec_deg = lx200_to_dec_deg(target_dec)
         self.time = 0   # at task creation time it's difficult to estimate, since we don't know the current position and potential meridian flips
+        self.autoguider = autoguider
     
     def execute(self):
 
@@ -335,7 +328,7 @@ class TelescopeSlewingTask(TelescopeTask):
 
                 if(segment_pier != pier):
                     self._log("Performing meridian flip due to pier change.")
-                    TelescopeMeridianFlipTask(self.telescope).execute()
+                    TelescopeMeridianFlipTask(self.telescope, self.autoguider).execute()
 
                 if self.needs_stop:
                     return self._exit({'status': 'stopped', 'message': 'Task stopped due to user request.'})
@@ -356,11 +349,16 @@ class TelescopeSlewingTask(TelescopeTask):
 
 
 class TelescopeMeridianFlipTask(TelescopeTask):
-    def __init__(self, telescope:Telescope, autoguider=None, camera=None):
-        super().__init__(telescope, autoguider, camera)
+    def __init__(self, telescope:Telescope,autoguider=None):
+        super().__init__(telescope)
+        self.autoguider = autoguider
         self.time = 200 # Estimated time for the meridian flip in seconds
 
     def execute(self):
+
+        if self.autoguider is not None:
+            self.autoguider.enable_guiding(False)
+
         self._start_timer()                
         self._log(f"Performing pier flip from {self.telescope.scope_info['pier']} to the opposite pier.")
         self.telescope.send_pier('F')
@@ -382,11 +380,12 @@ class TelescopeMeridianFlipTask(TelescopeTask):
 
 class PlateSolveTask(TelescopeTask):
     # capture image, plate solve
-    def __init__(self, telescope:Telescope, camera, filename, capture, autoguider=None):
-        super().__init__(telescope, autoguider, camera)
+    def __init__(self, telescope:Telescope, camera, filename, capture):
+        super().__init__(telescope)
         self.time = 20
         self.filename = filename
         self.capture = capture
+        self.camera = camera
 
     def execute(self):        
         
@@ -428,8 +427,9 @@ class PlateSolveTask(TelescopeTask):
 
 class TelescopeInitializePositionTask(TelescopeTask):
     # capture image, plate solve, set coordinates
-    def __init__(self, telescope:Telescope, camera, autoguider):
-        super().__init__(telescope, autoguider, camera)
+    def __init__(self, telescope:Telescope, camera):
+        super().__init__(telescope)
+        self.camera = camera
         self.time = 20 
 
     def execute(self):
@@ -452,13 +452,16 @@ class TelescopeInitializePositionTask(TelescopeTask):
 
 class TelescopeStartAutoguiderTask(TelescopeTask):
     # capture image, plate solve, set coordinates
-    def __init__(self, telescope:Telescope, autoguider, calibrate_axis=False, camera=None):
-        super().__init__(telescope, autoguider, camera)
+    def __init__(self, telescope:Telescope, autoguider, calibrate_axis=False):
+        super().__init__(telescope)
         self.calibrate_axis = calibrate_axis
-        self.time = 7 
+        self.time = 7
+        self.autoguider = autoguider
 
     def execute(self):
         self._log("Start execute.")
+        if self.autoguider is None:
+            return self._exit({'status': 'error', 'message': 'Autoguider not available'})
         self._start_timer()
         # WAIT FOR TELESCOPE TO SETTLE
         time.sleep(5)  
@@ -482,7 +485,8 @@ class TelescopeStartAutoguiderTask(TelescopeTask):
 class TelescopeStopAutoguiderTask(TelescopeTask):
     # capture image, plate solve, set coordinates
     def __init__(self, telescope:Telescope, autoguider):
-        super().__init__(telescope, autoguider)
+        super().__init__(telescope)
+        self.autoguider = autoguider
         self.time = 2 
 
     def execute(self):
@@ -493,20 +497,25 @@ class TelescopeStopAutoguiderTask(TelescopeTask):
 
 
 class TelescopeParkTask(TelescopeTask):
-    def __init__(self, telescope:Telescope):
+    def __init__(self, telescope:Telescope, autoguider):
         super().__init__(telescope)
+        self.autoguider = autoguider
         self.time = 60  # Estimated time to park the telescope
         self.slewing_task = None
 
     def execute(self):
         self._log("Start execute.")
         self._start_timer()
+
+        if self.autoguider is not None:
+            self.autoguider.enable_guiding(False)
+
         park_position = self.telescope.get_park_position()
         raStr = deg_to_lx200_ra(float(park_position[0]))
         decStr = deg_to_lx200_dec(float(park_position[1]))        
         # stop tracking before parking
         self.telescope.send_tracking(False)
-        self.slewing_task = TelescopeSlewingTask(self.telescope, raStr, decStr)
+        self.slewing_task = TelescopeSlewingTask(self.telescope, raStr, decStr, autoguider=self.autoguider)
         result = self.slewing_task.execute()
         self.slewing_task = None
         return self._exit(result)
@@ -519,16 +528,19 @@ class TelescopeParkTask(TelescopeTask):
 
 
 class TelescopeShutdownTask(TelescopeTask):
-    def __init__(self, telescope:Telescope):
+    def __init__(self, telescope:Telescope, autoguider):
         super().__init__(telescope)
+        self.autoguider = autoguider
         self.time = 10  # Estimated time to shut down the telescope
 
     def execute(self):
         self._log("Start execute.")
-        self.telescope.send_stop()
+
         self._log("Stopping autoguider and tracking for shutdown.")
-        # stop Autoguider
-        self.autoguider.enable_guiding(False)
+        if self.autoguider is not None:
+            self.autoguider.enable_guiding(False)
+
+        self.telescope.send_stop()
         # stop tracking
         self.telescope.send_tracking(False)
         return self._exit({'status': 'ok'})
