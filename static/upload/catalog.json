@@ -1,0 +1,104 @@
+[
+  {
+    "ra": " 17:49:31.8",
+    "dec": "-25*25:17.4",
+    "name": "MW",
+    "rotation": 60.551384878158295
+  },
+  {
+    "ra": " 20:18:27.7",
+    "dec": "+00*00:00",
+    "name": "Jupiter",
+    "rotation": 0
+  },
+  {
+    "ra": " 21:18:27.7",
+    "dec": "+00*00:00",
+    "name": "Saturn",
+    "rotation": 0
+  },
+  {
+    "ra": " 19:18:27.7",
+    "dec": "+00*00:00",
+    "name": "Luna",
+    "rotation": 0
+  },
+  {
+    "ra": "05:34:46.6",
+    "dec": "-05*40:24.3",
+    "name": "M42 Orion Nebula",
+    "rotation": 346.2
+  },
+  {
+    "ra": "14:03:11.6",
+    "dec": "+54*24:45.9",
+    "name": "M101 Pinwheel galaxy",
+    "rotation": 273.9
+  },
+  {
+    "ra": "9:56:39.2",
+    "dec": "+69*20:33.2",
+    "name": "M81",
+    "rotation": 260.1
+  },
+  {
+    "ra": "11:19:58.2",
+    "dec": "+13*22:39.52",
+    "name": "NGC 3628 Hamburger",
+    "rotation": 259.3
+  },
+  {
+    "ra": "12:43:16.5",
+    "dec": "+32*21:52.2",
+    "name": "NGC 4631 Whale",
+    "rotation": 261.7
+  },
+  {
+    "ra": "12:50:53.2",
+    "dec": "+41*07:18.6",
+    "name": "M94 Crocodile Eye",
+    "rotation": 262.1
+  },
+  {
+    "ra": "12:56:48.3",
+    "dec": "+21*42:46.3",
+    "name": "NGC4826 Black Eye",
+    "rotation": 261.8
+  },
+  {
+    "ra": "08:40:42",
+    "dec": "+19*43:22.28",
+    "name": "Beehive Cluster",
+    "rotation": 261.8
+  },
+  {
+    "ra": "12:17:28",
+    "dec": "+47*30:36.8",
+    "name": "M106 et al",
+    "rotation": 275.7
+  },
+  {
+    "ra": "19:54:18",
+    "dec": "+18*42:11.4",
+    "name": "Sagittarius",
+    "rotation": 267.7
+  },
+  {
+    "ra": "18:53:25.9",
+    "dec": "+33*00:47.15",
+    "name": "Ring Nebula",
+    "rotation": 277.9
+  },
+  {
+    "ra": "12:36:15.8",
+    "dec": "+25*54:54.8",
+    "name": "NGC 4565 Needle Galaxy",
+    "rotation": 262.3
+  },
+  {
+    "ra": "18:18:31.4",
+    "dec": "-13*50:59.9",
+    "name": "Eagle Nebula",
+    "rotation": 81.9
+  }
+]

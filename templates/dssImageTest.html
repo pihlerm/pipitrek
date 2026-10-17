@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSS Image Retrieval Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        input, button {
+            margin: 10px;
+            padding: 8px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .res-img {
+            max-width: 800px;
+            margin-top: 20px;
+            display: none;
+        }
+        .image-row {
+            display: flex;
+            justify-content: center;
+            gap: 20px; /* space between images */
+            margin-top: 20px;
+        }
+        #errorMessage {
+            color: red;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>DSS Image Retrieval</h2>
+        <div>
+            <label for="raInput">RA (e.g., 11:34.3 or 11h34m3s):</label>
+            <input type="text" id="raInput" value = "18:18:37" placeholder="18:18:37">
+        </div>
+        <div>
+            <label for="decInput">Dec (e.g., +48:57 or +48d57m):</label>
+            <input type="text" id="decInput" value="-13*55:13" placeholder="-13*55:13">
+        </div>
+        <button id="retrieve">Retrieve Image</button>
+        <div class="image-row">
+            <img id="resultImage" class="res-img" src="" alt="DSS Image">
+            <img id="resultImage2" class="res-img" src="" alt="DSS Image">
+        </div>
+        <canvas id="combinedCanvas" width="800" height="800" style="display:none; margin-top:20px;"></canvas>
+        <div id="errorMessage"></div>
+    </div>
+
+    <script type="module">
+        import { getImageDSS,getImageDSSUrl } from '../static/vr/dssTools.js';
+
+        document.getElementById('retrieve').addEventListener('click', retrieveImage);
+
+        /**
+         * Handles button click to retrieve and display DSS image
+         */
+        async function retrieveImage() {
+            const raInput = document.getElementById('raInput').value.trim();
+            const decInput = document.getElementById('decInput').value.trim();
+            const resultImage = document.getElementById('resultImage');
+            const resultImage2 = document.getElementById('resultImage2');
+            const errorMessage = document.getElementById('errorMessage');
+
+            // Reset UI
+            resultImage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            errorMessage.textContent = '';
+
+            // Validate inputs
+            if (!raInput || !decInput) {
+                errorMessage.textContent = 'Please enter both RA and Dec values';
+                errorMessage.style.display = 'block';
+                return;
+            }
+
+            try {
+                resultImage.crossOrigin = "anonymous";
+                resultImage2.crossOrigin = "anonymous";
+
+                const imageUrl = await getImageDSSUrl(raInput, decInput,60,60,'all');
+                resultImage.src = imageUrl;
+                resultImage.style.display = 'block';
+
+                const imageUrl2 = await getImageDSSUrl(raInput, decInput,60,60,'poss2ukstu_ir');
+                resultImage2.src = imageUrl2;
+                resultImage2.style.display = 'block';
+
+                // Wait for both images to load
+                await Promise.all([
+                    new Promise(resolve => { resultImage.onload = resolve; }),
+                    new Promise(resolve => { resultImage2.onload = resolve; })
+                ]);
+                combineImage();
+
+                console.log(`Image loaded: ${imageUrl}`);
+            } catch (error) {
+                errorMessage.textContent = error.message;
+                errorMessage.style.display = 'block';
+                console.error(error.message);
+            }
+        }
+
+        async function combineImage() {
+            const resultImage = document.getElementById('resultImage');
+            const resultImage2 = document.getElementById('resultImage2');
+            const combinedCanvas = document.getElementById('combinedCanvas');
+            const ctx = combinedCanvas.getContext('2d');
+            const errorMessage = document.getElementById('errorMessage');
+
+            // Reset UI
+            combinedCanvas.style.display = 'none';
+
+            try {
+
+                // Set canvas size to match images
+                combinedCanvas.width = resultImage.width;
+                combinedCanvas.height = resultImage.height;
+
+                // Draw IR image (for green channel)
+                ctx.drawImage(resultImage, 0, 0, combinedCanvas.width, combinedCanvas.height);
+                const irData = ctx.getImageData(0, 0, combinedCanvas.width, combinedCanvas.height);
+
+                // Draw Red image (for red channel)
+                ctx.drawImage(resultImage2, 0, 0, combinedCanvas.width, combinedCanvas.height);
+                const redData = ctx.getImageData(0, 0, combinedCanvas.width, combinedCanvas.height);
+
+                // Create combined image data
+                const combinedData = ctx.createImageData(combinedCanvas.width, combinedCanvas.height);
+                for (let i = 0; i < combinedData.data.length; i += 4) {
+                    combinedData.data[i]     = irData.data[i];     // Red channel from IR image
+                    combinedData.data[i + 1] = (irData.data[i] + redData.data[i])/2;      // Green channel from red image
+                    combinedData.data[i + 2] = redData.data[i];                   // Blue channel set to 0
+                    combinedData.data[i + 3] = 255;                 // Alpha channel
+                }
+
+                // Put combined data on canvas
+                ctx.putImageData(combinedData, 0, 0);
+                combinedCanvas.style.display = 'block';
+
+                console.log(`Images loaded and combined.`);
+            } catch (error) {
+                errorMessage.textContent = error.message;
+                errorMessage.style.display = 'block';
+                console.error(error.message);
+            }
+        }
+    </script>
+</body>
+</html>
