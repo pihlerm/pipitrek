@@ -163,6 +163,7 @@ class Autoguider:
         self.edge_threshold = 20            # Minimum distance from the edge of the frame to consider a star valid (pixels)
         self.save_frames = False            # Save each frame to disk
         self.output_dir = ""
+        self.log_track = False
 
         self.running = False
         self.lock = Lock()  # Thread lock for frame and threshold
@@ -176,7 +177,9 @@ class Autoguider:
         # Low-pass filters on the measured errors (seeing/shot noise); tau in seconds, 0 = off
         self.error_filter_tau = 3.0
         self.ra_filter = LowPassFilter(self.error_filter_tau)
+        self.ra_axis_filter = LowPassFilter(self.error_filter_tau)
         self.dec_filter = LowPassFilter(self.error_filter_tau)
+
     def set_ra_guide_method(self, ra_method):
         if ra_method not in self.guide_methods:
             raise ValueError("Invalid RA guide method: " + str(ra_method))
@@ -197,6 +200,8 @@ class Autoguider:
             self.auto_threshold_running = False
 
     def _write_track_log(self, log_entry):
+        if not self.log_track:
+            return
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         day = datetime.datetime.now().strftime("%Y-%m-%d")
         os.makedirs("log", exist_ok=True)
@@ -324,32 +329,32 @@ class Autoguider:
             print(self.last_status)
             self._write_track_log(self.last_status)
 
-    def _guide_scope_monitor(self, ra_arcsec_error, dec_arcsec_error, axis):
+    def _guide_scope_monitor(self, ra_arcsec_error,ra_axis_arcsec_error, dec_arcsec_error, axis):
         # Monitor only, no actual guiding
         pass
 
-    def _guide_scope_abs(self, ra_arcsec_error, dec_arcsec_error, axis):
+    def _guide_scope_abs(self, ra_arcsec_error,ra_axis_arcsec_error, dec_arcsec_error, axis):
         
         # Compute corrections with PID
         # Use the real frame interval, clamped so a burst or a gap cannot spike the D/I terms
         dt = min(max(self.frame_dt, 0.3), 3.0)
 
         if axis == 'ra':
-            ra_correction = self.ra_pid.compute(-ra_arcsec_error, dt)  # Negative to correct RA
+            ra_correction = self.ra_pid.compute(-ra_axis_arcsec_error, dt)  # Negative to correct RA
             if abs(ra_arcsec_error) < self.max_drift_ra:
                 ra_correction = 0
             self.last_errors['ra_abs_correction']=ra_correction
-            self.telescope.send_abs_ra_correction(ra_correction)
+            self.telescope.send_abs_ra_correction(10*ra_correction)
 
         if axis == 'dec':
             dec_correction = self.dec_pid.compute(-dec_arcsec_error, dt)
             if abs(dec_arcsec_error) < self.max_drift_dec:
                 dec_correction = 0
             self.last_errors['dec_abs_correction']=dec_correction
-            self.telescope.send_abs_dec_correction(dec_correction)
+            self.telescope.send_abs_dec_correction(10*dec_correction)
 
             
-    def _guide_scope_rel(self, ra_arcsec_error, dec_arcsec_error, axis):
+    def _guide_scope_rel(self, ra_arcsec_error,ra_axis_arcsec_error, dec_arcsec_error, axis):
 
         # Compute speeds with PID
         # Use the real frame interval, clamped so a burst or a gap cannot spike the D/I terms
@@ -360,7 +365,7 @@ class Autoguider:
 
         # Log and send command
         if axis == 'ra':
-            ra_speed = self.ra_pid.compute(-ra_arcsec_error, dt)  # Negative to correct RA
+            ra_speed = self.ra_pid.compute(-ra_axis_arcsec_error, dt)  # Negative to correct RA
             ra_speed = int(max(-99, min(ra_speed, 99)))
             if abs(ra_arcsec_error) < self.max_drift_ra:
                 ra_speed = 0
@@ -376,16 +381,16 @@ class Autoguider:
             self.telescope.send_start_movement_speed_dec(dec_speed)
 
 
-    def _guide_scope(self, ra_arcsec_error, dec_arcsec_error):
+    def _guide_scope(self, ra_arcsec_error,ra_axis_arcsec_error, dec_arcsec_error):
         # Call the appropriate method based on self.method
         guide_methodf_ra = self.guide_methods.get(self.guide_method_ra)
         guide_methodf_dec = self.guide_methods.get(self.guide_method_dec)
         if guide_methodf_ra:
-            guide_methodf_ra(ra_arcsec_error, dec_arcsec_error,'ra')
+            guide_methodf_ra(ra_arcsec_error, ra_axis_arcsec_error, dec_arcsec_error,'ra')
         else:
             raise ValueError(f"Unknown guiding method: {self.guide_method_ra}")
         if guide_methodf_dec:
-            guide_methodf_dec(ra_arcsec_error, dec_arcsec_error,'dec')
+            guide_methodf_dec(ra_arcsec_error, ra_axis_arcsec_error, dec_arcsec_error,'dec')
         else:
             raise ValueError(f"Unknown guiding method: {self.guide_method_dec}")
 
@@ -493,8 +498,7 @@ class Autoguider:
             Returns:
                 tuple: (ra_arcsec, dec_arcsec) in arcseconds.
             """
-            dec_rad = math.radians(declination)
-            cos_dec = math.cos(dec_rad)
+            cos_dec = math.cos(math.radians(declination))
             # Avoid division by zero near poles
             ra_scale = pixel_scale / cos_dec if abs(cos_dec) > 1e-6 else pixel_scale / 1e-6
             ra_axis_arcsec = dx * ra_scale
@@ -777,16 +781,16 @@ class Autoguider:
         return last_save_time_counter
 
 
-    def _filter_errors(self, ra_axis_err, dec_err):
-        self.ra_filter.tau = self.dec_filter.tau = self.error_filter_tau
+    def _filter_errors(self, ra_err, ra_axis_err, dec_err):
+        self.ra_axis_filter.tau = self.ra_filter.tau = self.dec_filter.tau = self.error_filter_tau
         dt_f = min(max(self.frame_dt, 0.01), 10.0)
-        ra_f = self.ra_filter.update(ra_axis_err, dt_f)
+        ra_f = self.ra_filter.update(ra_err, dt_f)
+        ra_axis_f = self.ra_axis_filter.update(ra_axis_err, dt_f)
         dec_f = self.dec_filter.update(dec_err, dt_f)
-        declination = self.telescope.dec_deg if self.telescope.dec_deg is not None else 0
-        self.last_errors['ra_axis_arcsec_filtered'] = round(ra_f, 2)
-        self.last_errors['ra_arcsec_filtered'] = round(ra_f * math.cos(math.radians(declination)), 2)
+        self.last_errors['ra_arcsec_filtered'] = round(ra_f, 2)
+        self.last_errors['ra_axis_arcsec_filtered'] = round(ra_axis_f, 2)
         self.last_errors['dec_arcsec_filtered'] = round(dec_f, 2)
-        return ra_f, dec_f
+        return ra_f, ra_axis_f, dec_f
 
     def run_autoguider(self):
         
@@ -872,11 +876,11 @@ class Autoguider:
                             seeing = self.measure_static_seeing(centroids, self.camera.pixel_scale)
                             self.last_errors['seeing'] = seeing
 
-                            ra_f, dec_f = self._filter_errors(self.last_errors['ra_axis_arcsec'], self.last_errors['dec_arcsec'])
+                            ra_f, ra_axis_f, dec_f = self._filter_errors(self.last_errors['ra_arcsec'],self.last_errors['ra_axis_arcsec'], self.last_errors['dec_arcsec'])
 
                             if self.guiding:
                                 t_g = time.perf_counter()
-                                self._guide_scope(ra_f, dec_f)
+                                self._guide_scope(ra_f, ra_axis_f, dec_f)
                                 t_guide = time.perf_counter() - t_g
                         # remember new currnt centroids; it some were not detected this time, keep the old ones
                         for i in range(len(centroids)):
@@ -888,8 +892,8 @@ class Autoguider:
                         self.ra_filter.reset()
                         self.dec_filter.reset()
                         if self.guiding:
-                            self._guide_scope(0,0)
-
+                            self._guide_scope(0,0,0)
+    
                         self.last_status = "LOST TRACKING: Tracked stars not detected."
                         #print(self.last_status)
                         self._write_track_log(self.last_status)

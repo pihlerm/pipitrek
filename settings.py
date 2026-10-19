@@ -26,6 +26,7 @@ class Settings:
         self.settings["autoguider"]["max_star_size"] = autoguider.max_star_size
         self.settings["autoguider"]["auto_threshold"] = autoguider.auto_threshold
         self.settings["autoguider"]["error_filter_tau"] = autoguider.error_filter_tau
+        self.settings["autoguider"]["log_track"] = autoguider.log_track
         self.settings["autoguider"]["pid"] =  { "ra" : {},"dec": {}}
         self.settings["autoguider"]["pid"]["ra"] = { "p":autoguider.ra_pid.Kp, "i": autoguider.ra_pid.Ki, "d": autoguider.ra_pid.Kd }
         self.settings["autoguider"]["pid"]["dec"] = { "p":autoguider.dec_pid.Kp, "i": autoguider.dec_pid.Ki, "d": autoguider.dec_pid.Kd }
@@ -78,6 +79,7 @@ class Settings:
                 autoguider.dec_pid.Kd = float(pid_settings.get("dec", {}).get("d", 0.0))
 
             autoguider.output_dir = self.settings.get("output_dir")
+            autoguider.log_track = bool(ag.get("log_track", False))
 
         except (ValueError, TypeError) as e:
             print(f"Error converting property value: {e}")

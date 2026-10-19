@@ -234,6 +234,7 @@
         }
 
         const spec = _fft(re, im, false);
+
         const slider = document.getElementById('pec_fft_keep');
         const keepPercent = slider ? parseFloat(slider.value) : 50;
         const keep = Math.round(N / 2 * keepPercent / DATA_INTERVALS); // positive frequencies 0..N/2

@@ -236,7 +236,7 @@ class TelescopeImagingTask(TelescopeTask):
                 return self._exit({'status': 'error', 'message': msg})
 
         last_position_check=time.time()
-        while self.remaining_exposures > 0:
+        while self.remaining_exposures > 0 or self.dslr.is_triggered():
             if self.needs_stop:
                 return self._exit({'status': 'stopped', 'message': 'Task stopped due to user request.'})
             
@@ -390,6 +390,7 @@ class PlateSolveTask(TelescopeTask):
     def execute(self):        
         
         self._log("Start execute.")
+        self.telescope.send_tracking(True)
         self._start_timer()
         frame = None
         if self.capture and (self.camera is None or not self.camera.running):
@@ -462,6 +463,7 @@ class TelescopeStartAutoguiderTask(TelescopeTask):
         self._log("Start execute.")
         if self.autoguider is None:
             return self._exit({'status': 'error', 'message': 'Autoguider not available'})
+        self.telescope.send_tracking(True)
         self._start_timer()
         # WAIT FOR TELESCOPE TO SETTLE
         time.sleep(5)  

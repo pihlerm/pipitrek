@@ -1396,7 +1396,7 @@
             data: {
                 datasets: [
                     {
-                        label: 'RA Error raw (arcsec)',
+                        label: 'RA axis error (arcsec)',
                         data: [], // Points will be added dynamically
                         borderColor: 'purple',
                         backgroundColor: 'purple',
@@ -1417,7 +1417,7 @@
                         order: 1, // higher order draws first/behind, so the RA error points stay on top
                     },
                     {
-                        label: 'RA Error (Fourier filtered)',
+                        label: 'RA axis error (Fourier filtered)',
                         type: 'line',
                         data: [], // Filled in by fourierFilterPECData()
                         borderColor: 'lime',
@@ -1428,7 +1428,7 @@
                         order: 0,
                     },
                     {
-                        label: 'RA Error smoothed (arcsec)',
+                        label: 'RA axis error smoothed (arcsec)',
                         data: [], // Points will be added dynamically
                         borderColor: 'red',
                         backgroundColor: 'red',
@@ -1445,9 +1445,9 @@
                     x: {
                         type: 'linear',
                         position: 'bottom',
-                        title: { display: false, text: 'PEC Progress (%)' },
+                        title: { display: true, text: 'PEC position / wavelength (buckets)' },
                         min: 0,
-                        max: 99, // Static grid for x-axis
+                        max: 100,
                         grid: { color: '#919191' },
                         ticks: { stepSize: 10 },
                     },
@@ -1806,7 +1806,7 @@
         if (data.pec_position && data.last_errors.ra_axis_arcsec !== undefined && data.star_locked && data.last_errors.ra_axis_arcsec!==0) {
             pecChart.data.datasets[0].data.push({
                 x: data.pec_position, // PEC progress (x-axis)
-                y: data.last_errors.ra_arcsec, // RA error (y-axis)
+                y: data.last_errors.ra_axis_arcsec, // RA error (y-axis)
             });
 
             // Limit the number of points to avoid overcrowding

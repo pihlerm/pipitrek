@@ -26,8 +26,21 @@ TASK_BUILDERS = {
 
 class TelescopeTaskScheduler:
     """Thread-safe, one-shot task scheduler suitable for telescope operations."""
+    
+    _instance = None
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(TelescopeTaskScheduler, cls).__new__(cls)
+        return cls._instance
 
     def __init__(self, camera, telescope, autoguider) -> None:
+        if hasattr(self, '_initialized'):
+            return
+        if telescope is None or autoguider is None or camera is None:
+            raise ValueError("Camera, telescope, and autoguider must all be provided")
+        
+        self._initialized = True
+
         self._task_list: list[dict[str, Any]] = []
         self.task_list_thread: Optional[threading.Thread] = None
         self._running = False

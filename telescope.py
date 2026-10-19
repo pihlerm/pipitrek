@@ -11,7 +11,8 @@ from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
 from telescope_commands import *
 from conversions import *
-from telescope_task import TelescopeInitializePositionTask
+from telescope_task import TelescopeInitializePositionTask, TelescopeSlewingTask
+from telescope_task_scheduler import TelescopeTaskScheduler
 
 class Telescope:
     _instance = None
@@ -335,6 +336,11 @@ class Telescope:
         # last info call time
         last_info_time = 0
 
+        bt_buffer = b''
+        bt_in_ra = None
+        bt_in_dec = None
+        bt_slew_thread = None
+
         print("Starting serial bridge...")
         while self.running:
             if not self.pause:
@@ -361,15 +367,42 @@ class Telescope:
                     bt.check_status_bt()
 
                     if bt.in_waiting() > 0:  # Check if there’s any data waiting
-                        data = bt.read(bt.in_waiting())  # Read all available bytes
-                        if data:                         
-                            str = data.decode()
-                            if(str.startswith("!O#")):
-                                print("Orientation command received from BT serial")                                
-                                result = TelescopeInitializePositionTask(self,camera).execute()
-                                bt.write(json.dumps(result).encode('utf-8'))
-                            else:
-                                self.write_scope(data)  # Write it to scope
+                        bt_buffer += bt.read(bt.in_waiting())  # Read all available bytes
+                    while True:
+                        hash_pos = bt_buffer.find(b'#')
+                        newline_pos = bt_buffer.find(b'\n')
+                        delimiters = [pos for pos in (hash_pos, newline_pos) if pos >= 0]
+                        if not delimiters:
+                            break
+
+                        frame_end = min(delimiters) + 1
+                        data = bt_buffer[:frame_end]
+                        bt_buffer = bt_buffer[frame_end:]
+
+                        if data.startswith(b'!O#'):
+                            print("Orientation command received from BT serial")
+                            result = TelescopeInitializePositionTask(self, camera).execute()
+                            bt.write(json.dumps(result).encode('utf-8'))
+                        elif data.startswith(b':Sr'):
+                            # parse lx200 RA coordinate
+                            ra_data = data[3:-1]  # Extract the RA part, assuming format :SrHH:MM:SS#
+                            bt_in_ra = ra_data.decode('utf-8')
+                            print(f"Received RA coordinate from BT serial: {bt_in_ra}")
+                        elif data.startswith(b':Sd'):
+                            # parse lx200 Dec coordinate
+                            dec_data = data[3:-1]  # Extract the Dec part, assuming format :Sd±DD*MM:SS#
+                            bt_in_dec = dec_data.decode('utf-8')
+                            print(f"Received Dec coordinate from BT serial: {bt_in_dec}")
+                        elif data.startswith(b':MS'):
+                            ts = TelescopeSlewingTask(self, bt_in_ra, bt_in_dec)
+                            bt_slew_thread = Thread(target=ts.execute, daemon=True)
+                            bt_slew_thread.start()
+                            print(f"Received GOTO command from BT serial: {bt_in_ra} {bt_in_dec}")
+                        elif data.startswith(b':D#'):
+                            status = b'1#' if bt_slew_thread is not None and bt_slew_thread.is_alive() else b'0#'
+                            bt.write(status)
+                        else:
+                            self.write_scope(data)  # Write it to scope
 
                     with self.lock:
                         if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
