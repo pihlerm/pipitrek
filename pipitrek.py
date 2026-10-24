@@ -34,8 +34,9 @@ _startup_log("Analyzer imported")
 from autoguider import Autoguider
 _startup_log("Autoguider imported")
 
-#from camera import Camera
-from simulated_camera import Camera
+from camera import Camera
+#from simulated_camera import Camera
+
 from comm.telescopeserver import TelescopeServer
 from platesolver import PlateSolver
 from threading import Thread, Event
