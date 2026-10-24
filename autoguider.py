@@ -5,9 +5,9 @@ import math
 import os
 import datetime
 from threading import Thread, Lock
-from v412_ctl import get_v4l2_controls
 from analyzer import Analyzer
 from camera import Camera
+#from simulated_camera import Camera
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -159,7 +159,7 @@ class Autoguider:
 
         self.guide_interval = 1.0           # Time period for tracking in seconds
         self.guide_arcsec = 1               # Correction step: number of arcseconds per guide move
-        self.max_distance = 20              # Maximum distance to search for stars (pixels)
+        self.max_distance = 30              # Maximum distance to search for stars (pixels)
         self.edge_threshold = 20            # Minimum distance from the edge of the frame to consider a star valid (pixels)
         self.save_frames = False            # Save each frame to disk
         self.output_dir = ""
@@ -338,6 +338,8 @@ class Autoguider:
         # Compute corrections with PID
         # Use the real frame interval, clamped so a burst or a gap cannot spike the D/I terms
         dt = min(max(self.frame_dt, 0.3), 3.0)
+        ra_correction = 0
+        dec_correction = 0
 
         if axis == 'ra':
             ra_correction = self.ra_pid.compute(-ra_axis_arcsec_error, dt)  # Negative to correct RA
@@ -353,6 +355,9 @@ class Autoguider:
             self.last_errors['dec_abs_correction']=dec_correction
             self.telescope.send_abs_dec_correction(10*dec_correction)
 
+        
+        if hasattr(self.camera, 'correction'):
+            self.camera.correction(ra_correction, dec_correction)
             
     def _guide_scope_rel(self, ra_arcsec_error,ra_axis_arcsec_error, dec_arcsec_error, axis):
 

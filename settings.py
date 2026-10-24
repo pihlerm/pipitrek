@@ -18,6 +18,8 @@ class Settings:
         self.settings["autoguider"]["max_drift_ra"] = autoguider.max_drift_ra
         self.settings["autoguider"]["max_drift_dec"] = autoguider.max_drift_dec
         self.settings["autoguider"]["star_size"] = autoguider.star_size
+        self.settings["autoguider"]["max_distance"] = autoguider.max_distance
+        
         self.settings["autoguider"]["gray_threshold"] = autoguider.gray_threshold
         self.settings["autoguider"]["guide_interval"] = autoguider.guide_interval
         self.settings["autoguider"]["guide_arcsec"] = autoguider.guide_arcsec
@@ -78,6 +80,7 @@ class Settings:
                 autoguider.dec_pid.Ki = float(pid_settings.get("dec", {}).get("i", 0.0))
                 autoguider.dec_pid.Kd = float(pid_settings.get("dec", {}).get("d", 0.0))
 
+            autoguider.max_distance = int(ag.get("max_distance", 30))
             autoguider.output_dir = self.settings.get("output_dir")
             autoguider.log_track = bool(ag.get("log_track", False))
 

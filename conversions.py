@@ -18,18 +18,16 @@ def stellarium_to_deg(ra_or_dec, is_ra=True):
     return max(min(deg, 90), -90)
 
 def deg_to_lx200_ra(deg):
-    ra_hours = deg / 15
-    h = int(ra_hours)
-    m = int((ra_hours - h) * 60)
-    s = int(((ra_hours - h) * 60 - m) * 60)
+    total_seconds = round(deg * 240)
+    h, remainder = divmod(total_seconds, 3600)
+    m, s = divmod(remainder, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 def deg_to_lx200_dec(deg):
     sign = '+' if deg >= 0 else '-'
-    deg_abs = abs(deg)
-    d = int(deg_abs)
-    m = int((deg_abs - d) * 60)
-    s = int(((deg_abs - d) * 60 - m) * 60)
+    total_arcseconds = round(abs(deg) * 3600)
+    d, remainder = divmod(total_arcseconds, 3600)
+    m, s = divmod(remainder, 60)
     return f"{sign}{d:02d}*{m:02d}:{s:02d}"
 
 def lx200_to_ra_deg(ra_str):

@@ -80,8 +80,6 @@
             pecCaptureActive = true;
             document.getElementById('pec_capture_running').textContent = ' is running... 0%';
             document.getElementById('pec_capture_running').classList.remove('hidden');
-            receivePEC();
-            renderPECAnalysisTable();
         });
     }
 
@@ -380,7 +378,7 @@
     function preparePECTable() {
         const pecTable = parsePECTable().filter(value => !isNaN(value));
 
-        if (![11,21,26,51].includes(pecTable.length)) {
+        if (![11,21,26,51,101].includes(pecTable.length)) {
             alert("PEC table is empty or has an invalid length!");
             return [];
         }
@@ -484,6 +482,8 @@
                     pecTrackedIntervalStart = pos;
                     pecCaptureDataLastBucket = pecTrackedIntervalStart;
                     resetChart();
+                    receivePEC();
+                    renderPECAnalysisTable();
                 }
 
                 var bucket = null;

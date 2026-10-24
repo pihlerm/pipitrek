@@ -6,8 +6,11 @@ from dslr import DSLR
 _startup_started = _startup_clock.perf_counter()
 _startup_last = _startup_started
 
+write_startup_log = False
 
 def _startup_log(message):
+    if not write_startup_log:
+        return
     global _startup_last
     now = _startup_clock.perf_counter()
     print(
@@ -31,7 +34,8 @@ _startup_log("Analyzer imported")
 from autoguider import Autoguider
 _startup_log("Autoguider imported")
 
-from camera import Camera
+#from camera import Camera
+from simulated_camera import Camera
 from comm.telescopeserver import TelescopeServer
 from platesolver import PlateSolver
 from threading import Thread, Event
@@ -54,7 +58,7 @@ import json
 import base64
 import ssl
 from telescope_task import PlateSolveTask, TelescopeImagingTask, TelescopeInitializePositionTask, TelescopeMeridianFlipTask, TelescopeParkTask, TelescopeSlewingTask, TelescopeStartAutoguiderTask, TelescopeStopAutoguiderTask
-from v412_ctl import list_cameras
+
 _startup_log("remaining application modules imported")
 
 # Disable Flask request logging
@@ -617,7 +621,10 @@ def get_task_log_endpoint(day):
 
 @app.route('/get_camera_list')
 def get_camera_list():
-    list = list_cameras()
+    if camera is not None:
+        list = camera.list_cameras()
+    else:
+        list = []
     print(list)
     return jsonify(list)
 

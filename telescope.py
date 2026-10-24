@@ -1,18 +1,15 @@
 
 from threading import RLock, Thread
-from turtle import position
 import serial
 import time
 import subprocess
 import json
-import queue
 from comm.virtual_port import VirtualSerialPort
 from comm.btserial import BTSerial
 from comm.tcpserial import TCPSerial
 from telescope_commands import *
 from conversions import *
 from telescope_task import TelescopeInitializePositionTask, TelescopeSlewingTask
-from telescope_task_scheduler import TelescopeTaskScheduler
 
 class Telescope:
     _instance = None
@@ -25,6 +22,7 @@ class Telescope:
     def __init__(self):
         if not hasattr(self, '_initialized'):
             self._initialized = True
+            self.baudrate = 57600
             self.open_serial()
             self.pause = False
             self.bt_serial = BTSerial()
@@ -242,7 +240,7 @@ class Telescope:
     def open_serial(self):
         self._serial_connection = serial.Serial(
             port='/dev/ttyUSB0',
-            baudrate=9600,
+            baudrate=self.baudrate,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
@@ -286,7 +284,7 @@ class Telescope:
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
-        if self.log_communication:
+        if self.log_communication and len(data) > 0:
             print(f"scope read: {data}")
         return data
 
@@ -295,13 +293,13 @@ class Telescope:
         self._serial_connection.timeout = timeout
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
         self._serial_connection.timeout = prevto
-        if self.log_communication:
+        if self.log_communication and len(data) > 0:
             print(f"scope readline: {data}")
         return data
 
     def read_scope_byte(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(1))
-        if self.log_communication:
+        if self.log_communication and len(data) > 0:
             print(f"scope read: {data}")
         return data
 
@@ -362,6 +360,11 @@ class Telescope:
                         if current_time - last_info_time >= 33:
                             self.get_info()
                             last_info_time = current_time
+
+                    if self._serial_connection.in_waiting > 0:
+                        data3 = self.read_scope()
+                        if len(data3) > 0:
+                            print(f"Scope incoming data: {data3}")
 
                     # check if btserial open/closed; it will auto open/close serial port
                     bt.check_status_bt()
@@ -523,6 +526,22 @@ class Telescope:
         self.scope_info["slewing"] = True
         
     def get_current_position(self):
+        try:
+            ra_seconds, dec_arcseconds = PTCGetPosition().execute(self)
+            if ra_seconds < 0 or dec_arcseconds < 0:
+                self.ra_deg = -1
+                self.dec_deg = -1
+                self.scope_info["coordinates"] = {"ra": "??:??:??",
+                                                "dec": "???:??:??"}
+            else:
+                self.ra_deg = ra_seconds / 240.0
+                self.dec_deg = (float)(dec_arcseconds) / 3600.0
+                self.scope_info["coordinates"] = {"ra": deg_to_lx200_ra(self.ra_deg),
+                                              "dec": deg_to_lx200_dec(self.dec_deg)}
+        except Exception as e:
+            print(f"Error getting current position: {e}")
+    
+    def get_current_position_lx200(self):
         ra = LXGetRa().execute(self).decode().rstrip('#')
         dec = LXGetDec().execute(self).decode().rstrip('#')
         print(f"received coordinates {ra} {dec}")
@@ -534,7 +553,6 @@ class Telescope:
             self.dec_deg = dec_deg
         except:
             print(f"Invalid coordinates")
-
 
     def send_PEC_position(self, position=0):
         try:
@@ -627,67 +645,82 @@ class Telescope:
             }
             line+=1
 
-            # Memory
-            data["memory"] = int(lines[line].split()[1])
-            line+=1
+            # MSPS
+            if lines[line].startswith("Msps"):
+                data["msps"] = int(lines[line].split()[1])
+                line+=1
 
-            # Uptime
-            data["uptime"] = int(lines[line].split()[1])
-            line+=1
+            # MSPS real
+            if lines[line].startswith("mMsps"):
+                data["msps_real"] = int(lines[line].split()[1])
+                line+=1
+           
+            if lines[line].startswith("dMsps"):
+                data["msps_loop"] = int(lines[line].split()[1])
+                line+=1
 
-            # tracktime
-            data["tracktime"] = int(lines[line].split()[1])
-            line+=1
+            # loop time
+            if lines[line].startswith("Loop"):
+                data["loop_time"] = int(lines[line].split()[1])
+                line+=1
 
             # RA
-            ra = lines[line].split()[1].rstrip('#')
-            data["coordinates"] = {"ra": ra}
-            line+=1
+            if lines[line].startswith("RA"):
+                ra = lines[line].split()[1].rstrip('#')
+                data["coordinates"] = {"ra": ra}
+                line+=1
 
             # DEC
-            dec = lines[line].split()[1].rstrip('#')
-            data["coordinates"]["dec"] = dec
-            line+=1
+            if lines[line].startswith("DEC"):
+                dec = lines[line].split()[1].rstrip('#')
+                data["coordinates"]["dec"] = dec
+                line+=1
 
             # LST
-            lst = lines[line].split()[1].rstrip('#')
-            data["coordinates"]["lst"] = lst
-            line+=1
+            if lines[line].startswith("LST"):
+                lst = lines[line].split()[1].rstrip('#')
+                data["coordinates"]["lst"] = lst
+                line+=1
 
             # Pier side
-            data["pier"] = lines[line].split()[1]
-            line+=1
+            if lines[line].startswith("Pier"):
+                data["pier"] = lines[line].split()[1]
+                line+=1
 
             # PEC
-            pec_parts = lines[line].split()
-            if pec_parts[1].startswith('D'):
-                data["pec"] = {
-                    "enabled": False,
-                    "progress": pec_parts[1][2:].rstrip('%'),
-                    "value": 0
-                }
-            else:
-                data["pec"] = {
-                    "enabled": True,
-                    "progress": pec_parts[1][2:].rstrip('%'),
-                    "value": int(pec_parts[2])
-                }
-            line+=1
+            if lines[line].startswith("PEC"):
+                pec_parts = lines[line].split()
+                if pec_parts[1].startswith('D'):
+                    data["pec"] = {
+                        "enabled": False,
+                        "progress": pec_parts[1][2:].rstrip('%'),
+                        "value": 0
+                    }
+                else:
+                    data["pec"] = {
+                        "enabled": True,
+                        "progress": pec_parts[1][2:].rstrip('%'),
+                        "value": int(pec_parts[2])
+                    }
+                line+=1
 
             # BC
-            bc_parts = lines[line].split()
-            if bc_parts[0]=='BC':
-                data["bc"] = { "ra": bc_parts[2], "dec": bc_parts[4] }
-                line+=1
-            else:
-                data["bc"] = { "ra": 0, "dec": 0 }
+            if lines[line].startswith("BC"):
+                bc_parts = lines[line].split()
+                if bc_parts[0]=='BC':
+                    data["bc"] = { "ra": bc_parts[2], "dec": bc_parts[4] }
+                    line+=1
+                else:
+                    data["bc"] = { "ra": 0, "dec": 0 }
 
             # Tracking
-            data["tracking"] = (lines[line].split()[1]=="on")
-            line+=1
+            if lines[line].startswith("Trk"):
+                data["tracking"] = (lines[line].split()[1]=="on")
+                line+=1
 
-            data["locked"] = (lines[line].split()[1]=="on")
-            line+=1
+            if lines[line].startswith("Locked"):
+                data["locked"] = (lines[line].split()[1]=="on")
+                line+=1
 
             self.scope_info = data
         except:

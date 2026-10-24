@@ -36,8 +36,6 @@ class TelescopeTaskScheduler:
     def __init__(self, camera, telescope, autoguider) -> None:
         if hasattr(self, '_initialized'):
             return
-        if telescope is None or autoguider is None or camera is None:
-            raise ValueError("Camera, telescope, and autoguider must all be provided")
         
         self._initialized = True
 

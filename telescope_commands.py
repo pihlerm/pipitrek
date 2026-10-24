@@ -222,3 +222,19 @@ class PTCSetPier(PipiTelescopeCommand):
         if pier not in ['W', 'E', 'F']:
             raise ValueError(f"Pier must be W or E or [F]lip")
         super().__init__(f"!M{pier}#")
+
+class PTCGetPosition(PipiTelescopeCommand):
+    def __init__(self):
+        super().__init__(f"!PX#")
+    def execute(self, telescope:Telescope):
+        try:
+            super().execute(telescope)
+            ra_seconds, dec_arcseconds = (
+                int(value)
+                for value in self.response.decode().strip().rstrip('!').rstrip('#').split(',')
+            )
+            return ra_seconds, dec_arcseconds
+        except Exception as e:
+            raise ValueError(f"Error getting position: {e}")
+
+        

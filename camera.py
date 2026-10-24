@@ -4,7 +4,7 @@ import time
 import os
 import json
 from threading import Thread, Lock, RLock
-from v412_ctl import get_v4l2_controls, set_v4l2_control, set_v4l2_controls, extract_v4l2_control_values
+from v412_ctl import get_v4l2_controls, set_v4l2_control, set_v4l2_controls, extract_v4l2_control_values,list_cameras
 import gc
 
 class Camera:
@@ -89,6 +89,8 @@ class Camera:
     def is_initialized(self):
         return self.cap and self.cap.isOpened()
 
+    def list_cameras(self):
+        return list_cameras()
 
     def start_capture(self):
         if not self._capture_t is None:
