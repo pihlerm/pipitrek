@@ -240,7 +240,7 @@
             addMessage(JSON.stringify(data, null, 2));            
             buildTasksFromJSON(data);
             clearInterval(taskStatusPollTimer);
-            taskStatusPollTimer = setInterval(pollTaskListStatus, 1000);
+            taskStatusPollTimer = setInterval(pollTaskListStatus, 3000);
         })
         .catch(error => {
             addMessage('Error: ' + error);

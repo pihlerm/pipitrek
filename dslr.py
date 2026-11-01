@@ -306,20 +306,33 @@ class DSLR:
         except Exception:
             return None
 
-    def get_image(self, image_name, max_width=1600):
+    def get_image(self, image_name, remote=True):
         """Return a downloaded image converted to a base64 JPEG data URL for display."""
         image_name = os.path.basename(image_name)
-        if not self._is_image_in_local(image_name):
-            self.download_images([image_name])
+        if remote:
+            if self.is_image_in_remote(image_name) is False:
+                raise ValueError("Image %s not found on remote camera" % image_name)
+            img = self._get_remote_image_contents(image_name, remote=True)
+        else:
             if not self._is_image_in_local(image_name):
-                raise ValueError("Failed to download %s" % image_name)
-        img = self._decode_image(image_name, self.get_local_image_contents(image_name))
+                raise ValueError("Image %s not found locally" % image_name)
+            img = self._get_local_image_contents(image_name, remote=False)
+
         if img is None:
             raise ValueError("Cannot decode %s" % image_name)
-        if img.shape[1] > max_width:
-            scale = max_width / img.shape[1]
-            img = cv2.resize(img, (max_width, int(img.shape[0] * scale)), interpolation=cv2.INTER_AREA)
-        ok, encoded = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return img
+
+    def get_image_preview(self, image_name, remote=True, max_width=1600):
+        """Return a downloaded image converted to a base64 JPEG data URL for display."""
+
+        img = self.get_image(image_name, remote)
+        img_preview = self._decode_image(image_name, img)
+        if img_preview is None:
+            raise ValueError("Cannot decode %s" % image_name)
+        if img_preview.shape[1] > max_width:
+            scale = max_width / img_preview.shape[1]
+            img_preview = cv2.resize(img_preview, (max_width, int(img_preview.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+        ok, encoded = cv2.imencode('.jpg', img_preview, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not ok:
             raise ValueError("JPEG encoding failed")
         return 'data:image/jpeg;base64,' + base64.b64encode(encoded.tobytes()).decode('ascii')
@@ -328,7 +341,7 @@ class DSLR:
         return sorted(f for f in os.listdir(directory)
                       if os.path.isfile(os.path.join(directory, f)))
 
-    def list_images(self):
+    def list_remote_images(self):
         """Read the camera image directory."""
         if not self.is_mounted():
             return set()
@@ -340,11 +353,11 @@ class DSLR:
 
     def check_new_images(self):
         """Return full paths of images that arent found in the DOWNLOAD_DIR."""
-        current = self.list_images()
+        current = self.list_remote_images()
         local = self.list_local_images()
         return sorted(current - local)
 
-    def download_images(self, images, dest_dir=DOWNLOAD_DIR):
+    def _download_images(self, images, dest_dir=DOWNLOAD_DIR):
         """Copy images (file names or full paths) from the camera to dest_dir.
 
         Returns the list of destination paths.
@@ -362,11 +375,19 @@ class DSLR:
     def download_new_images(self, dest_dir=DOWNLOAD_DIR):
         """Download images that are new (not in the DOWNLOAD_DIR) to dest_dir."""
         new_images = self.check_new_images()
-        return self.download_images(new_images, dest_dir)
+        return self._download_images(new_images, dest_dir)
 
-    def get_local_image_contents(self, image_name):
+    def _get_local_image_contents(self, image_name):
         """Return the contents of a local image in the DOWNLOAD_DIR."""
         path = os.path.join(DOWNLOAD_DIR, image_name)
+        with open(path, 'rb') as f:
+            return f.read()
+
+    def _get_remote_image_contents(self, image_name):
+        """Return the contents of a remote image in the camera's IMAGE_SUBDIR."""
+        if self.is_mounted() is False:
+            raise RuntimeError("Camera is not mounted.")
+        path = os.path.join(self.mount_point, IMAGE_SUBDIR, image_name)
         with open(path, 'rb') as f:
             return f.read()
 
@@ -379,13 +400,4 @@ class DSLR:
         if not self.is_mounted():
             return False
         return os.path.exists(os.path.join(self.mount_point, IMAGE_SUBDIR, image_name))
-    
-    def get_raw_images(self, imagelist, dest):
-        """Zip raw images from local IMAGE_SUBDIR to the specified destination."""
-        import zipfile
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with zipfile.ZipFile(dest, 'w') as zipf:
-            for image_name in imagelist:
-                if self._is_image_in_local(image_name):
-                    zipf.write(os.path.join(DOWNLOAD_DIR, image_name), arcname=image_name)
-        return os.path.basename(dest)
+   

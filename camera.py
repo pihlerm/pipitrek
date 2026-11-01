@@ -23,13 +23,21 @@ class Camera:
             self.camera_index = 0
 
             self.frame = None                   # Last captured frame
-            self.latest = (None, 0)             # (frame, timestamp) published together
+            self.frame_number = 0
+            self.latest = (None, 0, 0)             # (frame, timestamp, frame_number) published together
             self.last_frame_time = 0
             self.last_frame_timestamp = 0
             self.last_read_time = 0             # Duration of the last cap.read() (s)
             self.read_failures_total = 0        # Total failed cap.read() calls
+            self.raw_yuyv = False               # Reading raw YUYV buffers (set in init_camera)
+            self.corrupt_frames = 0             # Total truncated frames detected
+            self.duplicate_frames = 0           # Total repeated frames skipped
+            self.empty_frames = 0               # Total empty buffers skipped
+            self.prev_rows = []                 # Recent raw YUYV frames for stale-row detection
             self.last_lock_wait = 0             # Time waited for the camera lock before the last read (s)
             self.last_mask_time = 0             # Time spent in hot pixel masking for the last frame (s)
+            self.detect_stale_rows = True       # Enable stale row detection
+            self.stale_percent = 0.6            # Maximum allowed stale row percentage before we discard the whole frame
             # camera settings
             self.color = True                   # True for color, False for grayscale
             self.rotation_angle = 0.0            # Camera orientation in degrees (-180 to 180)
@@ -37,12 +45,9 @@ class Camera:
             self.r_channel = 1.0                # Float for R channel (0.0–1.0)
             self.g_channel = 1.0                # Float for G channel (0.0–1.0)
             self.b_channel = 1.0                # Float for B channel (0.0–1.0)
-            self.integrate_frames = 5           # no. frames to integrate
+            self.integrate_frames = 1           # no. frames to integrate
             self.width = 1280
             self.height = 720
-            #self.cam_mode = 'YUYV'              # set 'MJPG' for compressed
-            #self.width = 1920
-            #self.height = 1080
             self.cam_mode = 'MJPG'              # set 'MJPG' for compressed
             self.cam_fps = 5
 
@@ -131,8 +136,14 @@ class Camera:
                 t_read = time.perf_counter()
                 ret, frame = self.cap.read()
                 self.last_read_time = time.perf_counter() - t_read
+                self.frame_number += 1
                 if ret:
                     self.failure_count = 0  # Reset failure counter on success
+                    if self.raw_yuyv:
+                        decoded = self.decode_raw_yuyv(frame, color)
+                        if decoded is None:
+                            continue    # empty or duplicate buffer, read the next one
+                        return decoded
                     if color:
                         return frame
                     else:
@@ -154,6 +165,69 @@ class Camera:
                         if not self.running:
                             raise ValueError("Camera stopped responding")
                         time.sleep(2)
+
+    def decode_raw_yuyv(self, raw, color):
+        # Raw YUYV buffer sized to bytesused: truncated (corrupted) frames are shorter than w*h*2.
+        # Missing bottom rows are filled with black.
+        w, h = int(self.width), int(self.height)
+        max_stale = h * self.stale_percent
+        row_bytes = w * 2
+        full = row_bytes * h
+        buf = raw.reshape(-1)
+        if buf.size < row_bytes:
+            self.empty_frames += 1
+            print(f"Empty/short buffer #{self.frame_number}: {buf.size} bytes, skipped (total: {self.empty_frames})", flush=True)
+            return None
+        good_rows = h
+        if buf.size < full:
+            good_rows = buf.size // row_bytes
+            self.corrupt_frames += 1
+            print(f"Corrupted frame #{self.frame_number}: got {buf.size}/{full} bytes, "
+                  f"{good_rows}/{h} rows valid, bottom filled black (total corrupted: {self.corrupt_frames})", flush=True)
+            padded = np.zeros(full, dtype=np.uint8)
+            padded[:buf.size] = buf
+            buf = padded
+        rows = buf[:full].reshape(h, row_bytes)
+
+        # Stale data: with nodrop the driver can deliver a buffer whose rows are left over from an earlier
+        # frame in the buffer ring. Sensor noise makes real rows never byte-identical, so rows identical
+        # to the same row of any recent frame are stale.
+        stale = np.zeros(h, dtype=bool)     # per-row flag: True = stale, blanked at the end of this function
+        if self.prev_rows and self.prev_rows[0].shape != (h, row_bytes):
+            self.prev_rows = []             # frame size changed, history is no longer comparable
+        # Ignore completely flat rows (e.g. black or saturated), which can legitimately match
+        valid = np.ptp(rows[:good_rows], axis=1) > 0
+        for prev in self.prev_rows:
+            same = np.zeros(h, dtype=bool)
+            # a row is stale if all its bytes equal the same row in that earlier frame
+            same[:good_rows] = (rows[:good_rows] == prev[:good_rows]).all(axis=1) & valid
+            stale |= same
+        # keep the last 6 raw frames for comparison with future frames
+        self.prev_rows.append(rows.copy())
+        if len(self.prev_rows) > 6:
+            self.prev_rows.pop(0)
+        stale_count = int(stale[:good_rows].sum())
+        if stale_count > 0:
+            self.duplicate_frames += 1
+            first = int(np.argmax(stale))
+            print(f"Stale frame #{self.frame_number}: {stale_count}/{h} rows identical to a previous frame "
+                  f"(first at row {first}), total stale frames: {self.duplicate_frames}", flush=True)
+            if stale_count > max_stale:
+                return None     # mostly a repeat, read the next buffer
+
+        # Convert the raw YUYV bytes to an image: 2 bytes per pixel (Y + shared U/V)
+        yuyv = rows.reshape(h, w, 2)
+        if color:
+            frame = cv2.cvtColor(yuyv, cv2.COLOR_YUV2BGR_YUY2)
+        else:
+            frame = yuyv[:, :, 0].copy()   # Y channel is the grayscale image
+
+        # Black out truncated rows (everything below the last row the camera actually delivered)
+        if good_rows < h:
+            frame[good_rows:] = 0
+        # Black out stale rows: boolean row mask, True = row identical to a previous frame
+        frame[stale] = 0
+        return frame
 
     def clear_hot_pixel_mask(self):
         filename = os.path.join(self.output_dir, self.hot_pixel_mask_path)
@@ -280,7 +354,7 @@ class Camera:
                 self.last_mask_time = time.perf_counter() - t_mask
                 # publish frame and its timestamp together so readers never pair them wrongly
                 self.last_frame_timestamp = ts
-                self.latest = (frame, ts)
+                self.latest = (frame, ts, self.frame_number)
                 self.frame = frame
                 capture_time+=time.perf_counter() - start
                 start = time.perf_counter()
@@ -321,7 +395,7 @@ class Camera:
                     self.apply_hot_pixel_mask(frame)
                     ts = time.time()
                     self.last_frame_timestamp = ts
-                    self.latest = (frame, ts)
+                    self.latest = (frame, ts, self.frame_number)
                     self.frame=frame
                 gc.enable()
     
@@ -360,7 +434,9 @@ class Camera:
             fourcc_str = fourcc.to_bytes(4, 'little').decode('utf-8', errors='replace')
             print(f"Camera mode: {fourcc_str}")
             self.cam_mode = fourcc_str
-
+            self.raw_yuyv = (self.detect_stale_rows and fourcc_str == 'YUYV')
+            self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 0 if self.raw_yuyv else 1)
+    
     def set_frame_size(self, w, h):
         with self.lock:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
@@ -399,6 +475,9 @@ class Camera:
         self.set_frame_size(self.width, self.height)
         if self.cam_fps!=0:     # 0=auto
             self.setfps(self.cam_fps)
+        # re-assert after size/fps changes, which may reset it
+        self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 0 if self.raw_yuyv else 1)
+        print(f"Camera raw YUYV path: {'ON' if self.raw_yuyv else 'OFF'} (mode {self.cam_mode}, {self.width}x{self.height})", flush=True)
         return True
 
     def release_camera(self):

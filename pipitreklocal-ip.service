@@ -1,0 +1,10 @@
+[Unit]
+Description=Static IP for Pipitrek telescope hotspot
+After=sys-subsystem-net-devices-wlan0.device
+BindsTo=sys-subsystem-net-devices-wlan0.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ip link set wlan0 up
+ExecStart=/usr/sbin/ip address replace 192.168.42.1/24 dev wlan0
+RemainAfterExit=yes

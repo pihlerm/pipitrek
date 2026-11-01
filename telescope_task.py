@@ -6,6 +6,7 @@ from dslr import DSLR
 from platesolver import PlateSolver
 from telescope import Telescope
 from conversions import *
+from logger import get_task_logger
 
 class TelescopeTask:
     def __init__(self, telescope:Telescope):
@@ -60,12 +61,7 @@ class TelescopeTask:
         return self.executed
 
     def _log(self, log_entry):
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        day = datetime.datetime.now().strftime("%Y-%m-%d")
-        
-        os.makedirs("log", exist_ok=True)
-        with open(f"log/task_{day}.log", "a") as log_file:
-            log_file.write(f"{timestamp}, {self.name}, {log_entry}\n")
+        get_task_logger().info(log_entry, extra={"task": self.name})
 
 
 
@@ -400,8 +396,10 @@ class PlateSolveTask(TelescopeTask):
             frame = self.camera.frame
             if frame is not None and frame.size > 0:
                 # Save the frame as an image file
-                save_path = os.path.join(os.getcwd(), self.filename)
-                cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
+                save_path = os.path.join(os.getcwd(), "temp")
+                os.makedirs(save_path, exist_ok=True)
+                self.filename = os.path.join(save_path, self.filename)
+                cv2.imwrite(self.filename, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
             else:
                 self.executed = True
                 return self._exit({"status": "error", "message": "No valid frame available"})

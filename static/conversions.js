@@ -68,7 +68,7 @@
         const degrees = parseInt(match[1]);
         const minutes = parseInt(match[2]);
         const seconds = parseInt(match[3]);
-        const sign = degrees >= 0 ? 1 : -1;
+        const sign = match[1].startsWith('-') ? -1 : 1;
         return degrees + sign * (minutes / 60 + seconds / 3600);
     }
 

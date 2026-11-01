@@ -55,3 +55,46 @@ https://github.com/ofrohn/d3-celestial
 
 
 
+Pipitrek persistent Wi-Fi mode files
+
+Files in this bundle:
+- install-service.sh
+- wlan-mode.sh
+- pipitreklocal-mode.service
+- pipitreklocal-ip.service
+- pipitreklocal.conf                 (hostapd systemd drop-in)
+- pipitreklocal-dnsmasq.conf         (hotspot DHCP configuration)
+
+IMPORTANT:
+1. Keep your existing pipitrek.service in the same repository directory. This
+   installer deliberately does not replace its contents with a guessed version.
+2. The installer backs up /etc/network/interfaces once to
+   /etc/network/interfaces.pipitreklocal-backup, then removes the exact old
+   Wi-Fi/NAT stanza that made boot depend on wlan0. The eth0 stanza is retained.
+3. The first installation defaults to hotspot. Later runs preserve
+   /etc/pipitreklocal-mode.
+4. Wi-Fi client mode uses /etc/wpa_supplicant/wpa_supplicant.conf and dhclient.
+   Check that this config contains the intended saved network before switching.
+5. Run as root from the repository:
+      sudo ./install-service.sh
+   Then select a mode:
+      sudo /usr/local/sbin/wlan-mode.sh hotspot
+      sudo /usr/local/sbin/wlan-mode.sh wlan
+      sudo /usr/local/sbin/wlan-mode.sh off
+6. Each command saves the selected mode for the next boot. If the USB Wi-Fi
+   dongle is absent at boot, Ethernet remains independent; the selected Wi-Fi
+   mode is logged as not activated.
+7. This controller does not automatically re-activate Wi-Fi if the dongle is
+   plugged back in while the OS is already running. Run the mode command again.
+
+The hotspot config /etc/hostapd/hostapd.conf is intentionally left untouched
+because it contains the locally configured SSID and passphrase.
+
+
+
+
+
+
+
+
+

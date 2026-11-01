@@ -1,3 +1,4 @@
+from logger import log
 import subprocess
 import re
 
@@ -165,6 +166,9 @@ def set_v4l2_control(name, value, camera_index):
         return False
 
 def set_v4l2_controls(controls_to_set, camera_index):
+    if not controls_to_set:
+        log().info("No controls to set")
+        return
     for name, value in controls_to_set.items():
         set_v4l2_control(name, value, camera_index)
 

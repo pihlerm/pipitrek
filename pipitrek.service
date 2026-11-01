@@ -10,8 +10,8 @@ ExecStart=/usr/bin/python3 -u /root/astro/pipitrek/pipitrek.py
 WorkingDirectory=/root/astro/pipitrek
 Restart=no
 User=root
-StandardOutput=append:/root/astro/pipitrek/log/pipitrek.log
-StandardError=append:/root/astro/pipitrek/log/pipitrek.log
+StandardOutput=journal
+StandardError=journal
 # Ensure SIGTERM is sent and give time for cleanup
 KillSignal=SIGTERM
 TimeoutStopSec=30

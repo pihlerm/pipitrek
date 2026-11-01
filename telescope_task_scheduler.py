@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable, Optional
 from threading import RLock
 import autoguider
+from logger import read_log_lines, log
 from telescope_task import *
 
 
@@ -53,6 +54,7 @@ class TelescopeTaskScheduler:
         self.lock = RLock()  # guards all access to _task_list and the fields below
         self.load_task_list("task_list.json")
         self.task_log_index:dict[str, list[int]] = {}
+        self.task_log_lock = RLock() # guards access to task_log_index
 
     def start(self):
         if self._running:
@@ -83,7 +85,7 @@ class TelescopeTaskScheduler:
             import json
             with open(file_path, 'w') as f:
                 json.dump(self._task_list, f, indent=4)
-            print(f"Task list saved to {file_path}")
+            log().info(f"Task list saved to {file_path}")
 
     def load_task_list(self, file_path: str) -> None:
         with self.lock:
@@ -92,11 +94,11 @@ class TelescopeTaskScheduler:
                 with open(file_path, 'r') as f:
                     content = f.read()
                 if not content.strip():
-                    print(f"Task list file {file_path} is empty. Starting with an empty task list.")
+                    log().info(f"Task list file {file_path} is empty. Starting with an empty task list.")
                     self._task_list = []
                     return
                 self._task_list = json.loads(content)
-                print(f"Task list loaded from {file_path}")
+                log().info(f"Task list loaded from {file_path}")
                 for i, task_dict in enumerate(self._task_list):
                     if 'id' not in task_dict:
                         del self._task_list[i]
@@ -106,10 +108,10 @@ class TelescopeTaskScheduler:
                 self.estimateTime()
 
             except FileNotFoundError:
-                print(f"Task list file {file_path} not found. Starting with an empty task list.")
+                log().info(f"Task list file {file_path} not found. Starting with an empty task list.")
                 self._task_list = []
             except json.JSONDecodeError as e:
-                print(f"Invalid task list file {file_path}: {e}. Starting with an empty task list.")
+                log().error(f"Invalid task list file {file_path}: {e}. Starting with an empty task list.")
                 self._task_list = []
 
     def get_task_list_status(self) -> dict[str, Any]:
@@ -164,27 +166,10 @@ class TelescopeTaskScheduler:
     def get_task_log(self, day=None, from_line=0) -> list[str] | None:
         if day is None:
             day = datetime.datetime.now().strftime("%Y-%m-%d")
-        lines = []
-        lineindex = self.task_log_index.get(day)
-        if lineindex is None:
-            lineindex = []
-            self.task_log_index[day] = lineindex
-
-        with open(f"log/task_{day}.log", "r") as log_file:
-            if from_line < len(lineindex):
-                log_file.seek(lineindex[from_line])
-            else:
-                for _ in range(from_line):
-                    log_file.readline()
-                    lineindex.append(log_file.tell())
-            while True:
-                line = log_file.readline()
-                if not line:
-                    break
-                lineindex.append(log_file.tell())
-                lines.append(line)
-            return lines
-
+        datetime.datetime.strptime(day, "%Y-%m-%d")  # also rejects path tricks
+        with self.task_log_lock:
+            return read_log_lines(f"log/task_{day}.log", self.task_log_index.setdefault(day, []), from_line)
+        
     def _assign_task_id(self, task):
         # Caller must hold self.lock.
         self.last_task_id += 1
@@ -200,7 +185,7 @@ class TelescopeTaskScheduler:
             task_type = task_dict.get('type')
             builder = TASK_BUILDERS.get(task_type)
             if builder is None:
-                print(f"Unknown task type: {task_type}")
+                log().error(f"Unknown task type: {task_type}")
                 return False
 
             if task_dict.get('status') == "running":
@@ -218,7 +203,7 @@ class TelescopeTaskScheduler:
                     last_time += task_instance.time
                 task_dict['end_time'] = last_time
             except Exception as e:
-                print(f"Failed to build task instance for task id {task_dict.get('id')}: {e}")
+                log().error(f"Failed to build task instance for task id {task_dict.get('id')}: {e}")
                 return False
                     
         return True
@@ -229,23 +214,23 @@ class TelescopeTaskScheduler:
             self.last_position_check = time.time()
             self.telescope.get_current_position()
             if not self.telescope.is_position_allowed():
-                print("Telescope position is not allowed. Waiting for meridian flip or repositioning.")
+                log().info("Telescope position is not allowed. Waiting for meridian flip or repositioning.")
                 if self.telescope.does_position_require_flip():
-                    print("Telescope requires meridian flip.")
+                    log().info("Telescope requires meridian flip.")
                     result = TelescopeMeridianFlipTask(self.telescope, self.autoguider).execute()
                     if not result or result.get('status') == 'error':
-                        print("Meridian flip failed. Proceeding to shut down the telescope.")
+                        log().error("Meridian flip failed. Proceeding to shut down the telescope.")
                         TelescopeShutdownTask(self.telescope, self.autoguider).execute()
                         return False
                     else:
-                        print("Meridian flip succeeded.")
+                        log().info("Meridian flip succeeded.")
                         return True
                 elif self.telescope.is_position_below_horizon():
-                    print("Telescope is below the horizon.")
+                    log().info("Telescope is below the horizon.")
                     TelescopeShutdownTask(self.telescope, self.autoguider).execute()
                     return False
                 else:
-                    print("Unknown problem with telescope position.")
+                    log().error("Unknown problem with telescope position.")
                     TelescopeShutdownTask(self.telescope, self.autoguider).execute()
                     return False
         return True
@@ -253,7 +238,7 @@ class TelescopeTaskScheduler:
 
     def run_task_list(self):
 
-        print("Starting task list execution...")
+        log().info("Starting task list execution...")
         with self.lock:
             self._running = True
             self._task_instance = None
@@ -261,6 +246,7 @@ class TelescopeTaskScheduler:
         try:
             i = 0
             while True:
+                idle = False
                 with self.lock:
                     # find first task that is not finished or in error
                     self._task_dict = None
@@ -273,22 +259,27 @@ class TelescopeTaskScheduler:
                     if self._task_dict is None:
                         if self.needs_stop:
                             break
-                        time.sleep(0.5)  # small delay to prevent tight loop
-                        self.run_checks()
-                        continue
-                    
-                    task_dict = self._task_dict
-                    task_type = task_dict.get('type')
-                    status = task_dict.get('status')
+                        idle = True
+                    else:
+                        task_dict = self._task_dict
+                        task_type = task_dict.get('type')
+                        status = task_dict.get('status')
+
+                if idle:
+                    # Outside the lock: run_checks() talks to the telescope and may run a
+                    # meridian flip, which must not block status requests.
+                    time.sleep(0.5)  # small delay to prevent tight loop
+                    self.run_checks()
+                    continue
 
                 builder = TASK_BUILDERS.get(task_type)
                 if builder is None:
                     with self.lock:
-                        print(f"Unknown task type: {task_type}")
+                        log().error(f"Unknown task type: {task_type}")
                         task_dict['status'] = {'status': 'error', 'message': f'Unknown task type: {task_type}'}
                     continue
                 try:
-                    print(f"Starting task execution for task id {task_dict.get('id')}...")
+                    log().info(f"Starting task execution for task id {task_dict.get('id')}...")
                     self._task_instance = builder(task_dict, self.telescope, self.camera, self.autoguider)
                     with self.lock:
                         task_dict['status'] = "running"
@@ -302,7 +293,7 @@ class TelescopeTaskScheduler:
                     result = {'id': task_dict.get('id'), 'status': 'error', 'message': str(e)}
                     task_dict['status'] = "error"
 
-                print(f"Finished task execution for task id {task_dict.get('id')}, result: {result['status']}...")
+                log().info(f"Finished task execution for task id {task_dict.get('id')}, result: {result['status']}...")
 
                 with self.lock:
                     task_dict['status'] = "finished"
@@ -323,7 +314,7 @@ class TelescopeTaskScheduler:
                 i += 1
                 time.sleep(0.1)  # small delay to prevent tight loop
         finally:
-            print(f"Stopping task execution...")
+            log().info(f"Stopping task execution...")
             self.run_checks()
             with self.lock:
                 self._running = False

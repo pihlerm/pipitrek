@@ -25,10 +25,17 @@
     <script src="menu.js"></script>
     <script src="scope_comm.js"></script>
     
-    <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
-    <script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
+    <!-- Aladin Lite 3.6.5 is an ES module (no global); expose it as window.A for the inline scripts. -->
+    <script type="module" charset="utf-8">
+        import A from './aladin.js';
+        window.A = A;
+    </script>
+
 </head>
 <body onload="Load()" class="night-mode">
+
+    <!-- The map container -->
+    <div class="JS9Display" id="JS9"></div>
     <table class="main-table">
         <tr>
             <td>
@@ -62,7 +69,6 @@
                 <button class="command-button" id="skymap_panel_button" onclick="showPanel('skymap_panel')" title="Aladin Lite sky map">Sky Map</button>
                 <button class="command-button" id="analysis_panel_button" onclick="showPanel('analysis_panel')" title="Show analysis panel">Analysis</button>            
                 <button class="command-button" id="pec_panel_button" onclick="showPanel('pec_panel')" title="Show PEC analysis panel">PEC</button>            
-                <button class="command-button" id="backlash_panel_button" onclick="showPanel('backlash_panel')" title="Show backlash calibration panel">Backlash</button>            
                 <button class="command-button" id="tasks_panel_button" onclick="showPanel('tasks_panel')" title="Show tasks panel">Tasks</button>            
                 <button class="command-button" id="dslr_panel_button" onclick="showPanel('dslr_panel')" title="DSLR camera control panel">DSLR</button>
                 <button class="command-button" id="terminal_frame_button" onclick="showPanel('terminal_frame')" title="Show Linux terminal panel">Terminal</button>
@@ -900,31 +906,13 @@
                             <button class="command-button" title="Create zero PEC table" onclick="createZeroPECTable()">Zero PEC</button>
                             <hr style="border: 1px solid #ccc; width: 100%;">
 
+                            <span>Backlash Calibration</span><br>                      
+                            <button class="command-button" onclick="calibrate(true)" title="Calibrate backlash of RA/DEC drive mechanisms. Performs small movements of the telescope to measure and compensate for mechanical play.Must select a star before performing backlash calibration. Best use on stationary point -at infinity- with tracking disabled.">Calibrate</button>
+                            <hr style="border: 1px solid #ccc; width: 100%;">
+
                             <div class = "flex1"></div>
                         </td>
                     </tr>                    
-                </table>
-
-                <table id="backlash_panel" class="parameters-table hidden">
-                    <tr class = "controller-row">
-                        <td colspan="3">
-                            <hr style="border: 1px solid #ccc; width: 100%;">
-                        </td>
-                    </tr>
-                    <tr class = "controller-row">
-                        <td colspan="2">
-                            <h2>Backlash Calibration</h2>
-                            Calibrate backlash of RA/DEC drive mechanisms. Performs small movements of the telescope to measure and compensate for mechanical play.
-                            Must select a star before performing backlash calibration.
-                            Best use on stationary point "at infinity" with tracking disabled.
-                            <button class="command-button" onclick="calibrate(true)" title="Calibrate telescope backlash compensation.">Calibrate</button>
-                        </td>
-                    </tr>
-                    <tr class = "controller-row">
-                        <td colspan="2">
-                            <hr style="border: 1px solid #ccc; width: 100%;">
-                        </td>
-                    </tr>
                 </table>
 
                 <table id="tasks_panel" class="parameters-table hidden">
@@ -985,9 +973,9 @@
                     </tr>
                     <tr class = "controller-row">
                         <td colspan="3">
-                            <button class="command-button" type="button" onclick="dslrTrigger()" id="dslr_trigger_button">Trigger</button>
-                            <button class="command-button" type="button" onclick="dslrAbort()" id="dslr_abort_button" style="display:none;">Abort</button>
-                            <input class="two_buttons_input" type="text" id="dslr_trigger_seconds" style="margin-left:5px;width:40px;" value="1">
+                            <button class="command-button" type="button" onclick="dslrTrigger()" id="dslr_trigger_button" title="Trigger the DSLR.">Trigger</button>
+                            <button class="command-button" type="button" onclick="dslrAbort()" id="dslr_abort_button" style="display:none;" title="Abort current trigger.">Abort</button>
+                            <input class="two_buttons_input" type="text" id="dslr_trigger_seconds" style="margin-left:5px;width:40px;" value="1" title="Trigger duration in seconds (set the camera to BULB).">
                             <label for="dslr_trigger_seconds">seconds</label>
                         </td>
                     </tr>
@@ -998,17 +986,17 @@
                     </tr>
                     <tr class = "controller-row">
                         <td colspan="3">
-                            <button                             class="command-button dslr-idle-only" type="button" onclick="dslrMount()">Mount</button>
-                                                        <button class="command-button dslr-idle-only" type="button" onclick="dslrUnmount()">Unmount</button>
+                            <button class="command-button dslr-idle-only" type="button" onclick="dslrMount()" title="Mount DSLR as a storage device.">Mount</button>
+                            <button class="command-button dslr-idle-only" type="button" onclick="dslrUnmount()" title="Unmount the DSLR.">Unmount</button>
                             <span style="margin-left:10px; font-size:16px;">Mount state:</span>
                             <span id="dslr_status" style="margin-left:10px; font-size:16px;">Unknown</span>
                         </td>
                     </tr>
                     <tr class = "controller-row">
                         <td colspan="3">
-                            <button class="command-button" type="button" onclick="dslrList()">List</button>
-                            <button class="command-button dslr-idle-only" type="button" onclick="dslrSynchronize()">Synchronize</button>
-                            <button class="command-button" type="button" onclick="dslrDownloadRaw()">Download</button>
+                            <button class="command-button" type="button" onclick="dslrList()" title="List images on DSLR and local storage.">List</button>
+                            <button class="command-button dslr-idle-only" type="button" onclick="dslrSynchronize()" title="Download new images from the DSLR into the local storage.">Synchronize</button>
+                            <button class="command-button" type="button" onclick="dslrDownloadRaw(true)" title="Download selected images from the DSLR.">Download</button>
                             <span id="dslr_message" style="margin-left:10px; font-size:14px;"></span>
                         </td>
                     </tr>
@@ -1020,8 +1008,8 @@
                 </table>
 
                 <div id="terminal_frame" class="hidden">
-                    <button class="command-button" onclick="shutdown()">Shutdown</button>
-                    <button class="command-button" onclick="showLog()">Show Log</button>
+                    <button class="command-button" onclick="shutdown()" title="Shutdown the pipitrek service (and potentially the linux system).">Shutdown</button>
+                    <button class="command-button" onclick="showLog()" title="Show the backend log.">Show Log</button>
                     <iframe id="terminal_iframe" src="/static/terminal.html"></iframe>
                 </div>
 
@@ -1269,8 +1257,8 @@
         }
 
         if(data.bc) {
-            document.getElementById('bc_ra-input').textContent = data.bc.ra;
-            document.getElementById('bc_dec-input').textContent = data.bc.dec;
+            document.getElementById('bc_ra-input').value = data.bc.ra;
+            document.getElementById('bc_dec-input').value = data.bc.dec;
         }
 
         if (data.slewing !== undefined) {
@@ -1472,7 +1460,11 @@
     }
     function Load() {
 
-        // Call this function once when the page loads
+
+        // get initial camera properties, need rotation for autoguider and skymap
+        startCameraPropertiesRefresh();
+        stopCameraPropertiesRefresh();
+
         initializeChart();
         initializePECChart(); 
         updateCorrections();
@@ -2032,8 +2024,7 @@
                     fov: 1,
                     target: `${raDeg} ${decDeg}`,
                     showFullscreenControl: false,
-                    showLayersControl: true,
-                    showGotoControl: true,
+                    showLayersControl: true
                 });
                 telescopeOverlay = A.graphicOverlay({color: 'red', lineWidth: 2});
                 skyMap.addOverlay(telescopeOverlay);
@@ -2259,7 +2250,6 @@
                                'dslr_panel', 
                                'analysis_panel', 
                                'pec_panel', 
-                               'backlash_panel', 
                                'tasks_panel', 
                                'skymap_panel']) {
             document.getElementById(panelId).classList.add('hidden');
@@ -2283,7 +2273,6 @@
                                      'dslr_panel_button', 
                                      'analysis_panel_button', 
                                      'pec_panel_button', 
-                                     'backlash_panel_button', 
                                      'tasks_panel_button', 
                                      'skymap_panel_button']) {
             document.getElementById(panelButtonId).classList.remove('active');

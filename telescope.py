@@ -10,6 +10,7 @@ from comm.tcpserial import TCPSerial
 from telescope_commands import *
 from conversions import *
 from telescope_task import TelescopeInitializePositionTask, TelescopeSlewingTask
+from logger import log
 
 class Telescope:
     _instance = None
@@ -101,12 +102,12 @@ class Telescope:
     def check_move(self, start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg, start_pier):
 
         if not self.is_above_horizon(end_ra_deg, end_dec_deg):
-            print(f"Target position RA={end_ra_deg}, DEC={end_dec_deg} is below the horizon")
+            log().warning(f"Target position RA={end_ra_deg}, DEC={end_dec_deg} is below the horizon")
             return False, False
         
         start_local_ra_deg, start_local_dec_deg = self.calculate_local_orientation(start_ra_deg, start_dec_deg, start_pier)
         if not self.is_orientation_allowed(start_local_ra_deg, start_local_dec_deg, start_pier):
-            print(f"Start orientation not allowed for local_ra: {start_local_ra_deg}, local_dec: {start_local_dec_deg}, pier: {start_pier}")
+            log().warning(f"Start orientation not allowed for local_ra: {start_local_ra_deg}, local_dec: {start_local_dec_deg}, pier: {start_pier}")
             return False,False
         
         flip = self.does_move_need_meridian_flip(start_ra_deg, start_dec_deg, end_ra_deg, end_dec_deg, start_pier)
@@ -115,7 +116,7 @@ class Telescope:
         end_local_ra_deg, end_local_dec_deg = self.calculate_local_orientation(end_ra_deg, end_dec_deg, end_pier)
 
         if not self.is_orientation_allowed(end_local_ra_deg, end_local_dec_deg, end_pier):
-            print(f"End orientation not allowed for local_ra: {end_local_ra_deg}, local_dec: {end_local_dec_deg}, pier: {end_pier}")
+            log().warning(f"End orientation not allowed for local_ra: {end_local_ra_deg}, local_dec: {end_local_dec_deg}, pier: {end_pier}")
             return False, True
 
         return True,flip
@@ -213,10 +214,9 @@ class Telescope:
             is_allowed = (local_ra >= 260 and local_ra<360) or (local_ra >= 0 and local_ra<100)
 
         if not is_allowed:
-            print(f"Orientation not allowed for local_ra: {local_ra}, local_dec: {local_dec}, pier: {pier}")
+            log().warning(f"Orientation not allowed for local_ra: {local_ra}, local_dec: {local_dec}, pier: {pier}")
             return False
         else:
-            #print(f"Orientation allowed for local_ra: {local_ra}, local_dec: {local_dec}, pier: {pier}")
             pass
 
         #check dec 
@@ -249,7 +249,7 @@ class Telescope:
         )
         time.sleep(2)  # Allow the Arduino to finish booting after the port opens
         self._serial_connection.flush()  # Clear the buffer
-        print("Telescope serial connection initialized")
+        log().info("Telescope serial connection initialized")
 
     def current_pecpos(self):
         if self.scope_info and "pec" in self.scope_info and "progress" in self.scope_info["pec"]:
@@ -269,7 +269,7 @@ class Telescope:
                     else:
                         raise ConnectionError("Serial connection is not open")
                 except Exception as e:
-                    print(f"Serial exception: {e} - Attempting to reset USB")
+                    log().error(f"Serial exception: {e} - Attempting to reset USB")
                     if self.reset_usb():
                         retries -= 1
                         continue
@@ -279,13 +279,13 @@ class Telescope:
 
     def write_scope(self, data):
         if self.log_communication:
-            print(f"scope send: {data}")
+            log().info(f"scope send: {data}")
         self.try_on_scope(lambda: self._serial_connection.write(data))
 
     def read_scope(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(self._serial_connection.in_waiting))
         if self.log_communication and len(data) > 0:
-            print(f"scope read: {data}")
+            log().info(f"scope read: {data}")
         return data
 
     def readline_scope(self, timeout=1):
@@ -294,30 +294,30 @@ class Telescope:
         data =  self.try_on_scope(lambda: self._serial_connection.readline())
         self._serial_connection.timeout = prevto
         if self.log_communication and len(data) > 0:
-            print(f"scope readline: {data}")
+            log().info(f"scope readline: {data}")
         return data
 
     def read_scope_byte(self):
         data = self.try_on_scope(lambda: self._serial_connection.read(1))
         if self.log_communication and len(data) > 0:
-            print(f"scope read: {data}")
+            log().info(f"scope read: {data}")
         return data
 
     def start_bridge(self,autoguider,camera):
         if self._thread is not None and self._thread.is_alive():
-            print("telescope bridge already running...")
+            log().info("telescope bridge already running...")
             return
         self._thread = Thread(target=self.run_serial_bridge, args=(autoguider,camera))
         self._thread.start()
 
     def stop_bridge(self):
         if self._thread is None:
-            print("telescope bridge already stopped...")
+            log().info("Telescope bridge already stopped...")
             return
         self.running = False
         self._thread.join(timeout=10)
         if self._thread.is_alive():
-            print("Warning: Telescope bridge thread did not stop in time")
+            log().warning("Telescope bridge thread did not stop in time")
 
 
     def run_serial_bridge(self,autoguider,camera):
@@ -335,11 +335,9 @@ class Telescope:
         last_info_time = 0
 
         bt_buffer = b''
-        bt_in_ra = None
-        bt_in_dec = None
-        bt_slew_thread = None
+        bt_state = {"ra": None, "dec": None, "slew_thread": None}
 
-        print("Starting serial bridge...")
+        log().info("Starting serial bridge...")
         while self.running:
             if not self.pause:
                 try:
@@ -361,74 +359,92 @@ class Telescope:
                             self.get_info()
                             last_info_time = current_time
 
-                    if self._serial_connection.in_waiting > 0:
-                        data3 = self.read_scope()
-                        if len(data3) > 0:
-                            print(f"Scope incoming data: {data3}")
-
                     # check if btserial open/closed; it will auto open/close serial port
                     bt.check_status_bt()
 
                     if bt.in_waiting() > 0:  # Check if there’s any data waiting
                         bt_buffer += bt.read(bt.in_waiting())  # Read all available bytes
-                    while True:
-                        hash_pos = bt_buffer.find(b'#')
-                        newline_pos = bt_buffer.find(b'\n')
-                        delimiters = [pos for pos in (hash_pos, newline_pos) if pos >= 0]
-                        if not delimiters:
-                            break
+                    
+                        while True:
+                            ack_pos = bt_buffer.find(b'\x06')  # ACK character
+                            hash_pos = bt_buffer.find(b'#')
+                            newline_pos = bt_buffer.find(b'\n')
+                            delimiters = [pos for pos in (ack_pos, hash_pos, newline_pos) if pos >= 0]
+                            if not delimiters:
+                                break
 
-                        frame_end = min(delimiters) + 1
-                        data = bt_buffer[:frame_end]
-                        bt_buffer = bt_buffer[frame_end:]
-
-                        if data.startswith(b'!O#'):
-                            print("Orientation command received from BT serial")
-                            result = TelescopeInitializePositionTask(self, camera).execute()
-                            bt.write(json.dumps(result).encode('utf-8'))
-                        elif data.startswith(b':Sr'):
-                            # parse lx200 RA coordinate
-                            ra_data = data[3:-1]  # Extract the RA part, assuming format :SrHH:MM:SS#
-                            bt_in_ra = ra_data.decode('utf-8')
-                            print(f"Received RA coordinate from BT serial: {bt_in_ra}")
-                        elif data.startswith(b':Sd'):
-                            # parse lx200 Dec coordinate
-                            dec_data = data[3:-1]  # Extract the Dec part, assuming format :Sd±DD*MM:SS#
-                            bt_in_dec = dec_data.decode('utf-8')
-                            print(f"Received Dec coordinate from BT serial: {bt_in_dec}")
-                        elif data.startswith(b':MS'):
-                            ts = TelescopeSlewingTask(self, bt_in_ra, bt_in_dec)
-                            bt_slew_thread = Thread(target=ts.execute, daemon=True)
-                            bt_slew_thread.start()
-                            print(f"Received GOTO command from BT serial: {bt_in_ra} {bt_in_dec}")
-                        elif data.startswith(b':D#'):
-                            status = b'1#' if bt_slew_thread is not None and bt_slew_thread.is_alive() else b'0#'
-                            bt.write(status)
-                        else:
-                            self.write_scope(data)  # Write it to scope
+                            frame_end = min(delimiters) + 1
+                            data = bt_buffer[:frame_end]
+                            #print(f"Frame from BT serial: {data}")
+                            bt_buffer = bt_buffer[frame_end:]
+                            self.lx200_command(data, camera, bt, bt_state)
+                            
 
                     with self.lock:
                         if self._serial_connection.in_waiting > 0:  # Check if there’s any data waiting
                             data = self.read_scope()  # Read all available bytes                        
                             if data:  # Ensure data was read                        
                                 bt.write(data)       # will write if open
-                                #print(f"telescope bridge: {data}")
+                                print(f"telescope bridge: {data}")
     #                           #tcp.write(data)  # will write if open
                 
                 except Exception as e:
-                    print(f"Error in serial bridge loop: {e}")
+                    log().error(f"Error in serial bridge loop: {e}", exc_info=True)
                 
             # Brief sleep to avoid high CPU usage
             time.sleep(0.05)  # 50ms delay
 
-        print("Stopping serial bridge...")
+        log().info("Stopping serial bridge...")
+
+    def lx200_command(self, command, camera, bt, bt_state):
+        if command.startswith(b'!O#'):
+            log().info("Orientation command received from BT serial")
+            result = TelescopeInitializePositionTask(self, camera).execute()
+            bt.write(json.dumps(result).encode('utf-8'))
+        elif command.startswith(b':Sr'):
+            # parse lx200 RA coordinate
+            ra_data = command[3:-1]  # Extract the RA part, assuming format :SrHH:MM:SS#
+            bt_state["ra"] = ra_data.decode('utf-8')
+            log().info(f"Received RA coordinate from BT serial: {bt_state['ra']}")
+            bt.write(b'1')
+        elif command.startswith(b':Sd'):
+            # parse lx200 Dec coordinate
+            dec_data = command[3:-1]  # Extract the Dec part, assuming format :Sd±DD*MM:SS#
+            bt_state["dec"] = dec_data.decode('utf-8')
+            log().info(f"Received Dec coordinate from BT serial: {bt_state['dec']}")
+            bt.write(b'1')
+        elif command.startswith(b':CM'):
+            LXSetRa(bt_state["ra"]).execute(self)
+            LXSetDec(bt_state["dec"]).execute(self)
+            LXSetTO().execute(self)
+            bt.write(b'0#')
+            log().info(f"Received SET TO command from BT serial: {bt_state['ra']} {bt_state['dec']}")
+        elif command.startswith(b':MS'):
+            ts = TelescopeSlewingTask(self, bt_state["ra"], bt_state["dec"])
+            bt_state["slew_thread"] = Thread(target=ts.execute, daemon=True)
+            bt_state["slew_thread"].start()
+            bt.write(b'0')
+            log().info(f"Received GOTO command from BT serial: {bt_state['ra']} {bt_state['dec']}")
+        elif command.startswith(b':GR#'):
+            bt.write(self.scope_info["coordinates"]["ra"].encode())
+            bt.write(b'#')
+        elif command.startswith(b':GD#'):
+            bt.write(self.scope_info["coordinates"]["dec"].encode())
+            bt.write(b'#')
+        elif command.startswith(b':D#'):
+            bt_slew_thread = bt_state["slew_thread"]
+            status = b'1#' if bt_slew_thread is not None and bt_slew_thread.is_alive() else b'0#'
+            bt.write(status)
+        else:
+            self.write_scope(command)  # Write it to scope to handle unrecognized commands
+
 
 
     def close_connection(self):
         if self._serial_connection and self._serial_connection.is_open:
             self._serial_connection.dtr = False  # Disable DTR to prevent reset
             self._serial_connection.close()
-            print("Telescope serial connection closed")
+            log().info("Telescope serial connection closed")
         #self.tcp_serial.close()
 
     def reset_arduino(self):
@@ -459,13 +475,13 @@ class Telescope:
             #subprocess.run(["sudo", "modprobe", "ch341"], check=True)
             time.sleep(2)
             self.open_serial()
-            print("USB reset successfully")
+            log().info("USB reset successfully")
             return self._serial_connection.is_open
         except subprocess.CalledProcessError as e:
-            print(f"Error resetting USB: {e.stderr.decode()}")
+            log().error(f"Error resetting USB: {e.stderr.decode()}")
             return False
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            log().error(f"Unexpected error: {e}")
             return False
 
     def set_quiet(self, quiet):
@@ -501,7 +517,7 @@ class Telescope:
     def send_speed(self, speed):
         self.speed = speed
         if self.speed == 'A':
-            print("Absolute speed selected")
+            log().info("Absolute speed selected")
         else:
             LXSpeed(speed).execute(self)
 
@@ -528,7 +544,7 @@ class Telescope:
     def get_current_position(self):
         try:
             ra_seconds, dec_arcseconds = PTCGetPosition().execute(self)
-            if ra_seconds < 0 or dec_arcseconds < 0:
+            if ra_seconds < 0:
                 self.ra_deg = -1
                 self.dec_deg = -1
                 self.scope_info["coordinates"] = {"ra": "??:??:??",
@@ -539,12 +555,12 @@ class Telescope:
                 self.scope_info["coordinates"] = {"ra": deg_to_lx200_ra(self.ra_deg),
                                               "dec": deg_to_lx200_dec(self.dec_deg)}
         except Exception as e:
-            print(f"Error getting current position: {e}")
+            log().error(f"Error getting current position: {e}")
     
     def get_current_position_lx200(self):
         ra = LXGetRa().execute(self).decode().rstrip('#')
         dec = LXGetDec().execute(self).decode().rstrip('#')
-        print(f"received coordinates {ra} {dec}")
+        log().info(f"received coordinates {ra} {dec}")
         try:
             ra_deg =  lx200_to_ra_deg(ra)
             dec_deg = lx200_to_dec_deg(dec)            
@@ -552,14 +568,14 @@ class Telescope:
             self.ra_deg = ra_deg
             self.dec_deg = dec_deg
         except:
-            print(f"Invalid coordinates")
+            log().error(f"Invalid coordinates")
 
     def send_PEC_position(self, position=0):
         try:
             cmd = PTCSetPECPos(position)
             cmd.execute(self)
         except ValueError as ve:
-            print(ve)
+            log().error(ve)
 
     def get_PEC_position(self):
         try:
@@ -581,7 +597,7 @@ class Telescope:
             self.get_info()
             return True, None
         except ValueError as ve:
-            print(ve)
+            log().error(ve)
             return False, ve
         
     def getSlewDistance(self):
@@ -594,7 +610,7 @@ class Telescope:
             PTCSetTracking(tracking).execute(self)
             return True
         except ValueError as ve:
-            print(ve)
+            log().error(ve)
             return False
 
     def send_pier(self, pier):
@@ -602,10 +618,10 @@ class Telescope:
             resp = PTCSetPier(pier).execute(self)
             time.sleep(0.5)
             self.get_info()
-            print(resp)
+            log().info(resp)
             return True, None
         except ValueError as ve:
-            print(ve)
+            log().error(ve)
             return False, ve
 
     def send_correction(self, direction, t=0.5):
@@ -724,7 +740,7 @@ class Telescope:
 
             self.scope_info = data
         except:
-            print("get info failed to parse")
+            log().error("get info failed to parse")
             self.status = "error"
 
         self.scope_info["text"] = info
@@ -745,10 +761,10 @@ class Telescope:
         cmd.execute(self)
         response = cmd.response.decode().rstrip("!\n")
         
-        print(f"{response}")
+        log().info(f"{response}")
 
         if not response.startswith("PEC "):
-            print(f"Invalid response from Arduino")
+            log().error(f"Invalid response from Arduino")
             return []
 
         try:
@@ -757,16 +773,16 @@ class Telescope:
             num_points = int(parts[1])  # Extract number of points
             data_str = parts[2]  # Extract the comma-separated values
         except (IndexError, ValueError):
-            print("Error: Invalid PEC header format.")
+            log().error("Error: Invalid PEC header format.")
             return []
 
         try:
             pec_table = list(map(int, data_str.split(',')))  # Convert to integer list
         except ValueError as ve:
-            print(f"Error: Non-integer values found in PEC table. {ve}")
+            log().error(f"Error: Non-integer values found in PEC table. {ve}")
             return []
 
-        print(f"Received PEC table with {num_points} points.")
+        log().info(f"Received PEC table with {num_points} points.")
         return pec_table
 
     def upload_firmware(self, file_path):
@@ -775,13 +791,13 @@ class Telescope:
         time.sleep(0.1)
         try:
             result = subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            print(result.stdout.decode())
-            print(result.stderr.decode())
-            print("Firmware uploaded successfully.")
+            log().info(result.stdout.decode())
+            log().info(result.stderr.decode())
+            log().info("Firmware uploaded successfully.")
             self.pause = False
             return True
         except subprocess.CalledProcessError as e:
-            print(f"Error uploading firmware: {e.stderr.decode()}")
+            log().error(f"Error uploading firmware: {e.stderr.decode()}")
             self.pause = False
             return False
             

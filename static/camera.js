@@ -285,6 +285,7 @@
 
     function selectCamera(value) {        
         submitCameraProperties(JSON.stringify({ "camera_index" : value })).then(() => {
+            loadCameraControls();
             loadCameraProperties();
         });        
     }

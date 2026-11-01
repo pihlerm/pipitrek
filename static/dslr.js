@@ -113,7 +113,7 @@
                 head.appendChild(th);
             }
             const body = table.createTBody();
-            const makeCell = (row, name, present) => {
+            const makeCell = (row, name, present, remote) => {
                 const td = row.insertCell();
                 td.style.padding = '2px 4px';
                 td.style.width = '50%';
@@ -121,7 +121,7 @@
                 td.textContent = name;
                 td.style.cursor = 'pointer';
                 if (present === 'new') td.style.color = '#ffc107';
-                td.onclick = () => dslrShowImage(name);
+                td.onclick = () => dslrShowImage(name, remote);
             };
             for (const name of names) {
                 const row = body.insertRow();
@@ -130,8 +130,8 @@
                 cb.className = 'dslr_sel';
                 cb.value = name;
                 row.insertCell().appendChild(cb);
-                makeCell(row, name, localSet.has(name));
-                makeCell(row, name, remoteSet.has(name) && (newImages.has(name) ? 'new' : true));
+                makeCell(row, name, localSet.has(name), false);
+                makeCell(row, name, remoteSet.has(name) && (newImages.has(name) ? 'new' : true), true);
             }
             list.appendChild(table);
             dslrSetMessage(data.images.length + ' images, ' + newImages.size + ' new');
@@ -140,26 +140,31 @@
         }
     }
 
-    async function dslrDownloadRaw() {
+    async function dslrDownloadRaw(remote) {
         const images = Array.from(document.querySelectorAll('#dslr_image_list input.dslr_sel:checked')).map(c => c.value);
         if (!images.length) {
             dslrSetMessage('No images selected');
             return;
         }
-        dslrSetMessage('Preparing ' + images.length + ' images...');
+        dslrSetMessage('Downloading ' + images.length + ' images...');
         try {
-            const data = await dslrPost('/dslr_get_raw_images', { images });
-            if (data.status !== 'success') {
-                dslrSetMessage(data.message || 'Download failed');
-                return;
+            for (const image of images) {
+                const data = await dslrPost('/dslr_get_image', { filename: image, remote: remote });
+                if (data.status !== 'success') {
+                    dslrSetMessage(data.message || 'Download failed');
+                } else {
+                    const bytes = Uint8Array.from(atob(data.image), char => char.charCodeAt(0));
+                    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = image;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }
             }
-            const a = document.createElement('a');
-            a.href = data.raw_images;
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            dslrSetMessage('Downloading ' + images.length + ' images');
+            
         } catch (e) {
             dslrSetMessage('Error: ' + e);
         }
@@ -180,11 +185,11 @@
         }
     }
 
-    async function dslrShowImage(name) {
+    async function dslrShowImage(name, remote) {
         dslrSetMessage('Loading ' + name + '...');
         const win = window.open('', '_blank');
         try {
-            const data = await dslrPost('/dslr_get_image', { filename: name });
+            const data = await dslrPost('/dslr_get_image_preview', { filename: name, remote: remote });
             if (data.status !== 'success') {
                 if (win) win.close();
                 dslrSetMessage(data.message || 'Failed to load image (synchronize first?)');

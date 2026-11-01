@@ -21,18 +21,15 @@ class TelescopeCommand:
         with telescope.lock:
             prevto = telescope._serial_connection.timeout
             telescope._serial_connection.timeout = self.timeout
-            #print(f"sending {self.command}")
             telescope.write_scope(self.command.encode())
             if self.requireResponse:
                 if self.responseLambda is None:
                     self.response = telescope.readline_scope(timeout=self.timeout)
-                    #print(f"rcv {self.response}")
                 else:
                     self.response = b''
                     start = time.time()
                     while not self.responseLambda(self.response) and time.time()-start<self.timeout:
                         self.response += telescope.read_scope_byte()
-                    #print(f"rcv {self.response}")
             telescope._serial_connection.timeout = prevto
             return self.response
 
@@ -189,7 +186,6 @@ class PTCSetPEC(TelescopeCommand):
             data_str = ",".join(map(str, self.pec_table)) + "\n"
             telescope.write_scope(data_str.encode())
             
-            print("PEC table sent.")
             self.response = telescope.readline_scope(timeout=self.timeout)
             return self.response
 

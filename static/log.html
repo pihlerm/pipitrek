@@ -1,25 +1,67 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
     <title>Log</title>
     <link rel="stylesheet" href="style.css" />
     <style>
-        html, body { height: 100%; margin: 0; }
-        #log-text { width: 100%; height: 100%; box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; overflow: hidden; }
+        #log-bar { position: absolute; top: 4px; right: 20px; z-index: 1; }
+        #log-text { width: 100%; height: 100%; box-sizing: border-box; resize: none; }
     </style>
 </head>
 <body class="night-mode">
+    <div id="log-bar"><input type="date" id="log-date" /></div>
     <textarea id="log-text" class="output-text" readonly></textarea>
 <script>
     const logElement = document.getElementById('log-text');
     let lastLogLine = 0;
+    let currentDay = null;
 
-    function followTaskLog() {
-        const day = new Date().toISOString().split('T')[0];
-        fetch('/get_log/' + day + '?from_line=' + lastLogLine)
+    function localDay() {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    const dateInput = document.getElementById('log-date');
+    let followToday = true;
+    let lastToday = localDay();
+    dateInput.value = lastToday;
+
+    function resetLog(day) {
+        currentDay = day;
+        lastLogLine = 0;
+        logElement.value = '';
+    }
+
+    dateInput.addEventListener('change', () => {
+        if (!dateInput.value) return;
+        followToday = dateInput.value === localDay();
+        resetLog(dateInput.value);
+        loadLog();
+    });
+
+    let pollTimer = null;
+    function followLog() {
+        clearTimeout(pollTimer);
+        const today = localDay();
+        if (today !== lastToday) {
+            lastToday = today;
+            if (followToday) dateInput.value = today;
+        }
+        loadLog();
+    }
+
+    function loadLog() {
+        clearTimeout(pollTimer);
+        const day = dateInput.value || localDay();
+        if (day !== currentDay) resetLog(day);
+        const fromLine = lastLogLine;
+        fetch('/get_log/' + day + '?from_line=' + fromLine)
         .then(response => response.json())
         .then(data => {
+            if (day !== currentDay || fromLine !== lastLogLine) return; // date changed meanwhile
             if (data.status === 'ok') {
                 if (data.task_log.length > 0) {
                     logElement.value += data.task_log.join('');
@@ -31,10 +73,10 @@
             }
         })
         .catch(error => console.error('Log error:', error))
-        .finally(() => setTimeout(followTaskLog, 2000));
+        .finally(() => { clearTimeout(pollTimer); pollTimer = setTimeout(followLog, 2000); });
     }
 
-    followTaskLog();
+    followLog();
 </script>
 </body>
 </html>

@@ -1,6 +1,9 @@
 import datetime
 import time as _startup_clock
 
+from logger import setup_logging, get_log, log
+setup_logging()
+
 from dslr import DSLR
 
 _startup_started = _startup_clock.perf_counter()
@@ -13,11 +16,7 @@ def _startup_log(message):
         return
     global _startup_last
     now = _startup_clock.perf_counter()
-    print(
-        f"[startup +{now - _startup_started:.2f}s, "
-        f"step +{now - _startup_last:.2f}s] {message}",
-        flush=True,
-    )
+    log().info(f"[startup +{now - _startup_started:.2f}s, step +{now - _startup_last:.2f}s] {message}")
     _startup_last = now
 
 
@@ -63,8 +62,8 @@ from telescope_task import PlateSolveTask, TelescopeImagingTask, TelescopeInitia
 _startup_log("remaining application modules imported")
 
 # Disable Flask request logging
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
+werkzeug_log = logging.getLogger('werkzeug')
+werkzeug_log.setLevel(logging.WARNING)  # Suppress INFO messages (e.g., requests)
 
 class _ClientDisconnectFilter(logging.Filter):
     """Drop werkzeug 'Error on request' records caused by clients closing the TLS connection."""
@@ -72,9 +71,9 @@ class _ClientDisconnectFilter(logging.Filter):
         text = record.getMessage()
         return not ("Error on request" in text and ("SSLEOFError" in text or "SSLError" in text))
 
-log.addFilter(_ClientDisconnectFilter())
+werkzeug_log.addFilter(_ClientDisconnectFilter())
 # Alternatively, disable completely:
-# log.disabled = True
+# werkzeug_log.disabled = True
 # Global shutdown event
 shutdown_event = Event()
 
@@ -95,8 +94,6 @@ telescopeserver = None
 global_server = None
 telescope_task_scheduler = None
 
-log_index:dict[str, list[int]] = {}
-
 video_interval = 0.5 # interval for generating video frames
 frame_timeout = 30 # seconds before timeout
 _startup_log("module setup complete")
@@ -112,18 +109,16 @@ def draw_info(frame, nframe):
 def video_feed_ws(ws):
     last_valid_frame = None
     last_yield = time.time()
-    nframe = 0
     try:
         while camera is not None and camera.running:
             start = time.time()
             if start - last_yield > frame_timeout:
-                print("Timeout from video_feed_ws", flush=True)
+                log().warning("Timeout from video_feed_ws")
                 break            
-            frame = camera.frame
+            frame, ts, frame_number = camera.latest
             if frame is not last_valid_frame and frame is not None and frame.size > 0:
-                #draw_info(frame, nframe)
-                #print(f"video frame {nframe} sent")
-                nframe += 1
+                draw_info(frame, frame_number)
+                #print(f"video frame {frame_number} sent")
                 last_yield = start
                 last_valid_frame = frame
                 ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -132,14 +127,14 @@ def video_feed_ws(ws):
                     frame_data = base64.b64encode(buffer).decode('utf-8')
                     ws.send(frame_data)
                 else:
-                    print("Frame encoding failed")
+                    log().error("Frame encoding failed")
             time.sleep(max(video_interval - (time.time()-start),0.01))
     except ssl.SSLEOFError as e:
-        print("WebSocket connection closed in video_feed_ws")
+        log().error("WebSocket connection closed in video_feed_ws")
     except Exception as e:
-        print(f"video_feed_ws video feed error: {e}")
+        log().error(f"video_feed_ws video feed error: {e}")
     finally:
-        print("Client disconnected from video_feed_ws", flush=True)
+        log().info("Client disconnected from video_feed_ws")
 
 @sock.route('/thresh_feed_ws')
 def thresh_feed_ws(ws):
@@ -150,7 +145,7 @@ def thresh_feed_ws(ws):
         while camera is not None and camera.running:
             start = time.time()
             if start - last_yield > frame_timeout:
-                print("Timeout from thresh_feed_ws", flush=True)
+                log().error("Timeout from thresh_feed_ws")
                 break            
             thresh = autoguider.threshold
             if thresh is not last_valid_thresh and thresh is not None :
@@ -166,14 +161,14 @@ def thresh_feed_ws(ws):
                     frame_data = base64.b64encode(buffer).decode('utf-8')
                     ws.send(frame_data)
                 else:
-                    print("Frame encoding failed")
+                    log().error("Frame encoding failed")
             time.sleep(max(video_interval - (time.time()-start),0.01))
     except ssl.SSLEOFError as e:
-        print("WebSocket connection closed in thresh_feed_ws")
+        log().error("WebSocket connection closed in thresh_feed_ws")
     except Exception as e:
-        print(f"thresh_feed_ws video feed error: {e}")
+        log().error(f"thresh_feed_ws video feed error: {e}")
     finally:
-        print("Client disconnected from thresh_feed_ws", flush=True)
+        log().info("Client disconnected from thresh_feed_ws")
 
 @sock.route('/autoguider_socket')
 def autoguider_socket(ws):
@@ -183,11 +178,11 @@ def autoguider_socket(ws):
                 autoguider.data_ready = False
                 ws.send(json.dumps(form_properties()))
         except ssl.SSLEOFError as e:
-            print("WebSocket connection closed in autoguider_socket")
+            log().error("WebSocket connection closed in autoguider_socket")
         except Exception as e:  # Catches WebSocketConnectionClosedException
             break
         time.sleep(0.1)
-    print("autoguider_socket disconnected")
+    log().info("autoguider_socket disconnected")
 
     
 @sock.route('/telescope_socket')
@@ -231,12 +226,12 @@ def telescope_socket(ws):
                 }
                 ws.send(json.dumps(properties))
         except ssl.SSLEOFError as e:
-            print("WebSocket connection closed in telescope_socket")
+            log().error("WebSocket connection closed in telescope_socket")
         except Exception as e:  # Catches WebSocketConnectionClosedException
-            print(f"Unexpected error in telescope_socket: {e}")
+            log().error(f"Unexpected error in telescope_socket: {e}")
             break
         time.sleep(0.1)
-    print("telescope_socket disconnected")
+    log().info("telescope_socket disconnected")
 
 
 def strip_ansi(text):
@@ -295,7 +290,7 @@ def command_terminal(ws):
             ws.send(f"exit: {current_process.returncode}")
             current_process = None
         except ssl.SSLEOFError as e:
-            print("WebSocket connection closed in command_terminal")
+            log().info("WebSocket connection closed in command_terminal")
         except Exception as e:
             ws.send(f"error: {str(e)}")
             current_process = None
@@ -303,31 +298,11 @@ def command_terminal(ws):
 @app.route('/get_log/<string:day>', methods=['GET'])
 def get_log_endpoint(day):
     from_line = request.args.get('from_line', default=0, type=int)
-    if day is None:
-        day = datetime.datetime.now().strftime("%Y-%m-%d")
-    lines = []
-    lineindex = log_index.get(day)
-    if lineindex is None:
-        lineindex = []
-        log_index[day] = lineindex
-
-    with open(f"log/pipitrek.log", "r") as log_file:
-        if from_line < len(lineindex):
-            log_file.seek(lineindex[from_line])
-        else:
-            for _ in range(from_line):
-                log_file.readline()
-                lineindex.append(log_file.tell())
-        while True:
-            line = log_file.readline()
-            if not line:
-                break
-            lineindex.append(log_file.tell())
-            lines.append(line)
-        
-        return jsonify({'status': 'ok', 'task_log': lines})
-
-    return jsonify({'status': 'error', 'message': 'Failed to read task log'})
+    try:
+        lines = get_log(day, from_line)
+    except ValueError:
+        return jsonify({'status': 'error', 'message': 'Invalid date, expected YYYY-MM-DD'}), 400
+    return jsonify({'status': 'ok', 'task_log': lines})
 
 # TELESCOPE 
 @app.route('/scope_info', methods=['GET'])
@@ -385,9 +360,6 @@ def command_slew_request():
 def control_move():
     direction = request.form.get('direction')
     if direction in ['n', 's', 'e', 'w']:
-        # Handle the direction command here
-        print(f"Received direction: {direction}")
-        # You can add code here to send the direction command to the telescope
         dec=0
         ra=0
         if direction == 'n':
@@ -408,7 +380,6 @@ def control_move():
 def control_speed():
     speed = request.form.get('speed')
     if speed in ['G', 'C', 'M', 'S','A']:
-        print(f"Received speed: {speed}")
         telescope.send_speed(speed)
         return jsonify({"status": "success", "speed": speed})
     else:
@@ -417,10 +388,8 @@ def control_speed():
 @app.route('/control_stop', methods=['POST'])
 def control_stop():
     direction = request.form.get('direction', default='')
-    print(f"Received stop command with direction: {direction}")
     if direction in ['n', 's', 'e', 'w','']:
         # Handle the direction command here
-        print(f"Received direction: {direction}")
         telescope.send_stop(direction)
         return jsonify({"status": "success", "direction": direction})
     else:
@@ -438,7 +407,6 @@ def command_receivePEC():
 def command_sendPEC():
     data = request.json
     pec_table = data.get('pec_table', [])
-    print(f"Received PEC table: {pec_table}")
     if pec_table and isinstance(pec_table, list):
         ret = telescope.send_pec_table(pec_table)
         return jsonify({"status": "success", "message": ret})
@@ -453,7 +421,6 @@ def set_pec_position():
             raise ValueError("PEC position is missing or invalid")
         
         rounded_position = round(pec_position)  # Round the float to the nearest integer
-        print(f"Pec position (rounded): {rounded_position}")
         telescope.send_PEC_position(int(rounded_position))  # Send the rounded position
         return jsonify({'status': 'success', 'message': f'PEC pos set to {rounded_position}'})
     except Exception as e:
@@ -476,9 +443,11 @@ def set_pec_enabled():
 @app.route('/command_upload', methods=['POST'])
 def control_upload():
     if 'firmware' not in request.files:
+        log().error('No file part in firmware upload')
         return 'No file part', 400
     file = request.files['firmware']
     if file.filename == '':
+        log().error('No selected file in firmware upload')
         return 'No selected file', 400
     if file and file.filename.endswith('.hex'):
         filename = os.path.join('/root/astro/arduino/', file.filename)
@@ -486,7 +455,9 @@ def control_upload():
         if telescope.upload_firmware(filename):
             return jsonify({"status": "success"})
         else:
+            log().error("Error uploading firmware file.")
             return jsonify({"status": "error", "message": "Error uploading file."}), 500
+    log().error('Invalid firmware file type')
     return 'Invalid file type', 400
 
 
@@ -506,7 +477,7 @@ def command_info():
         info = telescope.get_info()
         return jsonify({'status': 'success', 'info': info})
     except Exception as e:
-        print(f"Exception {e}")
+        log().error(f"Exception {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
     
 @app.route('/command_goto', methods=['POST'])
@@ -514,7 +485,6 @@ def command_goto():
     data = request.json
     ra = data.get('ra')
     dec = data.get('dec')
-    print(f"GOTO command received: RA={ra}, DEC={dec}")
     ret = TelescopeSlewingTask(telescope, ra, dec, autoguider=autoguider).execute()
     return jsonify(ret)
 
@@ -523,9 +493,8 @@ def command_goto_direct():
     data = request.json
     ra = data.get('ra')
     dec = data.get('dec')
-    print(f"DIRECT GOTO command received: RA={ra}, DEC={dec}")
     ret = telescope.send_go_to(ra, dec)
-    print(f"DIRECTLY Moving to segment: RA={ra}, DEC={dec}")
+    log().info(f"DIRECTLY Moving to segment: RA={ra}, DEC={dec}")
     return jsonify(ret)
 
 @app.route('/command_set_to', methods=['POST'])
@@ -533,7 +502,7 @@ def command_set_to():
     data = request.json
     ra = data.get('ra')
     dec = data.get('dec')
-    print(f"SET TO command received: RA={ra}, DEC={dec}")
+    log().info(f"SET TO command received: RA={ra}, DEC={dec}")
     telescope.send_set_to(ra,dec)
     telescope.send_lst()
     return jsonify({'status': 'success', 'message': f'SET TO RA={ra}, DEC={dec}'})
@@ -624,9 +593,9 @@ def get_task_log_endpoint(day):
 def get_camera_list():
     if camera is not None:
         list = camera.list_cameras()
+        list.append("")
     else:
         list = []
-    print(list)
     return jsonify(list)
 
 
@@ -638,7 +607,7 @@ def save_frame():
             # Save the frame as an image file
             save_path = os.path.join(os.getcwd(), 'saved_frame.png')
             cv2.imwrite(save_path, frame, [cv2.IMWRITE_PNG_COMPRESSION, 4])  # Save as PNG with mid compression
-            print(f"Frame saved to {save_path}")
+            log().info(f"Frame saved to {save_path}")
             return send_file(save_path, as_attachment=True, mimetype='image/png')
         else:
             return jsonify({"status": "error", "message": "No valid frame available"}), 400
@@ -850,10 +819,8 @@ def set_max_drift():
     if 0 <= new_max_drift <= 50:
         if axis == 'ra':
             autoguider.max_drift_ra = new_max_drift
-            print(f"set max drift RA to {new_max_drift} and is {autoguider.max_drift_ra}")
         elif axis == 'dec':
             autoguider.max_drift_dec = new_max_drift
-            print(f"set max drift DEC to {new_max_drift} and is {autoguider.max_drift_dec}")
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_min_star_size', methods=['POST'])
@@ -874,7 +841,6 @@ def set_max_star_size():
 def set_guide_interval():
     guide_interval = request.form.get('guide_interval', type=float, default=1)
     autoguider.guide_interval = guide_interval
-    print(f"set guide interval to {guide_interval} and is {autoguider.guide_interval}")
     return jsonify({"status": "success"}), 200
 
 @app.route('/set_guide_method', methods=['POST'])
@@ -931,12 +897,12 @@ def acquire():
         if not add:
             autoguider.remove_all_tracked_stars()
         autoguider.add_tracked_star(centroid=(x*camera.width, y*camera.height))
-        print(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
+        log().info(f"Acquisition triggered at ({x*camera.width}, {y*camera.height})")
         return jsonify({'status': 'success', 'message': f"Acquisition triggered at ({x}, {y})"}), 200
     else:
         autoguider.remove_all_tracked_stars()
         autoguider.add_tracked_star()
-        print(f"Acquisition of brightest star triggered")
+        log().info(f"Acquisition of brightest star triggered")
         return jsonify({'status': 'success', 'message': f"Acquisition of brightest star triggered"}), 200
 
 @app.route('/remove_tracked_star', methods=['POST'])
@@ -947,10 +913,10 @@ def remove_tracked_star():
     x = request.form.get('x', type=float)
     y = request.form.get('y', type=float)
     if autoguider.remove_tracked_star(centroid=(x*camera.width, y*camera.height)):
-        print(f"Star removed at ({x*camera.width}, {y*camera.height})")
+        log().info(f"Star removed at ({x*camera.width}, {y*camera.height})")
         return jsonify({'status': 'success', 'message': f"Tracked star removed at ({x}, {y})"}), 200
     else:
-        print(f"No star found at ({x*camera.width}, {y*camera.height})")
+        log().warning(f"No star found at ({x*camera.width}, {y*camera.height})")
         return jsonify({'status': 'error', 'message': f"No tracked star at ({x}, {y})"}), 503
 
 @app.route('/reset_centroids', methods=['POST'])
@@ -958,7 +924,7 @@ def reset_centroids():
     if autoguider is None:
         return jsonify({'status': 'error', 'message': 'Autoguider not available'}), 503
     autoguider.reset_centroids()
-    print(f"Centroids reset to current star positions")
+    log().info(f"Centroids reset to current star positions")
     return jsonify({'status': 'success', 'message': "Centroids reset to current star positions"}), 200
 
 @app.route('/clear_centroids', methods=['POST'])
@@ -966,7 +932,7 @@ def clear_centroids():
     if autoguider is None:
         return jsonify({'status': 'error', 'message': 'Autoguider not available'}), 503
     autoguider.remove_all_tracked_stars()
-    print(f"Centroids cleared")
+    log().info(f"Centroids cleared")
     return jsonify({'status': 'success', 'message': "Centroids cleared"}), 200
 
 @app.route('/calibrate', methods=['POST'])
@@ -977,7 +943,7 @@ def calibrate():
     with_backlash = request.form.get('with_backlash', type=lambda v: v.lower() == 'true')  # Convert "true"/"false" to boolean
     result = False
     if not with_backlash:
-        result = autoguider.calibrate_angle_with_tracking(num_seconds=30)
+        result = autoguider.calibrate_angle_with_tracking(num_seconds=180)
     else:
         result = autoguider.calibrate_angle(with_backlash)
 
@@ -1006,7 +972,7 @@ def dslr_get_image_list():
     if dslr is None:
         return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
     try:
-        images = dslr.list_images()
+        images = dslr.list_remote_images()
         local_images = dslr.list_local_images()
         new_images = dslr.check_new_images()
         return jsonify({'status': 'success', 'images': sorted(images), 'new_images': sorted(new_images), 'local_images': sorted(local_images)}), 200
@@ -1023,16 +989,30 @@ def dslr_download_new_images():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/dslr_get_image_preview', methods=['POST'])
+def dslr_get_image_preview():
+    if dslr is None:
+        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
+    try:
+        filename = request.json.get('filename')        
+        remote = bool(request.json.get('remote', True))
+        image = dslr.get_image_preview(filename, remote=remote)
+        return jsonify({'status': 'success', 'image': image}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/dslr_get_image', methods=['POST'])
 def dslr_get_image():
     if dslr is None:
         return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
     try:
-        filename = request.json.get('filename')
-        image = dslr.get_image(filename)
-        return jsonify({'status': 'success', 'image': image}), 200
+        filename = request.json.get('filename')        
+        remote = bool(request.json.get('remote', True))
+        image = dslr.get_image(filename, remote=remote)
+        return jsonify({'status': 'success', 'image': base64.b64encode(image).decode('ascii')}), 200
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @app.route('/dslr_trigger', methods=['POST'])
 def dslr_trigger():
@@ -1070,16 +1050,6 @@ def dslr_get_state():
     properties['status'] = 'success'
     return jsonify(properties), 200
 
-@app.route('/dslr_get_raw_images', methods=['POST'])
-def dslr_get_raw_images():
-    if dslr is None:
-        return jsonify({'status': 'error', 'message': 'DSLR not available'}), 503
-    
-    imagelist = request.json.get('images', [])
-    dest = os.path.join(app.static_folder, 'astroImages', 'download.zip')
-    zipname = dslr.get_raw_images(imagelist,dest)
-    raw_image_url = f'/static/astroImages/{zipname}'
-    return jsonify({'status': 'success', 'raw_images': raw_image_url}), 200
 
 # ANALYSIS
 @app.route('/analyze', methods=['POST'])
@@ -1121,7 +1091,7 @@ def shutdown():
     body = request.get_json(silent=True) or {}
     poweroff = bool(body.get('poweroff', False))
 
-    print(f"Shutdown requested via /shutdown (poweroff={poweroff})")
+    log().info(f"Shutdown requested via /shutdown (poweroff={poweroff})")
     shutdown_event.set()  # Signal threads to stop
 
     cleanup()
@@ -1129,7 +1099,7 @@ def shutdown():
     def _exit_process():
         time.sleep(1)
         if poweroff:
-            print("Powering off Linux host...")
+            log().info("Powering off Linux host...")
             os.system("poweroff")
         os._exit(0)
 
@@ -1137,9 +1107,9 @@ def shutdown():
     func = request.environ.get('werkzeug.server.shutdown')
     if func is not None:
         func()
-        print("Werkzeug server shutdown initiated")
+        log().info("Werkzeug server shutdown initiated")
     else:
-        print("Not running with Werkzeug server, forcing shutdown")
+        log().info("Not running with Werkzeug server, forcing shutdown")
 
     # Always force the process (and optionally the host) down after cleanup, since make_server doesn't expose werkzeug.server.shutdown
     Thread(target=_exit_process).start()
@@ -1149,47 +1119,47 @@ def shutdown():
 
 def cleanup():
     try:        
-        print("Stopping TCP telescope server..")
+        log().info("Stopping TCP telescope server..")
         telescopeserver.stop()
         
-        print("Stopping telescope task scheduler..")
+        log().info("Stopping telescope task scheduler..")
         if telescope_task_scheduler is not None:
             telescope_task_scheduler.stop()
             telescope_task_scheduler.save_task_list("task_list.json")
     
-        print("Stopping autoguider..")
+        log().info("Stopping autoguider..")
         all_settings.update_autoguider_settings(autoguider)
         autoguider.running = False
         autoguider_thread.join(timeout=10)
         if autoguider_thread.is_alive():
-            print("Warning: Autoguider thread did not stop in time")
+            log().warning("Autoguider thread did not stop in time")
         else:
-            print("Autoguider thread stopped")
-        print("autoguider stopped.")
+            log().info("Autoguider thread stopped")
+        log().info("autoguider stopped.")
 
         # Stop telescope
-        print("Saving telescope state and cosing connection..")
+        log().info("Saving telescope state and cosing connection..")
         telescope.get_PEC_position()
         telescope.get_current_position()
         telescope.send_tracking(False)    #disable tracking to not spoil PEC position
         all_settings.update_telescope_settings(telescope)
         telescope.stop_bridge()
         telescope.close_connection()
-        print("Telescope closed.")
+        log().info("Telescope closed.")
 
         if camera is not None:
-            print("Stopping autoguider camera..")        
+            log().info("Stopping autoguider camera..")        
             camera.stop_capture()
             camera.release_camera()
             all_settings.update_camera_settings(camera)
-            print("Camera stopped.")
+            log().info("Camera stopped.")
 
         cv2.destroyAllWindows()
         all_settings.save_settings()
-        print("Resources released")
+        log().info("Resources released")
 
     except Exception as e:
-        print(f"Error during cleanup: {e}")
+        log().error(f"Error during cleanup: {e}", exc_info=True)
 
 
 class ServerThread(Thread):
@@ -1207,16 +1177,16 @@ class ServerThread(Thread):
         self.ctx.push()
 
     def run(self):
-        print("Starting Flask server on 0.0.0.0:80")
+        log().info("Starting Flask server on 0.0.0.0:8443")
         self.server.serve_forever()
 
     def shutdown(self):
-        print("Shutting down Flask server")
+        log().info("Shutting down Flask server")
         self.server.shutdown()
 
 
 def signal_handler(sig, frame):
-    print(f"Received signal {sig}, initiating shutdown", flush=True)
+    log().info(f"Received signal {sig}, initiating shutdown")
     if global_server:
         cleanup()
         global_server.shutdown()
@@ -1288,10 +1258,10 @@ if __name__ == '__main__':
         while global_server.is_alive():
             time.sleep(1)
     except KeyboardInterrupt:
-        print("KeyboardInterrupt received")
+        log().info("KeyboardInterrupt received")
         signal_handler(signal.SIGINT, None)
     finally:
         global_server.join(timeout=10)
         if global_server.is_alive():
-            print("Warning: Server thread did not stop in time")
-        print("Application shut down gracefully")
+            log().warning("Server thread did not stop in time")
+        log().info("Application shut down gracefully")

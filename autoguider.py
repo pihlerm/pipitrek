@@ -77,6 +77,8 @@ class LowPassFilter:
 
     def update(self, x, dt):
         if self.tau <= 0 or self.value is None or dt > self.max_gap:
+            if self.value is None:
+                print("Initializing low-pass filter with first value")
             self.value = x
         else:
             alpha = dt / (self.tau + dt)
@@ -467,9 +469,9 @@ class Autoguider:
         #filtered_vectors = vectors[mask]
 
         # filter any vectors larger than 20 pixels
-        filtered_vectors = [v for v in vectors if abs(v[0]) <= 10 and abs(v[1]) <= 20]
+        #filtered_vectors = [v for v in vectors if abs(v[0]) <= 10 and abs(v[1]) <= 20]
 
-        #filtered_vectors = vectors
+        filtered_vectors = vectors
 
         # Calculate final mean centroid from filtered vectors
         final_mean_centroid = np.mean(filtered_vectors, axis=0) if len(filtered_vectors) > 0 else np.array([0.0, 0.0])
@@ -554,15 +556,15 @@ class Autoguider:
 
         while time.time() - start_time < num_seconds:  # Run calibration loop for up to num_seconds
 
-            frame, frame_ts = self.camera.latest
+            frame, frame_ts, frame_no = self.camera.latest
             if frame is last_frame or frame is None:
                 time.sleep(0.05)    # frame not ready
                 continue
             
             last_frame = frame
 
-            centroids = self._detect_stars(frame, search_near_centroids=[_centroids[-1]])  # Detect star
-            if len(centroids)==0:
+            centroids = self._detect_stars(frame, search_near_centroids=[_centroids[-1]], max_distance=50)  # Detect star
+            if len(centroids)==0 or centroids[0] is None:
                 print("Failed to detect centroid")
                 continue
 
@@ -580,7 +582,7 @@ class Autoguider:
             A = np.vstack([x, np.ones(len(x))]).T
             m, c = np.linalg.lstsq(A, y, rcond=None)[0]
             angle_rad = math.atan(m)
-            self.camera.rotation_angle = math.degrees(angle_rad)
+            self.camera.rotation_angle = -math.degrees(angle_rad)
             print(f"Calibrated rotation angle: {self.camera.rotation_angle:.1f} degrees")
             result = True
 
@@ -787,6 +789,8 @@ class Autoguider:
 
 
     def _filter_errors(self, ra_err, ra_axis_err, dec_err):
+        if self.error_filter_tau==0:
+            return ra_err, ra_axis_err, dec_err
         self.ra_axis_filter.tau = self.ra_filter.tau = self.dec_filter.tau = self.error_filter_tau
         dt_f = min(max(self.frame_dt, 0.01), 10.0)
         ra_f = self.ra_filter.update(ra_err, dt_f)
@@ -809,7 +813,7 @@ class Autoguider:
         last_time = time.perf_counter()
         last_frame = None
         last_save_time_counter = 0
-        max_frame_gap_factor = 1.5     # seconds without a new frame before the mount is stopped
+        max_frame_gap_factor = 2
         stopped_for_gap = False
         max_loop_time = 1.0 if self.guide_interval == 0 else self.guide_interval  # Maximum allowed loop time in seconds
         cumulative_loop_time = 0
@@ -821,7 +825,7 @@ class Autoguider:
 
             # Reject frames arriving before the max_loop_time has elapsed (allow some leeway because auto mode averages loop times)
             if time.perf_counter() - last_time >= max_loop_time*0.75:
-                frame, frame_ts = self.camera.latest
+                frame, frame_ts, frame_no = self.camera.latest
                 if frame is last_frame or frame is None or self.calibrating:
                     time.sleep(0.01)    # frame not ready or calibrating
                     continue
@@ -831,8 +835,6 @@ class Autoguider:
                     stopped_for_gap = False
                     self.ra_pid.reset()
                     self.dec_pid.reset()
-                    self.ra_filter.reset()
-                    self.dec_filter.reset()
                     self.frame_dt = max_loop_time
 
                 cumulative_loop_time, loop_count, max_loop_time = self._update_loop_time(round(time.perf_counter() - last_time, 2),cumulative_loop_time,loop_count,max_loop_time)
